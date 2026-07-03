@@ -1,0 +1,80 @@
+# Normalize all text to LF in the repo and in the working tree.
+# Unity on Windows is fine with LF, and this prevents the CRLF churn
+# (and full shader recompiles) described in "future plan/04".
+* text=auto eol=lf
+
+# Windows scripts genuinely need CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Unity YAML/text assets
+*.meta text
+*.unity text
+*.asset text
+*.prefab text
+*.mat text
+*.anim text
+*.controller text
+*.overrideController text
+*.physicMaterial text
+*.physicsMaterial2D text
+*.playable text
+*.mask text
+*.brush text
+*.flare text
+*.fontsettings text
+*.guiskin text
+*.giparams text
+*.renderTexture text
+*.spriteatlas text
+*.terrainlayer text
+*.mixer text
+*.shadervariants text
+*.preset text
+*.asmdef text
+*.asmref text
+*.rsp text
+*.inputactions text
+*.shader text
+*.shadergraph text
+*.shadersubgraph text
+*.cginc text
+*.hlsl text
+*.uxml text
+*.uss text
+
+# Code & docs
+*.cs text diff=csharp
+*.json text
+*.md text
+*.xml text
+*.yml text
+*.yaml text
+
+# Binary — never normalize
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.tga binary
+*.psd binary
+*.exr binary
+*.hdr binary
+*.fbx binary
+*.FBX binary
+*.obj binary
+*.blend binary
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.ttf binary
+*.otf binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.a binary
+*.unitypackage binary
+*.zip binary
+
+# NOTE: no Git LFS yet — placeholder art is small. When real binary assets
+# arrive (Phase 4+), add LFS filters here (e.g. *.fbx filter=lfs ...) BEFORE
+# committing anything large.

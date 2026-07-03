@@ -87,14 +87,29 @@ paid subscription).
 2. In Unity (Windows): Package Manager → Add package from Git URL:
    `https://github.com/CoderGamester/mcp-unity.git` — this starts the WebSocket server on `:8090`
    inside Unity.
-3. In WSL, register the MCP server with Claude Code:
+3. In WSL, build and register the MCP server. **Correction (2026-07-03): there is no
+   `@codergamester/mcp-unity` npm package** — the Node server ships inside the repo's `Server~/`
+   folder and must be built from source:
    ```bash
-   claude mcp add --transport stdio unity -- npx -y @codergamester/mcp-unity
+   git clone https://github.com/CoderGamester/mcp-unity.git ~/tools/mcp-unity
+   cd ~/tools/mcp-unity/Server~ && npm install && npm run build
+   claude mcp add --transport stdio unity -- node ~/tools/mcp-unity/Server~/build/index.js
    ```
    If mirrored networking isn't giving you a shared localhost, pass the Windows host IP explicitly
    (find it via the `nameserver` line in `/etc/resolv.conf`):
    ```bash
-   claude mcp add --transport stdio unity -e UNITY_HOST=<windows-ip> -- npx -y @codergamester/mcp-unity
+   claude mcp add --transport stdio unity -e UNITY_HOST=<windows-ip> -- node ~/tools/mcp-unity/Server~/build/index.js
+   ```
+   Or, instead of `claude mcp add`, commit a project-scoped `.mcp.json` at the repo root:
+   ```json
+   {
+     "mcpServers": {
+       "unity": {
+         "command": "node",
+         "args": ["/home/ta41k/tools/mcp-unity/Server~/build/index.js"]
+       }
+     }
+   }
    ```
 4. Keep the Unity **project on the Windows drive** (the Windows Editor must open it). WSL reaches it
    at `/mnt/c/...` — see the filesystem caveats below.

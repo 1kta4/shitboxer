@@ -1,0 +1,52 @@
+# ---- Unity project lives in game/ ----
+game/[Ll]ibrary/
+game/[Tt]emp/
+game/[Oo]bj/
+game/[Bb]uild/
+game/[Bb]uilds/
+game/[Ll]ogs/
+game/[Uu]ser[Ss]ettings/
+game/[Mm]emoryCaptures/
+game/[Rr]ecordings/
+
+# Never ignore Assets/ meta files under any circumstances
+!game/[Aa]ssets/**/*.meta
+
+# IDE / editor cruft (Unity regenerates these)
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+.vs/
+.idea/
+.vscode/
+.utmp/
+
+# Unity crash reports / caches
+sysinfo.txt
+*.stackdump
+game/[Aa]ssets/[Aa]sset[Ss]tore[Tt]ools*
+game/[Aa]ssets/[Pp]lugins/[Ee]ditor/JetBrains*
+game/[Aa]ssets/StreamingAssets/aa.meta
+game/[Aa]ssets/StreamingAssets/aa/*
+crashlytics-build.properties
+
+# Builds / packages
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
