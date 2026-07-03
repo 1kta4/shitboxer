@@ -14,14 +14,14 @@ namespace Shitboxer.Cameras
         [Header("Follow")]
         [SerializeField] private float distance = 6.5f;
         [SerializeField] private float height = 2.4f;
-        [SerializeField] private float positionSmoothTime = 0.18f;
+        [SerializeField] private float positionSmoothTime = 0.09f;
         [Tooltip("Blend between chassis forward (0) and velocity direction (1) for the follow axis — velocity keeps drifts readable.")]
         [Range(0f, 1f)] [SerializeField] private float velocityAlign = 0.65f;
 
         [Header("Look")]
         [SerializeField] private float lookAheadSeconds = 0.4f;
         [SerializeField] private float lookHeight = 1.0f;
-        [SerializeField] private float rotationLerp = 8f;
+        [SerializeField] private float rotationLerp = 14f;
 
         [Header("FOV")]
         [SerializeField] private float baseFov = 62f;

@@ -141,3 +141,15 @@ one-step slide-cancelling force (`slideVelocity·m/dt`), RVP smooths friction fo
 keep the μ(slip)·load model, but clamp each tyre force to "cancels its slip in exactly one step"
 (+ sustained drive/brake force longitudinally). Any future tyre-model upgrade (brush model etc.)
 must keep an equivalent guard — or move to substepping/implicit integration.
+
+## Feel-direction decision (2026-07-03): sim core + NFS-style assist layer
+
+Playtesting read the pure sim as "floaty". Analysis of the genre (NFS, Forza Horizon,
+Wreckfest all layer gameplay assists over a physics model) led to a locked decision: **keep
+VehicleSim as the source of truth (parts/netcode need the parametric sim), add an openly
+unphysical, spec-driven assist layer inside the sim** so it runs headless identically:
+ExtraGravity (anti-float, heavy landings), YawAssist (immediate turn-in torque),
+LateralVelocityDamping ("goes where it points"; handbrake suspends it so slides stay a
+tool), FlatRideDamping (no wallow). Per-car values keep the Grip/Power axis: GripBox is
+heavily assisted and planted, PowerBox looser. Assist strengths are legitimate targets for
+future parts/upgrades.

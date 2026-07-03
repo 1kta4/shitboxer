@@ -80,6 +80,16 @@ namespace Shitboxer.Vehicle
         [Tooltip("Rear lateral grip multiplier while the handbrake is pulled — under 1 makes it a slide button.")]
         [Range(0.2f, 1f)] public float HandbrakeGripFactor = 0.55f;
 
+        [Header("Arcade Assists — the NFS layer. Openly unphysical, spec-driven so cars keep distinct characters; 0 disables each.")]
+        [Tooltip("Extra downward pull as a fraction of normal gravity, applied always (also airborne). The #1 anti-float knob: heavy landings, planted ride.")]
+        public float ExtraGravity = 0.8f;
+        [Tooltip("Yaw torque toward the steering-implied rotation rate. Makes turn-in immediate instead of waiting for tyre forces to build.")]
+        [Range(0f, 1f)] public float YawAssist = 0.55f;
+        [Tooltip("Fraction of sideways chassis velocity removed per second while grounded — 'the car goes where it points'. Handbrake mostly suspends it so slides stay possible.")]
+        public float LateralVelocityDamping = 1.6f;
+        [Tooltip("Extra roll/pitch angular damping while grounded — kills wallowing.")]
+        public float FlatRideDamping = 1.5f;
+
         [Header("Aero")]
         [Tooltip("Longitudinal drag: F = -Coeff * v * |v|.")]
         public float DragCoeff = 0.38f;

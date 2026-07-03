@@ -49,14 +49,15 @@ namespace Shitboxer.Vehicle
             GatherContacts();
 
             ForceCommand[] forces = Sim.Step(dt, Input, _contacts,
-                Body.linearVelocity, transform.forward, transform.up);
+                Body.linearVelocity, transform.forward, transform.up, Body.angularVelocity);
 
             for (int i = 0; i < VehicleSim.WheelCount; i++)
                 if (forces[i].Force.sqrMagnitude > 0f)
                     Body.AddForceAtPosition(forces[i].Force, forces[i].Position);
 
-            // Aero force acts at the centre of mass.
+            // Aero + assist forces act at the centre of mass; assists may also add torque.
             Body.AddForce(forces[VehicleSim.WheelCount].Force);
+            Body.AddTorque(Sim.BodyTorque);
         }
 
         private void GatherContacts()

@@ -86,11 +86,15 @@ namespace Shitboxer.Editor
                 RatedLoadN = 3200f,
             };
 
-            s.SpringRateNPerM = 52000f;
-            s.DamperRateNPerMps = 5200f;
+            s.SpringRateNPerM = 68000f;
+            s.DamperRateNPerMps = 6200f;
             s.AntiRollBarNPerM = 12000f;
             s.DownforceCoeff = 2.4f;
             s.DragCoeff = 0.36f;
+            s.ExtraGravity = 1.0f;
+            s.YawAssist = 0.7f;
+            s.LateralVelocityDamping = 2.2f;
+            s.FlatRideDamping = 2.0f;
 
             s.Engine = new EngineSpec
             {
@@ -139,11 +143,15 @@ namespace Shitboxer.Editor
                 RatedLoadN = 3800f,
             };
 
-            s.SpringRateNPerM = 42000f;
-            s.DamperRateNPerMps = 4300f;
+            s.SpringRateNPerM = 56000f;
+            s.DamperRateNPerMps = 5300f;
             s.AntiRollBarNPerM = 6000f;
             s.DownforceCoeff = 0.6f;
             s.DragCoeff = 0.4f;
+            s.ExtraGravity = 0.8f;
+            s.YawAssist = 0.45f;
+            s.LateralVelocityDamping = 1.2f;
+            s.FlatRideDamping = 1.5f;
 
             s.Engine = new EngineSpec
             {

@@ -61,12 +61,16 @@ namespace Shitboxer.Vehicle
             _ => true,
         };
 
+        /// <summary>World-space torque the host must apply to the chassis this step (assists).</summary>
+        public Vector3 BodyTorque { get; private set; }
+
         /// <summary>
         /// Advance the sim by dt. Returns forces to apply to the chassis rigidbody this step.
         /// The returned array is reused between calls — consume it immediately.
         /// </summary>
         public ForceCommand[] Step(float dt, in VehicleInput input, GroundContact[] contacts,
-            Vector3 chassisVelocity, Vector3 chassisForward, Vector3 chassisUp)
+            Vector3 chassisVelocity, Vector3 chassisForward, Vector3 chassisUp,
+            Vector3 chassisAngularVelocity)
         {
             UpdateSteering(dt, input.Steer, chassisVelocity.magnitude);
 
@@ -86,13 +90,76 @@ namespace Shitboxer.Vehicle
 
             // Aero: quadratic drag opposing velocity, plus downforce along -up.
             float v = chassisVelocity.magnitude;
+            Vector3 comForce = -Spec.DragCoeff * v * chassisVelocity - Spec.DownforceCoeff * v * v * chassisUp;
+
+            comForce += StepAssists(input, chassisVelocity, chassisForward, chassisUp, chassisAngularVelocity);
+
             _forces[WheelCount] = new ForceCommand
             {
-                Force = -Spec.DragCoeff * v * chassisVelocity - Spec.DownforceCoeff * v * v * chassisUp,
+                Force = comForce,
                 Position = Vector3.zero, // host applies at CoM
             };
 
             return _forces;
+        }
+
+        // ------------------------------------------------------------------ arcade assists
+
+        /// <summary>
+        /// The NFS layer: openly unphysical forces that make the car feel planted and
+        /// immediate without touching the tyre model. Lives in the sim (not the host) so a
+        /// headless server steps identical maths. Returns a CoM force; also sets BodyTorque.
+        /// </summary>
+        private Vector3 StepAssists(in VehicleInput input, Vector3 velocity, Vector3 forward,
+            Vector3 up, Vector3 angularVelocity)
+        {
+            // Extra gravity always applies — heavy landings are most of "not floaty".
+            Vector3 force = Vector3.down * (Spec.MassKg * 9.81f * Spec.ExtraGravity);
+            BodyTorque = Vector3.zero;
+
+            int groundedCount = 0;
+            for (int i = 0; i < WheelCount; i++)
+                if (Grounded[i]) groundedCount++;
+            if (groundedCount < 3) return force; // airborne/tipped: no steering cheats
+
+            float forwardSpeed = Vector3.Dot(velocity, forward);
+            Vector3 right = Vector3.Cross(up, forward).normalized;
+
+            // Yaw assist: torque toward the yaw rate the steering geometry implies,
+            // capped by a grip-plausible lateral acceleration so it can't spin the car.
+            if (Spec.YawAssist > 0f && Mathf.Abs(forwardSpeed) > 3f)
+            {
+                float targetYawRate = forwardSpeed / Spec.WheelbaseM
+                                      * Mathf.Tan(SteerAngleDeg * Mathf.Deg2Rad);
+                float muAvg = (Spec.FrontTyre.PeakMu + Spec.RearTyre.PeakMu) * 0.5f;
+                float maxYawRate = muAvg * 9.81f * 1.3f / Mathf.Max(Mathf.Abs(forwardSpeed), 3f);
+                targetYawRate = Mathf.Clamp(targetYawRate, -maxYawRate, maxYawRate);
+
+                float yawInertia = Spec.MassKg
+                    * (Spec.WheelbaseM * Spec.WheelbaseM + Spec.TrackWidthM * Spec.TrackWidthM) / 12f * 1.2f;
+                float yawError = targetYawRate - Vector3.Dot(angularVelocity, up);
+                BodyTorque += up * (yawInertia * Mathf.Clamp(yawError * 6f * Spec.YawAssist, -8f, 8f));
+            }
+
+            // Lateral velocity damping: "goes where it points". Handbrake suspends most of
+            // it so deliberate slides remain a tool.
+            if (Spec.LateralVelocityDamping > 0f)
+            {
+                float latSpeed = Vector3.Dot(velocity, right);
+                float damping = Spec.LateralVelocityDamping * (1f - 0.85f * input.Handbrake);
+                Vector3 latForce = -right * (latSpeed * Spec.MassKg * damping);
+                float maxLatForce = Spec.MassKg * 12f; // ≤ ~1.2 g of cheating
+                force += Vector3.ClampMagnitude(latForce, maxLatForce);
+            }
+
+            // Flat ride: damp roll/pitch wobble.
+            if (Spec.FlatRideDamping > 0f)
+            {
+                Vector3 rollPitch = angularVelocity - up * Vector3.Dot(angularVelocity, up);
+                BodyTorque += -rollPitch * (Spec.FlatRideDamping * Spec.MassKg * 0.4f);
+            }
+
+            return force;
         }
 
         // ------------------------------------------------------------------ steering

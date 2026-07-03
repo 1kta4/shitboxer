@@ -20,8 +20,8 @@ MonoBehaviour:
     AxleHeightM: -0.1
     SuspensionRestLengthM: 0.35
     SuspensionTravelM: 0.2
-    SpringRateNPerM: 52000
-    DamperRateNPerMps: 5200
+    SpringRateNPerM: 68000
+    DamperRateNPerMps: 6200
     AntiRollBarNPerM: 12000
     WheelRadiusM: 0.32
     WheelMassKg: 18
@@ -73,3 +73,7 @@ MonoBehaviour:
     HandbrakeGripFactor: 0.6
     DragCoeff: 0.36
     DownforceCoeff: 2.4
+    ExtraGravity: 1
+    YawAssist: 0.7
+    LateralVelocityDamping: 2.2
+    FlatRideDamping: 2
