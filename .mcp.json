@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "unity": {
+      "command": "node",
+      "args": ["/home/ta41k/tools/mcp-unity/Server~/build/index.js"]
+    }
+  }
+}
