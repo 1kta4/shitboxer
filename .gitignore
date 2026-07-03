@@ -50,3 +50,7 @@ crashlytics-build.properties
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Embedded mcp-unity package: ignore its Node server artifacts
+game/Packages/com.gamelovers.mcp-unity/Server~/node_modules/
+game/Packages/com.gamelovers.mcp-unity/Server~/build/
