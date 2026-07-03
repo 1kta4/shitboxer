@@ -1,0 +1,22 @@
+{
+    "name": "Shitboxer.Editor",
+    "rootNamespace": "Shitboxer.Editor",
+    "references": [
+        "Shitboxer.Vehicle",
+        "Shitboxer.Cameras",
+        "Shitboxer.TestDrive",
+        "Shitboxer.Race",
+        "Shitboxer.Meta"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

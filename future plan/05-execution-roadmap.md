@@ -31,8 +31,11 @@ Set up so you never fight tooling later.
 
 Nothing else matters if this isn't fun. No multiplayer, no parts, no UI yet.
 
-- Stand up a **sim-cade vehicle controller** — buy **NWH Vehicle Physics 2** or start from **RVP /
-  TLabVehiclePhysics (MIT)** (doc 02b). **Not WheelCollider.** Design/pick it so the *same* physics
+- Stand up a **sim-cade vehicle controller** — **DECIDED 2026-07-03: custom-built plain-C# core**
+  (raycast suspension, normalized slip curve + friction circle, torque-curve drivetrain), with
+  RVP/TLab/PhysX Vehicle SDK used as math references only. (Rejected: buying NWH VP2, porting RVP —
+  doc 02b.) **Not WheelCollider.** The sim core (`Shitboxer.Vehicle/Core/`) is stepped explicitly and
+  never touches the engine loop or physics scene itself, so the *same* physics
   code can run **headless server-side** — this is load-bearing for multiplayer collisions later (doc 02).
 - Get **Grip and Power** feeling distinct and tunable (tyre slip curve + friction circle to start).
   Build **both starting cars** (Grip car vs Power car) so the axis is real from day one.

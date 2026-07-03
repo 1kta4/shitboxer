@@ -1,0 +1,14 @@
+{
+    "name": "Shitboxer.Cameras",
+    "rootNamespace": "Shitboxer.Cameras",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

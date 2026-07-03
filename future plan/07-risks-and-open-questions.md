@@ -108,7 +108,7 @@ Several earlier questions are now **answered** (see the decisions table). What's
 | Decision | Answer | Doc |
 |---|---|---|
 | Engine | Unity 6.3 LTS | 01, 02 |
-| Physics | Sim-cade; NWH VP2 (buy) or RVP/TLab MIT (build); slip-curve+friction-circle tyres | 02b |
+| Physics | Sim-cade; **custom plain-C# core (decided 2026-07-03)** — raycast suspension, slip-curve+friction-circle tyres, torque-curve drivetrain; RVP/TLab/PhysX SDK as math references only | 02b |
 | Netcode | FishNet + Relay/Lobby; **server resolves all collisions**, predict own car, soften contact; Quantum as escalation | 02 |
 | Vehicle controller | Runs headless server-side, **not** WheelCollider | 02, 02b |
 | Collisions | **ON — core to the fun** | 02, 03 |

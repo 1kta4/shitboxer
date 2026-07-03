@@ -126,3 +126,18 @@ collision.** See doc 02, "The core challenge," for the full treatment.
 *Uncertainties flagged: RVP's missing LICENSE file; several small Pacejka repos lack licenses; asset
 prices/sales are point-in-time; Quantum's Vehicle addon internals are unverified from docs (inspect
 source before committing). Verify licenses at grab time.*
+
+---
+
+## Implementation note from Phase 1 (2026-07-03): slip-force overshoot clamps
+
+Comparative analysis of RVP and SergeyMakeev/ArcadeCarPhysics against our custom core found the
+cause of "permanently slidy" feel: with a normalized slip-curve tyre at realistic stiffness, the
+slip-correction time constant (~3 ms) is far below the 50 Hz fixed timestep, so explicit
+integration makes slip oscillate every step — phantom slip eats the friction circle. Every
+shipping raycast-car implementation guards this differently: ArcadeCarPhysics computes the exact
+one-step slide-cancelling force (`slideVelocity·m/dt`), RVP smooths friction forces exponentially
+(`frictionSmoothness 0.5`) and measures slip in velocity rather than angle. Our fix (VehicleSim):
+keep the μ(slip)·load model, but clamp each tyre force to "cancels its slip in exactly one step"
+(+ sustained drive/brake force longitudinally). Any future tyre-model upgrade (brush model etc.)
+must keep an equivalent guard — or move to substepping/implicit integration.

@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e5ec2978ed337b84a8ffa400a5d38e74, type: 3}
+  m_Name: PartPool
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartPool
+  Parts:
+  - {fileID: 11400000, guid: ee05ebdba383df44b83d955634ec2705, type: 2}
+  - {fileID: 11400000, guid: 738ab5848c5e7614aafe461d826b95aa, type: 2}
+  - {fileID: 11400000, guid: 34ef2627b1e1c2445b02a7e1cbc9e565, type: 2}
+  - {fileID: 11400000, guid: 4dcd24c6d60fdaf44a97bef8a22cef2b, type: 2}
+  - {fileID: 11400000, guid: 4593ac2cb5b18a54b9d9a629d869f14b, type: 2}
+  - {fileID: 11400000, guid: dc55b186055631449822d64829eb058b, type: 2}
+  - {fileID: 11400000, guid: b797739f30514d849b84711af6045d17, type: 2}
+  - {fileID: 11400000, guid: ced9d90b8744efb4eb72a403b7fa1cac, type: 2}
+  - {fileID: 11400000, guid: 05f8233160a95bc42b4d40718e6e8928, type: 2}
+  - {fileID: 11400000, guid: 009879595cc000e4cbf96522c7422e92, type: 2}
+  - {fileID: 11400000, guid: 645d7c5019abbb747a18509ed22099ee, type: 2}
+  - {fileID: 11400000, guid: 957b4816001b2f145b01143d9df14b58, type: 2}
