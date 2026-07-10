@@ -24,8 +24,12 @@ namespace Shitboxer.Race
 
         [SerializeField] private TrackPath trackPath;
         [SerializeField] private BotSkill skill = BotSkill.Default;
-        [Tooltip("On-track archetype layered on top of the driving stats: biases how hard this bot covers the line and how boldly it dives for passes, always within a subtle bounded band. Neutral (the default) leaves today's behaviour unchanged. Orthogonal to skill; set per-bot by the host, never randomised here.")]
+        [Tooltip("On-track archetype used as the FALLBACK when rival variety is off (see enableRivalVariety). Neutral (the default) leaves today's behaviour unchanged. When variety is on, the seeded assignment overrides this. Orthogonal to skill; never randomised — deterministic per bot.")]
         [SerializeField] private BotPersonalityKind personality = BotPersonalityKind.Neutral;
+        [Tooltip("Master toggle for mild rival variety. OFF (or a field left all-Neutral) reverts to today's identical bots: each bot runs its serialized personality above at nominal difficulty — byte-for-byte the previous behaviour. ON fans the field across the four archetypes and a subtle skill band, seeded deterministically off each bot's index so it's repeatable and headless-server-safe. Bounded either way.")]
+        [SerializeField] private bool enableRivalVariety = true;
+        [Tooltip("Base seed for the deterministic variety assignment. Combined with each bot's sibling index, so changing it deterministically reshuffles which archetype/skill each bot draws (without touching any code). 0 = seed straight off the sibling index. Ignored when variety is off.")]
+        [SerializeField] private int rivalVarietySeed = 0;
         [Tooltip("Grip fraction an all-out (high-aggression) bot saps from a car it rams. Timid bots sap 40% of this. 0 disables bot attacks.")]
         [SerializeField] private float maxContactGripSap = 0.16f;
 
@@ -115,9 +119,16 @@ namespace Shitboxer.Race
             if (_brain == null)
             {
                 _brain = new BotBrain(trackPath.Line, skill);
-                // Opt-in archetype; Neutral (the serialized default) maps to identity biases, so an unset
-                // personality leaves the brain's tactical output bit-for-bit as before.
-                _brain.SetPersonality(BotPersonality.FromKind(personality));
+                // Seeded, bounded rival variety (opt-in via enableRivalVariety). OFF resolves to the serialized
+                // `personality` at Nominal difficulty — byte-for-byte today's bots. ON fans a stable per-bot seed
+                // (the base seed reshuffles the whole field; the sibling index gives each bot its own draw — both
+                // deterministic, no Random) across the four archetypes and a subtle skill band. All the bounds and
+                // the identity-when-off guarantee live in the pure resolver below, so this stays engine-loop-thin.
+                int seed = rivalVarietySeed * SeedStride + transform.GetSiblingIndex();
+                ResolveRivalConfig(enableRivalVariety, seed, personality,
+                    out _, out BotPersonality botPersonality, out BotDifficulty botDifficulty);
+                _brain.SetPersonality(botPersonality);
+                _brain.SetDifficulty(botDifficulty);
             }
 
             Vector3 velocity = _controller.Body ? _controller.Body.linearVelocity : Vector3.zero;
@@ -265,6 +276,104 @@ namespace Shitboxer.Race
             body.rotation = Quaternion.LookRotation(trackPath.Line.DirectionAt(progress), Vector3.up);
             body.linearVelocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
+        }
+
+        // --- Rival variety: pure, deterministic seed -> (archetype, difficulty) assignment. -------------------
+        // Kept static and scene-free (no Time / Input / transform in here) so it is unit-testable and a headless
+        // server could reuse it verbatim; the MonoBehaviour above only supplies the seed. Two properties are
+        // load-bearing: ON must stay a texture difference, never a difficulty spike (the skill band is narrow and
+        // every produced config is re-clamped by BotDifficulty/BotPersonality); OFF must reproduce today's bots.
+
+        // Reshuffles the whole field when rivalVarietySeed changes. Odd multiplier so it's a bijection on int;
+        // int overflow wraps (unchecked) and stays deterministic.
+        private const int SeedStride = unchecked((int)0x9E3779B1);
+
+        // The archetypes the field is fanned across, indexed by the seed's low bits so consecutive sibling
+        // indices cycle through all four (Neutral included, so a share of the grid still drives the reference
+        // line — one more reason the activation stays subtle).
+        private static readonly BotPersonalityKind[] RivalKinds =
+        {
+            BotPersonalityKind.Neutral,
+            BotPersonalityKind.Blocker,
+            BotPersonalityKind.Diver,
+            BotPersonalityKind.Cruiser,
+        };
+
+        // Half-width of the rookie->pro base-skill band around nominal (0.5). Deliberately narrow: at the
+        // extremes a rival's BotDifficulty sits only ~1.2% off identity speed/throttle — well inside
+        // BotDifficulty's own clamps, so the "fastest" rival is a hair sharper, never a spike.
+        private const float SkillBandHalf = 0.08f;
+
+        // The mild base-skill tiers, symmetric about nominal. FromTier centres and clamps these, and 0.5 maps to
+        // exactly Nominal, so the middle tier is identity.
+        private static readonly float[] SkillTiers =
+        {
+            0.5f - SkillBandHalf,
+            0.5f,
+            0.5f + SkillBandHalf,
+        };
+
+        /// <summary>
+        /// Deterministic per-bot archetype for the variety layer: the seed's low bits index
+        /// <see cref="RivalKinds"/> (Neutral / Blocker / Diver / Cruiser), so consecutive seeds fan evenly
+        /// across all four. Pure — same seed, same kind, on client or headless server.
+        /// </summary>
+        public static BotPersonalityKind RivalKind(int seed)
+            => RivalKinds[(int)((uint)seed % (uint)RivalKinds.Length)];
+
+        /// <summary>
+        /// Deterministic per-bot base skill (rookie-&gt;pro, 0..1) for the variety layer, drawn from a MILD band
+        /// around nominal via a hashed slice of the seed so skill doesn't correlate with the archetype (which
+        /// keys off the raw low bits). Pure and bounded to <see cref="SkillTiers"/>.
+        /// </summary>
+        public static float RivalBaseSkill01(int seed)
+            => SkillTiers[(int)((Hash((uint)seed) >> 8) % (uint)SkillTiers.Length)];
+
+        /// <summary>
+        /// Pure, deterministic, scene-free resolver from a stable per-bot <paramref name="seed"/> to the bounded
+        /// (personality, difficulty) a bot runs. This is the single source of the variety layer's behaviour,
+        /// factored out of the MonoBehaviour so it is unit-testable without a scene.
+        ///
+        /// <paramref name="enableVariety"/> false is the revert path: it yields <paramref name="fallbackKind"/>
+        /// at <see cref="BotDifficulty.Nominal"/> and ignores the seed — with the serialized-default
+        /// <see cref="BotPersonalityKind.Neutral"/> fallback that is exactly today's identical bots (Neutral
+        /// personality + identity difficulty). true fans the field across the four archetypes and the mild skill
+        /// band; every produced config is already clamped by <see cref="BotDifficulty"/> / <see cref="BotPersonality"/>,
+        /// so nothing here can push a bot past the subtle bands.
+        /// </summary>
+        public static void ResolveRivalConfig(bool enableVariety, int seed, BotPersonalityKind fallbackKind,
+            out BotPersonalityKind kind, out BotPersonality personality, out BotDifficulty difficulty)
+        {
+            if (!enableVariety)
+            {
+                // Revert path: the serialized personality (Neutral by default) at nominal difficulty is
+                // byte-for-byte what BotDriver did before this layer existed.
+                kind = fallbackKind;
+                personality = BotPersonality.FromKind(fallbackKind);
+                difficulty = BotDifficulty.Nominal;
+                return;
+            }
+
+            kind = RivalKind(seed);
+            personality = BotPersonality.FromKind(kind);
+            difficulty = BotDifficulty.FromTier(RivalBaseSkill01(seed));
+        }
+
+        /// <summary>
+        /// Small deterministic integer bit-avalanche (no <see cref="UnityEngine.Random"/>, no Time) so a given
+        /// seed always maps to the same skill draw — repeatable across runs and identical on a headless server.
+        /// </summary>
+        private static uint Hash(uint x)
+        {
+            unchecked
+            {
+                x ^= 2747636419u;
+                x *= 2654435769u;
+                x ^= x >> 16;
+                x *= 2654435769u;
+                x ^= x >> 16;
+                return x;
+            }
         }
     }
 }

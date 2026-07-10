@@ -101,6 +101,8 @@ namespace Shitboxer.Meta
         [Header("Economy parts (payout hook only, this phase)")]
         [Tooltip("$ bonus per finishing-position number at payout (finishing P6 pays 6x this) — leans further into the inverted economy.")]
         public int MoneyPerPositionHeld;
+        [Tooltip("Economy-part marker: this part pays out from DRAFTING (the draft-leech mechanism) rather than from finishing position. Default off — only parts flagged DraftLeech tap the draft payoff, so an unowned/unflagged part changes nothing.")]
+        public bool DraftLeech;
 
         [Header("Attack parts — on-contact saps + proximity aura (doc 03)")]
         [Tooltip("Grip fraction stripped from a rival you hit hard enough on contact. 0.3 = -30%.")]

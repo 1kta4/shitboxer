@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Shitboxer.Race;
 using Shitboxer.Vehicle;
 using UnityEngine;
@@ -47,6 +48,12 @@ namespace Shitboxer.Meta
 
         [Tooltip("Flat cash added to a clean boss-race finish when boss races are enabled. Only ever applied on a designated boss race, so its value never affects a run with boss races OFF.")]
         [SerializeField] private int bossRewardBonus = 8;
+
+        [Header("Draft-Leech payoff (opt-in — pays only if the player OWNS a DraftLeech part)")]
+        [Tooltip("$ paid per second the player spent drafting during a race, then rounded — but ONLY when the player owns a part flagged DraftLeech. A player owning no such part earns nothing here and the base economy is byte-for-byte unchanged.")]
+        [SerializeField] private float draftLeechRate = 0.5f;
+        [Tooltip("Cap on the Draft-Leech payoff granted in a single race. <= 0 means uncapped. Only ever applied when a DraftLeech part is owned, so its value never affects a run without one.")]
+        [SerializeField] private int draftLeechCapPerRace = 10;
 
         /// <summary>
         /// Opt-in boss-race master switch (default OFF). With it off, RunDirector makes no SetRuleset call
@@ -156,6 +163,12 @@ namespace Shitboxer.Meta
             // until the player pays to repair it in the garage.
             if (_playerCar.Sim != null)
                 _playerCar.Sim.SetDurability(Run.CarDurability);
+
+            // Draft-Leech payoff (opt-in): ensure the draft-time accumulator on the player car and zero it
+            // for this race. Purely additive telemetry that applies no forces and never touches the sim;
+            // RunDirector reads its total at race end ONLY for a player who owns a DraftLeech part, so a car
+            // without one is entirely unaffected.
+            DraftReward.GetOrAdd(_playerCar.gameObject).Reset();
         }
 
         /// <summary>
@@ -276,6 +289,37 @@ namespace Shitboxer.Meta
         public static bool GrantsFreeRepair(bool bossRace, in RaceRuleset ruleset) =>
             bossRace && !ruleset.Has(RaceModifier.NoRepairAfter);
 
+        /// <summary>
+        /// The ownership gate for the Draft-Leech payoff: true iff <paramref name="ownedParts"/> contains any
+        /// part flagged <see cref="PartDef.DraftLeech"/>. Pure/static so the gate — and the guarantee that a
+        /// run owning no such part is never paid the draft bonus — is unit-testable without a live scene. A
+        /// null/empty list, or one holding no DraftLeech part, returns false; the caller then grants nothing.
+        /// </summary>
+        public static bool OwnsDraftLeechPart(IReadOnlyList<PartDef> ownedParts)
+        {
+            if (ownedParts == null) return false;
+            for (int i = 0; i < ownedParts.Count; i++)
+            {
+                PartDef part = ownedParts[i];
+                if (part != null && part.DraftLeech) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Draft-Leech payoff math: the money earned for <paramref name="draftSeconds"/> spent drafting at
+        /// <paramref name="ratePerSecond"/> $/s, rounded to whole cash and clamped to a per-race cap. Pure/
+        /// static so the payoff is unit-testable in isolation. Returns 0 for a non-positive time or rate, is
+        /// never negative, and a non-positive <paramref name="capPerRace"/> means uncapped. Only ever called
+        /// once the ownership gate (see <see cref="OwnsDraftLeechPart"/>) has passed.
+        /// </summary>
+        public static int DraftLeechPayout(float draftSeconds, float ratePerSecond, int capPerRace)
+        {
+            if (draftSeconds <= 0f || ratePerSecond <= 0f) return 0;
+            int raw = Mathf.Max(0, Mathf.RoundToInt(ratePerSecond * draftSeconds));
+            return capPerRace > 0 ? Mathf.Min(raw, capPerRace) : raw;
+        }
+
         private void Update()
         {
             if (Phase != RunPhase.Racing || _raceResolved) return;
@@ -362,8 +406,21 @@ namespace Shitboxer.Meta
                         Run.CarDurability = 1f;
                 }
             }
-            Run.Money += payout + economyBonus;
-            int totalPay = payout + economyBonus;
+            // Draft-Leech payoff (opt-in): pay money proportional to the time the player spent drafting this
+            // race, but ONLY if the run owns a part flagged DraftLeech. With no such part owned the gate is
+            // false, so the reward component is never even read and leechBonus stays 0 — the additions below
+            // reduce to the shipped `payout + economyBonus`, byte-for-byte. It rides alongside the existing
+            // payout without touching the payout/economy formulas themselves.
+            int leechBonus = 0;
+            if (OwnsDraftLeechPart(Run.OwnedParts))
+            {
+                DraftReward reward = _playerCar != null ? _playerCar.GetComponent<DraftReward>() : null;
+                float draftSeconds = reward != null ? reward.DraftSeconds : 0f;
+                leechBonus = DraftLeechPayout(draftSeconds, draftLeechRate, draftLeechCapPerRace);
+            }
+
+            Run.Money += payout + economyBonus + leechBonus;
+            int totalPay = payout + economyBonus + leechBonus;
 
             if (failed)
             {

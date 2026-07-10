@@ -525,6 +525,65 @@ namespace Shitboxer.Editor
                     p.Price = 10;
                     p.Condition = PartCondition.Cashout;
                 }),
+
+                // ---- Editioned variants (Balatro-foil premium opt-ins, doc 03 editions) ---------
+                // Each carries the SAME SpecMods as a representative base part but is stamped with a
+                // higher Edition, so SpecModApplier amplifies the effect MAGNITUDE (its deviation
+                // from identity — upsides AND downsides, never the sign; PartEditionInfo.StatMult).
+                // Priced UP via PartEditionInfo.PriceMult and kept rarer than their base part, so
+                // they are a deliberate premium, not a free power spike. These are NEW assets (own
+                // Ids/files); the plain parts they derive from are untouched and stay in the pool.
+                EnsurePart("Part_StickyCompoundFoil", p =>
+                {
+                    p.Id = "sticky_compound_foil";
+                    p.DisplayName = "Sticky Compound (Foil)";
+                    p.Description = "A pristine foil-edition set. Same gummy compound, sharper bite: Foil amplifies its grip effect to ~+12.5% front and rear — a pricier, rarer take on the plain Sticky Compound.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Edition = PartEdition.Foil;
+                    p.Price = Mathf.RoundToInt(6 * PartEditionInfo.PriceMult(PartEdition.Foil));   // 6 -> 9
+                    p.SpecMods = Mods((SpecModTarget.GripFront, 1.10f), (SpecModTarget.GripRear, 1.10f));
+                }),
+                EnsurePart("Part_JunkyardTurboHolo", p =>
+                {
+                    p.Id = "junkyard_turbo_holo";
+                    p.DisplayName = "Junkyard Turbo (Holo)";
+                    p.Description = "A holographic collector's snail. Same whistle, bigger shove: Holo amplifies its torque effect to ~+22.5% — a rare, premium-priced take on the plain Junkyard Turbo.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Edition = PartEdition.Holo;
+                    p.Price = Mathf.RoundToInt(8 * PartEditionInfo.PriceMult(PartEdition.Holo));    // 8 -> 16
+                    p.SpecMods = Mods((SpecModTarget.Power, 1.15f));
+                }),
+                EnsurePart("Part_RaceSlicksFoil", p =>
+                {
+                    p.Id = "race_slicks_foil";
+                    p.DisplayName = "Race Slicks (Foil)";
+                    p.Description = "Foil-edition full softs. Foil deepens BOTH sides of the base Race Slicks: ~+25% grip front and rear, but the amplified rubber also adds ~+3.75% mass — a rare, top-dollar premium, never a free upgrade.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Edition = PartEdition.Foil;
+                    p.Price = Mathf.RoundToInt(12 * PartEditionInfo.PriceMult(PartEdition.Foil));   // 12 -> 18
+                    p.SpecMods = ModList(
+                        Mul(SpecModTarget.GripFront, 1.20f),
+                        Mul(SpecModTarget.GripRear, 1.20f),
+                        Mul(SpecModTarget.Weight, 1.03f));
+                }),
+
+                // ---- Draft-Leech economy part (doc 03; payoff resolved by the draft mechanism) --
+                // Its value is ENTIRELY the draft payoff (DraftLeech = true, consumed downstream), so
+                // it carries no finishing-position payout (MoneyPerPositionHeld stays 0) and no stat
+                // effect — a modest-priced opt-in that changes nothing for a run that never buys it.
+                EnsurePart("Part_SlipstreamSiphon", p =>
+                {
+                    p.Id = "slipstream_siphon";
+                    p.DisplayName = "Slipstream Siphon";
+                    p.Description = "Taps the low-pressure pocket behind the car ahead and turns clean air into cash. No on-track effect and no finishing-position payout — its whole value is the draft payoff, earned while you sit in a rival's slipstream.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 6;
+                    p.DraftLeech = true;
+                }),
             };
 
             // The pool is refreshed every run so new parts always show up.
