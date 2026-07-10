@@ -38,9 +38,15 @@ namespace Shitboxer.Vehicle
         private const float LongRelaxationLengthM = 0.15f;
         private const float LatRelaxationLengthM = 0.35f;
 
+        // Sustained airtime (seconds with no wheel grounded). Gates the extra-gravity assist so a car
+        // that has sunk under the world is not driven further down — the blind-sink fall-through trap.
+        private float _airborneTime;
+        private const float ExtraGravityMaxAirborneS = 0.25f;
+
         public VehicleSim(VehicleSpec spec)
         {
             Spec = spec;
+            Spec.Validate(); // clamp every divisor field to a positive minimum before a step can divide by it
             EngineRpm = spec.Engine.IdleRpm;
         }
 
@@ -64,6 +70,57 @@ namespace Shitboxer.Vehicle
         /// <summary>World-space torque the host must apply to the chassis this step (assists).</summary>
         public Vector3 BodyTorque { get; private set; }
 
+        // ------------------------------------------------------------------ transient combat effects
+
+        /// <summary>
+        /// Multiplier on all tyre grip this step, 1 = nominal. Attack parts (Ram Bars, Disruptor
+        /// Field) push it below 1 via ApplyGripSap; it recovers toward 1 on its own. Lives in the
+        /// plain-C# core so a headless server decays it identically — the host only injects the
+        /// contact/proximity events that trigger a sap.
+        /// </summary>
+        public float GripEffectMult { get; private set; } = 1f;
+
+        /// <summary>Multiplier on engine drive torque this step, 1 = nominal. See ApplyPowerSap (Spike Plates).</summary>
+        public float PowerEffectMult { get; private set; } = 1f;
+
+        private float _gripRecoverPerS = 1f;
+        private float _powerRecoverPerS = 1f;
+
+        /// <summary>
+        /// Knock grip down by <paramref name="strength01"/> (0.3 = −30%), recovering toward nominal
+        /// at <paramref name="recoverPerS"/> per second. Only ever deepens an existing sap (keeps the
+        /// stronger of the two), so a continuous aura holds a floor while a one-off ram can spike
+        /// below it and fade back to it. No-op for non-positive strength.
+        /// </summary>
+        public void ApplyGripSap(float strength01, float recoverPerS)
+        {
+            if (strength01 <= 0f) return;
+            float floor = Mathf.Clamp01(1f - strength01);
+            if (floor < GripEffectMult)
+            {
+                GripEffectMult = floor;
+                _gripRecoverPerS = Mathf.Max(0.01f, recoverPerS);
+            }
+        }
+
+        /// <summary>Engine-torque analogue of ApplyGripSap (Spike Plates sap the cars they touch).</summary>
+        public void ApplyPowerSap(float strength01, float recoverPerS)
+        {
+            if (strength01 <= 0f) return;
+            float floor = Mathf.Clamp01(1f - strength01);
+            if (floor < PowerEffectMult)
+            {
+                PowerEffectMult = floor;
+                _powerRecoverPerS = Mathf.Max(0.01f, recoverPerS);
+            }
+        }
+
+        private void DecayEffects(float dt)
+        {
+            GripEffectMult = Mathf.MoveTowards(GripEffectMult, 1f, _gripRecoverPerS * dt);
+            PowerEffectMult = Mathf.MoveTowards(PowerEffectMult, 1f, _powerRecoverPerS * dt);
+        }
+
         /// <summary>
         /// Advance the sim by dt. Returns forces to apply to the chassis rigidbody this step.
         /// The returned array is reused between calls — consume it immediately.
@@ -72,6 +129,7 @@ namespace Shitboxer.Vehicle
             Vector3 chassisVelocity, Vector3 chassisForward, Vector3 chassisUp,
             Vector3 chassisAngularVelocity)
         {
+            DecayEffects(dt); // transient grip/power saps ease back toward nominal (auras re-clamp below)
             UpdateSteering(dt, input.Steer, chassisVelocity.magnitude);
 
             float forwardSpeed = Vector3.Dot(chassisVelocity, chassisForward);
@@ -88,11 +146,12 @@ namespace Shitboxer.Vehicle
             for (int i = 0; i < WheelCount; i++)
                 StepWheel(i, dt, input, contacts[i], driveTorquePerWheel);
 
-            // Aero: quadratic drag opposing velocity, plus downforce along -up.
-            float v = chassisVelocity.magnitude;
+            // Aero: quadratic drag opposing velocity, plus downforce along -up. Speed is capped for
+            // the quadratic terms only so a pathological velocity can't overflow them to Infinity.
+            float v = Mathf.Min(chassisVelocity.magnitude, 200f);
             Vector3 comForce = -Spec.DragCoeff * v * chassisVelocity - Spec.DownforceCoeff * v * v * chassisUp;
 
-            comForce += StepAssists(input, chassisVelocity, chassisForward, chassisUp, chassisAngularVelocity);
+            comForce += StepAssists(dt, input, chassisVelocity, chassisForward, chassisUp, chassisAngularVelocity);
 
             _forces[WheelCount] = new ForceCommand
             {
@@ -110,16 +169,26 @@ namespace Shitboxer.Vehicle
         /// immediate without touching the tyre model. Lives in the sim (not the host) so a
         /// headless server steps identical maths. Returns a CoM force; also sets BodyTorque.
         /// </summary>
-        private Vector3 StepAssists(in VehicleInput input, Vector3 velocity, Vector3 forward,
+        private Vector3 StepAssists(float dt, in VehicleInput input, Vector3 velocity, Vector3 forward,
             Vector3 up, Vector3 angularVelocity)
         {
-            // Extra gravity always applies — heavy landings are most of "not floaty".
-            Vector3 force = Vector3.down * (Spec.MassKg * 9.81f * Spec.ExtraGravity);
             BodyTorque = Vector3.zero;
 
             int groundedCount = 0;
             for (int i = 0; i < WheelCount; i++)
                 if (Grounded[i]) groundedCount++;
+
+            // The extra "downforce gravity" is a heavy-landing feel cheat, applied even airborne so
+            // brief hops over bumps stay planted. But a car out of contact for a WHILE may be sinking
+            // through the ground (wheel rays blind past RayStartLift); pulling it further down then
+            // drives it out the bottom of the world (the blind-sink fall-through). So cut the pull
+            // once airborne long enough to be a fall, not a hop — it then falls under normal gravity
+            // only and can recover.
+            _airborneTime = groundedCount > 0 ? 0f : _airborneTime + dt;
+            Vector3 force = _airborneTime < ExtraGravityMaxAirborneS
+                ? Vector3.down * (Spec.MassKg * 9.81f * Spec.ExtraGravity)
+                : Vector3.zero;
+
             if (groundedCount < 3) return force; // airborne/tipped: no steering cheats
 
             float forwardSpeed = Vector3.Dot(velocity, forward);
@@ -242,7 +311,7 @@ namespace Shitboxer.Vehicle
             float engineTorque;
             if (throttle > 0.01f)
             {
-                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle;
+                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle * PowerEffectMult;
                 // Rev limiter: no more torque at the wall.
                 if (EngineRpm >= Spec.Engine.RedlineRpm - 10f) engineTorque = 0f;
             }
@@ -262,6 +331,7 @@ namespace Shitboxer.Vehicle
 
         private void StepSuspension(int i, float dt, in GroundContact c)
         {
+            bool wasGrounded = Grounded[i]; // last step's state, before we overwrite it below
             Grounded[i] = c.Grounded;
             if (!c.Grounded)
             {
@@ -270,15 +340,43 @@ namespace Shitboxer.Vehicle
                 return;
             }
 
-            float prev = Compression[i];
-            Compression[i] = Mathf.Clamp(
+            float maxCompression = Spec.SuspensionRestLengthM + Spec.SuspensionTravelM;
+            float compression = Mathf.Clamp(
                 Spec.SuspensionRestLengthM - (c.HitDistance - Spec.WheelRadiusM),
-                0f, Spec.SuspensionRestLengthM + Spec.SuspensionTravelM);
+                0f, maxCompression);
 
-            float compressionSpeed = (Compression[i] - prev) / dt;
-            float force = Spec.SpringRateNPerM * Compression[i]
+            // Damper needs the compression RATE, but while airborne we force Compression to 0. On the
+            // first grounded step after airtime a naive (compression - 0)/dt reads the whole touchdown
+            // compression as one step of velocity — e.g. 0.3 m / 0.02 s = 15 m/s → a ~67 kN phantom
+            // damper spike on one corner (a launch AND a yaw/roll kick, and a spiked tyre load downstream).
+            // Seed prev from THIS step's geometry across the airborne->grounded transition so the rate is
+            // 0 there, then clamp the rate so even a curb/step blip while grounded can't spike the damper
+            // past the force ceiling.
+            float prev = wasGrounded ? Compression[i] : compression;
+            Compression[i] = compression;
+
+            float compressionSpeed = (compression - prev) / dt;
+            float maxCompressionSpeed = Spec.MaxSuspensionForceN / Mathf.Max(1f, Spec.DamperRateNPerMps);
+            compressionSpeed = Mathf.Clamp(compressionSpeed, -maxCompressionSpeed, maxCompressionSpeed);
+
+            float force = Spec.SpringRateNPerM * compression
                         + Spec.DamperRateNPerMps * compressionSpeed;
-            SuspensionForce[i] = Mathf.Max(0f, force); // springs push, never pull
+
+            // Progressive bump-stop: near the end of travel the linear spring alone (SpringRate * maxTravel)
+            // may not resist bottoming, so add a stiff term through the last stretch of travel. over^2/span
+            // grows from zero slope at engagement to very stiff at the limit, so it ramps in smoothly rather
+            // than as a hard corner.
+            float bumpStart = maxCompression * Spec.BumpStopStartFraction;
+            if (compression > bumpStart)
+            {
+                float over = compression - bumpStart;
+                float span = Mathf.Max(1e-3f, maxCompression - bumpStart);
+                force += Spec.BumpStopRateNPerM * (over * over) / span;
+            }
+
+            // Springs push, never pull (floor at 0); the ceiling caps landing/bottoming spikes so a single
+            // corner's vertical force — and the tyre load it becomes downstream — can't fling the car.
+            SuspensionForce[i] = Mathf.Clamp(force, 0f, Spec.MaxSuspensionForceN);
         }
 
         private void ApplyAntiRollBars()
@@ -354,7 +452,7 @@ namespace Shitboxer.Vehicle
             float rho = Mathf.Sqrt(sLong * sLong + sLat * sLat);
 
             float load = SuspensionForce[i];
-            float mu = TyreMu(tyre, rho, load);
+            float mu = TyreMu(tyre, rho, load) * GripEffectMult; // combat grip sap folds straight into the friction circle
             if (!IsFrontWheel(i) && input.Handbrake > 0.1f)
                 mu *= Spec.HandbrakeGripFactor;
 

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Shitboxer.Vehicle;
 using UnityEngine;
 
 namespace Shitboxer.Meta
@@ -16,11 +17,18 @@ namespace Shitboxer.Meta
 
         private Vector2 _scroll;
 
+        // Player's part-free base spec, snapshotted during the race (see TryCaptureBaseSpec) so the
+        // garage can recompute Grip/Power for any equipped set without touching the live car.
+        private VehicleController _playerCar;
+        private VehicleSpec _baseSpec;
+
         public void Configure(RunDirector runDirector) => director = runDirector;
 
         private void OnGUI()
         {
             if (!director) return;
+
+            TryCaptureBaseSpec();
 
             switch (director.Phase)
             {
@@ -65,6 +73,16 @@ namespace Shitboxer.Meta
                 ? $"$ {run.Money}    LIVES {run.Lives}    NEXT: BOSS race {run.RaceIndex + 1}/{run.RacesPerCircuit} (top {run.BossTopN} required)"
                 : $"$ {run.Money}    LIVES {run.Lives}    NEXT: race {run.RaceIndex + 1}/{run.RacesPerCircuit}");
 
+            // Current headline stats for the equipped set the player will take into the next race.
+            VehicleSpec current = _baseSpec != null ? SpecModApplier.Apply(_baseSpec, run.EquippedParts) : null;
+            if (current != null)
+            {
+                StatSummary.Stats now = StatSummary.Compute(current);
+                GUILayout.Space(4);
+                DrawStatBar("GRIP", now.Grip, new Color(0.3f, 0.75f, 1f));
+                DrawStatBar("POWER", now.Power, new Color(1f, 0.55f, 0.2f));
+            }
+
             _scroll = GUILayout.BeginScrollView(_scroll);
 
             GUILayout.Space(6);
@@ -75,7 +93,7 @@ namespace Shitboxer.Meta
             // Snapshot: buying mutates the offer list mid-draw.
             var offers = new List<PartDef>(shop.Offers);
             foreach (PartDef part in offers)
-                DrawOffer(part, run);
+                DrawOffer(part, run, current);
 
             GUI.enabled = run.Money >= shop.RerollCost;
             if (GUILayout.Button($"REROLL  (${shop.RerollCost})"))
@@ -98,7 +116,7 @@ namespace Shitboxer.Meta
             GUILayout.EndArea();
         }
 
-        private void DrawOffer(PartDef part, RunState run)
+        private void DrawOffer(PartDef part, RunState run, VehicleSpec current)
         {
             if (!part) return;
             GUILayout.BeginHorizontal(GUI.skin.box);
@@ -106,6 +124,17 @@ namespace Shitboxer.Meta
             GUILayout.Label($"{part.DisplayName}  [{part.Category}]  ${part.Price}");
             if (!string.IsNullOrEmpty(part.Description))
                 GUILayout.Label(part.Description);
+
+            // Preview a Stat part's effect: BEFORE -> AFTER on the two headline bars. Applying the
+            // single part on top of the current spec matches equipping it (mods are multiplicative),
+            // and never touches run state.
+            if (part.Category == PartCategory.Stat && current != null)
+            {
+                StatSummary.Stats before = StatSummary.Compute(current);
+                StatSummary.Stats after = StatSummary.Compute(SpecModApplier.Apply(current, new[] { part }));
+                DrawStatDelta("GRIP", before.Grip, after.Grip);
+                DrawStatDelta("POWER", before.Power, after.Power);
+            }
             GUILayout.EndVertical();
             GUI.enabled = run.Money >= part.Price;
             if (GUILayout.Button("BUY", GUILayout.Width(64), GUILayout.ExpandHeight(true)))
@@ -135,6 +164,63 @@ namespace Shitboxer.Meta
                 GUI.enabled = true;
             }
             GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Snapshots the player's part-free base spec so the garage can preview any equipped set.
+        /// RunDirector bakes equipped stat parts into the live car spec at scene load, so the car
+        /// carries its authored (base) spec exactly when no stat part is equipped — guaranteed at
+        /// least during race 1 of every run. We only read it during the race (the equipped set can't
+        /// be edited then) and deep-clone it so a later SetSpec swap can't mutate our snapshot.
+        /// Read-only w.r.t. run state.
+        /// </summary>
+        private void TryCaptureBaseSpec()
+        {
+            if (director.Phase != RunPhase.Racing || HasEquippedStatPart()) return;
+            if (!_playerCar)
+            {
+                var provider = FindFirstObjectByType<VehicleInputProvider>();
+                _playerCar = provider ? provider.GetComponent<VehicleController>() : null;
+            }
+            if (_playerCar && _playerCar.SpecAsset != null)
+                _baseSpec = SpecModApplier.Clone(_playerCar.SpecAsset.Spec);
+        }
+
+        private bool HasEquippedStatPart()
+        {
+            foreach (PartDef part in director.Run.EquippedParts)
+                if (part && part.Category == PartCategory.Stat) return true;
+            return false;
+        }
+
+        private static void DrawStatBar(string label, float value, Color fill)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label, GUILayout.Width(52));
+
+            Rect track = GUILayoutUtility.GetRect(120, 12, GUILayout.ExpandWidth(true));
+            Color prev = GUI.color;
+            GUI.color = new Color(0f, 0f, 0f, 0.35f);
+            GUI.DrawTexture(track, Texture2D.whiteTexture);
+            GUI.color = fill;
+            float t = Mathf.Clamp01(value / 100f);
+            GUI.DrawTexture(new Rect(track.x, track.y, track.width * t, track.height), Texture2D.whiteTexture);
+            GUI.color = prev;
+
+            GUILayout.Label(value.ToString("0"), GUILayout.Width(30));
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>One BEFORE -> AFTER line, tinted green for a gain and red for a loss.</summary>
+        private static void DrawStatDelta(string label, float before, float after)
+        {
+            float d = after - before;
+            Color prev = GUI.color;
+            if (d > 0.5f) GUI.color = new Color(0.4f, 1f, 0.4f);
+            else if (d < -0.5f) GUI.color = new Color(1f, 0.45f, 0.45f);
+            string delta = Mathf.Abs(d) < 0.5f ? "" : $"  ({(d > 0f ? "+" : "")}{d:0})";
+            GUILayout.Label($"{label} {before:0} -> {after:0}{delta}");
+            GUI.color = prev;
         }
 
         private void DrawEndScreen(string headline)

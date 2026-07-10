@@ -3,6 +3,16 @@ using UnityEngine;
 
 namespace Shitboxer.Race
 {
+    /// <summary>One rival as the brain sees it this step: world-space position/velocity so the host
+    /// stays dumb and the brain does all track-frame reasoning. Plain data so a server can fill it.</summary>
+    public struct BotNeighbor
+    {
+        /// <summary>Rival position minus ours (world; the brain zeroes Y and projects onto the track).</summary>
+        public Vector3 RelativePosition;
+        /// <summary>Rival world velocity.</summary>
+        public Vector3 Velocity;
+    }
+
     /// <summary>What the brain can sense about its own car this step. Plain data so a server can fill it.</summary>
     public struct BotSensors
     {
@@ -11,6 +21,11 @@ namespace Shitboxer.Race
         public Vector3 Velocity;
         /// <summary>Max |slip ratio| across driven wheels — the bot's traction control input.</summary>
         public float DrivenWheelSlip;
+
+        /// <summary>Nearby rivals this step (host-filled buffer; only the first <see cref="NeighborCount"/> are valid).</summary>
+        public BotNeighbor[] Neighbors;
+        /// <summary>Valid entries in <see cref="Neighbors"/>. 0 (and/or a null array) means "race blind".</summary>
+        public int NeighborCount;
     }
 
     /// <summary>Per-bot personality knobs so a field of 7 doesn't drive in lockstep.</summary>
@@ -53,11 +68,26 @@ namespace Shitboxer.Race
         private const float SettleBeforeReverseS = 0.4f;
         private const float TractionSlipLimit = 0.2f;
 
+        // --- Opponent awareness (all engine-loop-independent; fed by BotSensors.Neighbors) ---
+        private const float LaneHalfWidthM = 2.6f;         // lateral band that counts as "in my path"
+        private const float CorridorHalfWidthM = 14f;      // keep the pursuit target this far off-centre at most (walls sit ~20 m out)
+        private const float FollowRangeM = 24f;            // look this far ahead for a car we could rear-end
+        private const float FollowBufferM = 6f;            // gap we try to keep to the car ahead (m)
+        private const float FollowClosingGainMps = 0.7f;   // extra approach speed allowed per metre of clear gap
+        private const float MinFollowSpeed = 3f;           // never queue slower than this while a gap remains
+        private const float OvertakeSpeedMargin = 1.5f;    // must want to go this much faster to bother passing (m/s)
+        private const float PassClearanceM = 3f;           // sideways room we aim to leave beside the car we pass
+        private const float DraftRangeM = 12f;             // a follower this close behind triggers a light block
+        private const float DefendMaxOffsetM = 2.5f;       // cap on the defensive line-cover nudge
+        private const float TacticalSlewMps = 5f;          // how fast the tactical offset may move (offset-m per s)
+        private const float OvertakeMinSpeed = 5f;         // don't weave for a pass while crawling/spun
+
         private readonly RacingLine _line;
         private readonly BotSkill _skill;
 
         private float _stuckTimer;
         private float _reverseTimer;
+        private float _tacticalOffsetM; // smoothed lateral tactic (right-of-travel m), added onto the base line offset
 
         public BotBrain(RacingLine line, BotSkill skill)
         {
@@ -77,14 +107,31 @@ namespace Shitboxer.Race
 
             float progress = _line.ProjectPosition(sensors.Position);
 
+            // Local track frame at our position — used to classify where rivals sit (ahead/behind, which side).
+            Vector3 trackDir = _line.DirectionAt(progress);
+            trackDir.y = 0f;
+            trackDir = trackDir.sqrMagnitude > 1e-4f ? trackDir.normalized : fwd;
+            Vector3 trackRight = Vector3.Cross(Vector3.up, trackDir); // unit, +right of travel
+            float ourAlongSpeed = Vector3.Dot(vel, trackDir);
+
+            // Free-flowing speed plan (before rivals / off-line penalties). Also tells the opponent
+            // logic whether we're quick enough to want a pass.
+            float freeTargetSpeed = PlanTargetSpeed(progress, speed);
+
+            // Opponent awareness: a speed cap so we settle in behind a slower car instead of rear-ending it,
+            // plus a lateral tactic (overtake to the clearer side, or a light cover of a drafting follower).
+            float baseLateral = -_skill.LateralOffsetM; // existing sign convention (see offset application below)
+            PlanVsOpponents(sensors, trackDir, trackRight, ourAlongSpeed, freeTargetSpeed, baseLateral,
+                out float speedCap, out float desiredTactical);
+            _tacticalOffsetM = Mathf.MoveTowards(_tacticalOffsetM, desiredTactical, TacticalSlewMps * dt);
+
             // Where are we going? (needed both for driving and for reverse-out steering)
             float lookahead = _skill.LookaheadM + speed * 0.5f;
             Vector3 target = _line.PointAt(progress + lookahead);
-            if (Mathf.Abs(_skill.LateralOffsetM) > 0.01f)
-            {
-                Vector3 lineDir = _line.DirectionAt(progress + lookahead);
-                target += Vector3.Cross(Vector3.up, lineDir).normalized * -_skill.LateralOffsetM;
-            }
+            Vector3 offsetDir = Vector3.Cross(Vector3.up, _line.DirectionAt(progress + lookahead)).normalized;
+            // Base spread + tactic, clamped to the drivable corridor so a pass/block never steers into a wall.
+            float finalLateral = Mathf.Clamp(baseLateral + _tacticalOffsetM, -CorridorHalfWidthM, CorridorHalfWidthM);
+            target += offsetDir * finalLateral;
             Vector3 toTarget = target - sensors.Position;
             toTarget.y = 0f;
             float headingErrDeg = Vector3.SignedAngle(fwd, toTarget, Vector3.up);
@@ -109,12 +156,15 @@ namespace Shitboxer.Race
             float steer = Mathf.Clamp(headingErrDeg / SteerSaturationDeg, -1f, 1f);
 
             // --- Speed plan: slowest corner within braking range wins.
-            float targetSpeed = PlanTargetSpeed(progress, speed);
+            float targetSpeed = freeTargetSpeed;
 
             // Facing badly off-line (spun, post-crash): creep and pivot instead of powering into a wall.
             float absErr = Mathf.Abs(headingErrDeg);
             if (absErr > 60f)
                 targetSpeed = Mathf.Min(targetSpeed, Mathf.Lerp(8f, 3f, Mathf.InverseLerp(60f, 150f, absErr)));
+
+            // Don't rear-end the car ahead: hold at the following cap until we've moved off its bumper.
+            targetSpeed = Mathf.Min(targetSpeed, speedCap);
 
             float speedError = targetSpeed - speed;
             float throttle = 0f, brake = 0f;
@@ -172,6 +222,108 @@ namespace Shitboxer.Race
                 target = Mathf.Min(target, allowedNow);
             }
             return target;
+        }
+
+        /// <summary>
+        /// Opponent awareness, all in the local track frame. Produces a speed cap so we ease in
+        /// behind a slower car rather than rear-ending it, and a desired lateral tactic (right-of-
+        /// travel metres, additive to the base line offset): swing to the clearer side to overtake
+        /// when we're faster, otherwise a light cover of a drafting follower's passing line.
+        /// </summary>
+        private void PlanVsOpponents(in BotSensors sensors, Vector3 trackDir, Vector3 trackRight,
+            float ourAlongSpeed, float freeTargetSpeed, float baseLateral,
+            out float speedCap, out float desiredTactical)
+        {
+            speedCap = float.MaxValue;
+            desiredTactical = 0f;
+
+            int count = sensors.Neighbors != null ? Mathf.Min(sensors.NeighborCount, sensors.Neighbors.Length) : 0;
+            if (count == 0) return;
+
+            // Nearest rival in our lane ahead (rear-end + overtake trigger) and behind (defence).
+            float aheadDist = float.MaxValue, aheadLateral = 0f, aheadAlongSpeed = 0f;
+            float behindDist = float.MaxValue, behindLateral = 0f;
+            bool hasAhead = false, hasBehind = false;
+
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 rel = sensors.Neighbors[i].RelativePosition;
+                rel.y = 0f;
+                float along = Vector3.Dot(rel, trackDir);      // + = ahead of us
+                float lateral = Vector3.Dot(rel, trackRight);  // + = to our right
+
+                Vector3 nvel = sensors.Neighbors[i].Velocity;
+                nvel.y = 0f;
+
+                if (along > 1f && along < FollowRangeM && Mathf.Abs(lateral) < LaneHalfWidthM && along < aheadDist)
+                {
+                    aheadDist = along;
+                    aheadLateral = lateral;
+                    aheadAlongSpeed = Vector3.Dot(nvel, trackDir);
+                    hasAhead = true;
+                }
+                else if (along < -1f && along > -DraftRangeM && Mathf.Abs(lateral) < LaneHalfWidthM * 1.5f && -along < behindDist)
+                {
+                    behindDist = -along;
+                    behindLateral = lateral;
+                    hasBehind = true;
+                }
+            }
+
+            bool wantToPass = false;
+            if (hasAhead)
+            {
+                // Following model: more clear gap buys more approach speed; back right off inside the buffer
+                // so we never nose into a stopped/slow car.
+                float effGap = aheadDist - FollowBufferM;
+                float theirSpeed = Mathf.Max(0f, aheadAlongSpeed);
+                float cap = theirSpeed + effGap * FollowClosingGainMps;
+                speedCap = Mathf.Max(effGap > 0f ? MinFollowSpeed : 0f, cap);
+
+                wantToPass = ourAlongSpeed > OvertakeMinSpeed
+                    && freeTargetSpeed > theirSpeed + OvertakeSpeedMargin;
+            }
+
+            if (wantToPass)
+                desiredTactical = PickOvertakeOffset(sensors, count, trackDir, trackRight, aheadLateral, baseLateral);
+            else if (hasBehind)
+                // Light block: lean toward the side the follower is drifting to; small, and corridor-clamped later.
+                desiredTactical = Mathf.Clamp(behindLateral, -DefendMaxOffsetM, DefendMaxOffsetM);
+        }
+
+        /// <summary>
+        /// Picks the pass side: aim to sit PassClearanceM beside the blocker on whichever side keeps us
+        /// furthest from a wall and clearest of other traffic. Returns an additive lateral offset
+        /// (right-of-travel metres) relative to the base line.
+        /// </summary>
+        private float PickOvertakeOffset(in BotSensors sensors, int count, Vector3 trackDir,
+            Vector3 trackRight, float blockerLateral, float baseLateral)
+        {
+            float leftTarget = blockerLateral - PassClearanceM;
+            float rightTarget = blockerLateral + PassClearanceM;
+            float chosen = ScoreLane(sensors, count, trackDir, trackRight, leftTarget)
+                         >= ScoreLane(sensors, count, trackDir, trackRight, rightTarget)
+                ? leftTarget : rightTarget;
+            chosen = Mathf.Clamp(chosen, -CorridorHalfWidthM, CorridorHalfWidthM);
+            return chosen - baseLateral;
+        }
+
+        /// <summary>Higher = better lane to aim for: penalises wall proximity and traffic already using it.</summary>
+        private float ScoreLane(in BotSensors sensors, int count, Vector3 trackDir, Vector3 trackRight, float laneLateral)
+        {
+            float score = CorridorHalfWidthM - Mathf.Abs(laneLateral);
+            if (Mathf.Abs(laneLateral) > CorridorHalfWidthM) score -= 100f; // off the corridor: hard no
+
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 rel = sensors.Neighbors[i].RelativePosition;
+                rel.y = 0f;
+                float along = Vector3.Dot(rel, trackDir);
+                if (along < -2f || along > FollowRangeM) continue; // only cars alongside or ahead can block a pass
+                if (Mathf.Abs(Vector3.Dot(rel, trackRight) - laneLateral) < LaneHalfWidthM * 2f)
+                    score -= 30f;
+            }
+            return score;
         }
     }
 }

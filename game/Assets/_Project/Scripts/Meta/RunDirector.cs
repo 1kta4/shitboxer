@@ -102,6 +102,7 @@ namespace Shitboxer.Meta
             }
 
             ApplyEquippedParts();
+            ApplyAttackProfile();
         }
 
         /// <summary>
@@ -129,6 +130,17 @@ namespace Shitboxer.Meta
             _playerCar.SetSpec(asset);
         }
 
+        /// <summary>
+        /// Builds the player's AttackProfile from equipped parts (see AttackLoadout) and hands it
+        /// to their car's VehicleCombat, adding the component if absent. Always runs — with no
+        /// attack parts the player simply gets the inert profile.
+        /// </summary>
+        private void ApplyAttackProfile()
+        {
+            AttackProfile profile = AttackLoadout.Build(Run.EquippedParts);
+            VehicleCombat.GetOrAdd(_playerCar.gameObject).SetProfile(profile);
+        }
+
         private void Update()
         {
             if (Phase != RunPhase.Racing || _raceResolved) return;
@@ -149,22 +161,30 @@ namespace Shitboxer.Meta
             }
 
             bool eliminated = me.State == CarRaceState.Eliminated;
-            int payout = payoutTable.PayoutFor(me.Position, eliminated);
+            bool bossFailed = !eliminated && Run.IsBossRace && me.Position > Run.BossTopN;
+            bool failed = eliminated || bossFailed;
 
-            // Economy-part hook: only finishers collect sponsor money.
+            // Failure — elimination OR a flunked boss race — pays only the flat consolation: the
+            // price of failure is the life AND the wallet, so tanking a boss for the fat inverted
+            // payout and retrying richer is no longer a play. Only a clean finish collects the
+            // position cash plus (capped) sponsor money.
+            int payout;
             int economyBonus = 0;
-            if (!eliminated)
+            if (failed)
             {
+                payout = payoutTable.EliminationConsolation;
+            }
+            else
+            {
+                payout = payoutTable.PayoutFor(me.Position, false);
                 foreach (PartDef part in Run.EquippedParts)
                     if (part && part.Category == PartCategory.Economy)
-                        economyBonus += part.MoneyPerPositionHeld * me.Position;
+                        economyBonus += payoutTable.EconomyBonusFor(part.MoneyPerPositionHeld, me.Position);
             }
             Run.Money += payout + economyBonus;
             int totalPay = payout + economyBonus;
 
-            bool bossFailed = !eliminated && Run.IsBossRace && me.Position > Run.BossTopN;
-
-            if (eliminated || bossFailed)
+            if (failed)
             {
                 Run.Lives -= 1;
                 LastRaceSummary = eliminated

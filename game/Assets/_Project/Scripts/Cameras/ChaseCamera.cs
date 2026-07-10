@@ -28,10 +28,19 @@ namespace Shitboxer.Cameras
         [SerializeField] private float fovPerKmh = 0.08f;
         [SerializeField] private float maxFov = 82f;
 
+        [Header("Impact")]
+        [Tooltip("Rigidbody whose motion drives the collision shake. Auto-resolved from the target if left empty.")]
+        [SerializeField] private Rigidbody targetBody;
+        [SerializeField] private CameraImpact impact = new CameraImpact();
+
         private Camera _cam;
         private Vector3 _posVelocity;
         private Vector3 _lastTargetPos;
         private Vector3 _smoothedVelocity;
+        // Follow pose kept separate from the transform so the impact shake stays a pure additive
+        // layer and never feeds back into the SmoothDamp / Slerp smoothing.
+        private Vector3 _basePosition;
+        private Quaternion _baseRotation = Quaternion.identity;
 
         public void SetTarget(Transform t)
         {
@@ -40,13 +49,29 @@ namespace Shitboxer.Cameras
             {
                 _lastTargetPos = t.position;
                 _smoothedVelocity = Vector3.zero;
+                targetBody = t.GetComponentInParent<Rigidbody>();
+                impact.Reset(targetBody ? targetBody.linearVelocity : Vector3.zero);
             }
         }
 
         private void Awake()
         {
             _cam = GetComponent<Camera>();
-            if (target) _lastTargetPos = target.position;
+            _basePosition = transform.position;
+            _baseRotation = transform.rotation;
+            if (target)
+            {
+                _lastTargetPos = target.position;
+                if (!targetBody) targetBody = target.GetComponentInParent<Rigidbody>();
+                impact.Reset(targetBody ? targetBody.linearVelocity : Vector3.zero);
+            }
+        }
+
+        private void FixedUpdate()
+        {
+            // Sample the authoritative physics velocity so impacts read cleanly regardless of frame rate.
+            if (targetBody)
+                impact.Detect(targetBody.linearVelocity, Time.fixedDeltaTime);
         }
 
         private void LateUpdate()
@@ -72,15 +97,25 @@ namespace Shitboxer.Cameras
                 followDir = Vector3.Slerp(flatFwd, velDir, velocityAlign).normalized;
             }
 
+            // --- base follow pose (kept clean of shake so the smoothing never feeds back on itself) ---
             Vector3 desiredPos = target.position - followDir * distance + Vector3.up * height;
-            transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref _posVelocity, positionSmoothTime);
+            _basePosition = Vector3.SmoothDamp(_basePosition, desiredPos, ref _posVelocity, positionSmoothTime);
 
             Vector3 lookPoint = target.position + Vector3.up * lookHeight + flatVel * lookAheadSeconds;
-            Quaternion desiredRot = Quaternion.LookRotation(lookPoint - transform.position, Vector3.up);
-            transform.rotation = Quaternion.Slerp(transform.rotation, desiredRot, 1f - Mathf.Exp(-rotationLerp * dt));
+            Quaternion desiredRot = Quaternion.LookRotation(lookPoint - _basePosition, Vector3.up);
+            _baseRotation = Quaternion.Slerp(_baseRotation, desiredRot, 1f - Mathf.Exp(-rotationLerp * dt));
+
+            // --- impact layer: purely additive trauma shake / recoil / FOV punch that decays to zero ---
+            if (!targetBody) impact.Detect(rawVel, dt);   // fallback when the target has no rigidbody
+            impact.Tick(dt, Time.time);
+
+            transform.rotation = _baseRotation * impact.RotationOffset;
+            transform.position = _basePosition
+                + _baseRotation * impact.LocalShakeOffset
+                + impact.WorldRecoil;
 
             if (_cam)
-                _cam.fieldOfView = Mathf.Min(maxFov, baseFov + speed * 3.6f * fovPerKmh);
+                _cam.fieldOfView = Mathf.Min(maxFov, baseFov + speed * 3.6f * fovPerKmh) + impact.FovPunch;
         }
     }
 }

@@ -14,10 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
   Id: spike_plates
   DisplayName: Spike Plates
-  Description: Contact costs THEM. (Does nothing yet.)
+  Description: Contact costs THEM. A solid hit bleeds a rival's engine — -30% power and -10% grip.
   Category: 2
   Price: 7
   SpecMods: []
   MoneyPerPositionHeld: 0
-  ContactDamageMult: 2
+  ContactGripSap: 0.1
+  ContactPowerSap: 0.3
   AuraRadiusM: 0
+  AuraGripSap: 0

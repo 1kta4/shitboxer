@@ -1,5 +1,6 @@
 using System.IO;
 using Shitboxer.Cameras;
+using Shitboxer.Race;
 using Shitboxer.TestDrive;
 using Shitboxer.Vehicle;
 using UnityEditor;
@@ -287,6 +288,9 @@ namespace Shitboxer.Editor
                 controller.SetWheelVisuals(wheels);
 
                 root.AddComponent<VehicleInputProvider>();
+                // Contact resolver: gives every car weighty collisions (self-rattle) and lets it
+                // carry attack parts. Inert by default; RunDirector fills the player's profile.
+                root.AddComponent<VehicleCombat>();
 
                 string path = $"{PrefabsDir}/{name}.prefab";
                 return PrefabUtility.SaveAsPrefabAsset(root, path);

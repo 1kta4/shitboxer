@@ -38,6 +38,12 @@ namespace Shitboxer.Vehicle
         public float DamperRateNPerMps = 4500f;
         [Tooltip("N per metre of left/right compression difference, resists body roll. Per axle.")]
         public float AntiRollBarNPerM = 8000f;
+        [Tooltip("Hard upper bound (N) on per-wheel vertical suspension force before it becomes tyre load. Caps landing/bottoming spikes so one corner can't launch or fling the car. ~4-6x static corner load.")]
+        public float MaxSuspensionForceN = 30000f;
+        [Tooltip("Fraction of total travel (rest + travel) at which the progressive bump-stop starts to engage. 0.85 = last 15% of travel.")]
+        [Range(0.5f, 1f)] public float BumpStopStartFraction = 0.85f;
+        [Tooltip("Bump-stop stiffness (N/m) through its engagement zone — resists bottoming so max travel isn't held by the linear spring alone.")]
+        public float BumpStopRateNPerM = 250000f;
 
         [Header("Wheels")]
         public float WheelRadiusM = 0.32f;
@@ -98,6 +104,36 @@ namespace Shitboxer.Vehicle
 
         public float FrontAxleZ => WheelbaseM * 0.5f;
         public float RearAxleZ => -WheelbaseM * 0.5f;
+
+        /// <summary>
+        /// Clamp every field the sim divides by (or whose zero would poison the maths) up to a small
+        /// positive minimum. A hand-authored asset or a runtime part-swap in the roguelike economy that
+        /// scales a stat to 0 would otherwise feed an Inf/NaN into the force sent to the rigidbody — the
+        /// classic "car vanishes / tunnels through the world" bug. This is the cheapest elimination of
+        /// that whole NaN class. Idempotent: clamping an already-valid value is a no-op, so it is safe to
+        /// run on a spec asset that several cars share and each re-validate from their own VehicleSim ctor.
+        /// </summary>
+        public void Validate()
+        {
+            MassKg = Mathf.Max(1f, MassKg);
+            WheelbaseM = Mathf.Max(0.5f, WheelbaseM);
+            WheelRadiusM = Mathf.Max(0.05f, WheelRadiusM);
+            SteerFalloffSpeedMps = Mathf.Max(0.1f, SteerFalloffSpeedMps);
+            MaxSuspensionForceN = Mathf.Max(1f, MaxSuspensionForceN);
+
+            ClampTyre(ref FrontTyre);
+            ClampTyre(ref RearTyre);
+        }
+
+        // The tyre divisors (PeakSlipRatio, PeakSlipAngleDeg) and the load-sensitivity denominator
+        // (RatedLoadN) each appear in a division inside the friction-circle maths; a zero there is an
+        // instant NaN. Same positive-minimum clamp, applied to whichever tyre is passed by ref.
+        private static void ClampTyre(ref TyreSpec tyre)
+        {
+            tyre.PeakSlipRatio = Mathf.Max(0.01f, tyre.PeakSlipRatio);
+            tyre.PeakSlipAngleDeg = Mathf.Max(0.5f, tyre.PeakSlipAngleDeg);
+            tyre.RatedLoadN = Mathf.Max(1f, tyre.RatedLoadN);
+        }
     }
 
     [Serializable]

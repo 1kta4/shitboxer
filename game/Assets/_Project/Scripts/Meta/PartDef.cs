@@ -34,8 +34,8 @@ namespace Shitboxer.Meta
     /// <summary>
     /// One shop part — the "jokers as equipment" unit (doc 03). Stat parts carry SpecMods that
     /// SpecModApplier bakes into the player's VehicleSpec; economy parts hook the payout step;
-    /// attack parts are placeholder data only this phase (the shop sells them, nothing resolves
-    /// them yet).
+    /// attack parts carry on-contact and proximity-aura saps that RunDirector flattens into an
+    /// AttackProfile for the car's VehicleCombat to resolve against rivals.
     /// </summary>
     [CreateAssetMenu(menuName = "Shitboxer/Part", fileName = "Part")]
     public class PartDef : ScriptableObject
@@ -55,10 +55,14 @@ namespace Shitboxer.Meta
         [Tooltip("$ bonus per finishing-position number at payout (finishing P6 pays 6x this) — leans further into the inverted economy.")]
         public int MoneyPerPositionHeld;
 
-        [Header("Attack parts (placeholder — attack resolution is a later phase)")]
-        [Tooltip("Multiplier on damage/stat-sap dealt to rivals on contact. Unused for now.")]
-        public float ContactDamageMult = 1f;
-        [Tooltip("Radius of a proximity aura effect, metres. Unused for now.")]
+        [Header("Attack parts — on-contact saps + proximity aura (doc 03)")]
+        [Tooltip("Grip fraction stripped from a rival you hit hard enough on contact. 0.3 = -30%.")]
+        [Range(0f, 0.9f)] public float ContactGripSap;
+        [Tooltip("Engine-torque fraction stripped from a rival you hit on contact. 0.3 = -30%.")]
+        [Range(0f, 0.9f)] public float ContactPowerSap;
+        [Tooltip("Radius of a proximity aura, metres. 0 = no aura.")]
         public float AuraRadiusM;
+        [Tooltip("Grip fraction stripped each step from rivals inside the aura (and behind you). 0.2 = -20%.")]
+        [Range(0f, 0.9f)] public float AuraGripSap;
     }
 }

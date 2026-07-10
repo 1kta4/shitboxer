@@ -14,10 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
   Id: disruptor_field
   DisplayName: Disruptor Field
-  Description: Nearby rivals lose their nerve. 6 m aura. (Does nothing yet.)
+  Description: Rivals tucked in behind you can't find grip. 6 m aura, -18% grip to cars on your gearbox.
   Category: 2
   Price: 8
   SpecMods: []
   MoneyPerPositionHeld: 0
-  ContactDamageMult: 1
+  ContactGripSap: 0
+  ContactPowerSap: 0
   AuraRadiusM: 6
+  AuraGripSap: 0.18

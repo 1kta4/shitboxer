@@ -14,10 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
   Id: ram_bars
   DisplayName: Ram Bars
-  Description: Hit them harder than they hit you. (Does nothing yet.)
+  Description: Weld-on battering ram. Shunt a rival hard and their tyres go greasy — -28% grip for a moment.
   Category: 2
   Price: 6
   SpecMods: []
   MoneyPerPositionHeld: 0
-  ContactDamageMult: 1.5
+  ContactGripSap: 0.28
+  ContactPowerSap: 0
   AuraRadiusM: 0
+  AuraGripSap: 0

@@ -34,17 +34,38 @@ namespace Shitboxer.Race
         public bool PassedCutoff { get; internal set; }
 
         internal float LastProgressM;
+
+        /// <summary>Checkpoint the car must reach next to keep its lap valid (index into the ordered ring).</summary>
+        internal int NextCheckpoint;
+
+        /// <summary>Ordered checkpoints (excluding the start/finish line) cleared since the line was last crossed.</summary>
+        internal int CheckpointsPassedThisLap;
+
+        /// <summary>Laps whose full checkpoint ring was cleared in order — the gate the finish counts, not raw distance.</summary>
+        internal int ValidatedLaps;
     }
 
     /// <summary>
-    /// Referee for one race: registers cars, counts laps via continuous progress along the
-    /// TrackPath (signed wraparound deltas, so reversing over the line un-counts), tracks
-    /// live positions and finishing order, and enforces the survival gate — once the winner
+    /// Referee for one race: registers cars, counts laps along the TrackPath, tracks live
+    /// positions and finishing order, and enforces the survival gate — once the winner
     /// finishes, everyone else must finish within CutoffFraction of the winner's time or
     /// they are ELIMINATED. All state is exposed read-only for the HUD.
+    ///
+    /// Laps are <b>checkpoint-gated</b>: an ordered ring of checkpoints is laid evenly along the
+    /// loop, and a lap only counts when a car clears every checkpoint in order and then crosses
+    /// the start/finish line. This defeats the two failure modes of naive nearest-segment
+    /// progress: cutting the course (skips checkpoints → no lap) and projection snapping to the
+    /// wrong corridor on a hairpin or a BotDriver teleport (a jump too big for one physics step
+    /// is rejected, so it can never inject distance or fake a lap). Continuous distance is still
+    /// accumulated (guarded) for live standings; only the discrete lap/finish is gated.
     /// </summary>
     public class RaceManager : MonoBehaviour
     {
+        // A single physics step can't move a car more than a few metres of track; a larger jump in
+        // projected progress is a teleport (BotDriver flip/reset) or a nearest-segment mis-snap. Such
+        // a step is never trusted for distance or checkpoint/lap credit.
+        private const float MaxPlausibleStepM = 10f;
+
         [SerializeField] private TrackPath trackPath;
         [SerializeField] private List<VehicleController> cars = new List<VehicleController>();
         [Min(1)]
@@ -54,9 +75,14 @@ namespace Shitboxer.Race
         [SerializeField] private float cutoffFraction = 0.15f;
         [Tooltip("Grid-frozen countdown before the green flag, seconds.")]
         [SerializeField] private float countdownS = 3f;
+        [Tooltip("Ordered checkpoints laid evenly along the loop; a lap only counts when a car clears them in order (anti-cut / anti-mis-projection gate).")]
+        [Min(4)]
+        [SerializeField] private int checkpointCount = 16;
 
         private readonly List<RaceCarStatus> _statuses = new List<RaceCarStatus>();
         private readonly List<RaceCarStatus> _leaderboard = new List<RaceCarStatus>();
+        private float[] _checkpoints;      // arc-length position of each checkpoint; [0] = start/finish line
+        private float _checkpointSpacing;  // even arc-length gap between checkpoints (TotalLength / count)
         private float _raceTime;
         private bool _greenFlag;
         private bool _running;
@@ -126,17 +152,30 @@ namespace Shitboxer.Race
             }
 
             RacingLine line = trackPath.Line;
+
+            // Lay the ordered checkpoint ring evenly by arc length; checkpoint 0 is the start/finish line.
+            int k = Mathf.Max(4, checkpointCount);
+            _checkpoints = new float[k];
+            _checkpointSpacing = line.TotalLength / k;
+            for (int i = 0; i < k; i++) _checkpoints[i] = i * _checkpointSpacing;
+
             foreach (VehicleController car in cars)
             {
                 if (!car) continue;
+                // Every racer can be hit and can carry attack parts — guarantee the resolver
+                // even for scenes/prefabs built before the combat layer existed.
+                VehicleCombat.GetOrAdd(car.gameObject);
                 float progress = line.ProjectPosition(car.transform.position);
                 _statuses.Add(new RaceCarStatus
                 {
                     Car = car,
                     LastProgressM = progress,
                     // Grid sits just before the line, so cars start slightly negative and
-                    // arm lap 1 by crossing the start line forward.
+                    // arm lap 1 by crossing the start line forward. NextCheckpoint points at the
+                    // checkpoint ahead of the grid slot: a car behind the line targets checkpoint 0
+                    // (its first crossing only arms lap 1, matching the old distance semantics).
                     TotalDistanceM = line.SignedDelta(0f, progress),
+                    NextCheckpoint = NextCheckpointAhead(line, progress),
                 });
             }
 
@@ -160,19 +199,30 @@ namespace Shitboxer.Race
                 SetDriversEnabled(true);
             }
             RacingLine line = trackPath.Line;
-            float raceDistance = totalLaps * line.TotalLength;
 
             foreach (RaceCarStatus status in _statuses)
             {
                 if (status.State != CarRaceState.Racing || !status.Car) continue;
 
+                float prev = status.LastProgressM;
                 float progress = line.ProjectPosition(status.Car.transform.position);
-                status.TotalDistanceM += line.SignedDelta(status.LastProgressM, progress);
+                float step = line.SignedDelta(prev, progress);
                 status.LastProgressM = progress;
-                status.Lap = Mathf.Clamp(Mathf.FloorToInt(status.TotalDistanceM / line.TotalLength) + 1, 1, totalLaps);
 
-                if (status.TotalDistanceM >= raceDistance)
-                    OnCarCrossedFinish(status);
+                // Teleport / mis-projection guard: a step too big to be one physics tick of driving is
+                // a BotDriver flip/reset or a nearest-segment snap to the wrong corridor. Don't let it
+                // inject distance or a lap — re-point the gate at the car's new position so it can't
+                // stall, then make it re-earn the checkpoints ahead (a reset can only delay a lap).
+                if (Mathf.Abs(step) > MaxPlausibleStepM)
+                {
+                    ResyncCheckpoints(status, line, progress);
+                    status.Lap = Mathf.Clamp(status.ValidatedLaps + 1, 1, totalLaps);
+                    continue;
+                }
+
+                status.TotalDistanceM += step;
+                if (step > 0f) CreditCheckpoints(status, line, prev, step);
+                status.Lap = Mathf.Clamp(status.ValidatedLaps + 1, 1, totalLaps);
             }
 
             // Survival gate timeout: cutoff clock ran out on everyone still on track.
@@ -185,6 +235,65 @@ namespace Shitboxer.Race
 
             RaceComplete = AllCarsDone();
             SortLeaderboard();
+        }
+
+        /// <summary>
+        /// Credits every checkpoint the forward step swept past, in order (usually 0 or 1 per step;
+        /// the loop covers a fast car clearing two close checkpoints at once). A lap validates only
+        /// when the start/finish line is crossed having cleared every other checkpoint since the last
+        /// crossing — so cutting the course, which skips checkpoints, never counts a lap.
+        /// </summary>
+        private void CreditCheckpoints(RaceCarStatus status, RacingLine line, float prevProgress, float step)
+        {
+            for (int guard = 0; guard < _checkpoints.Length; guard++)
+            {
+                float cp = _checkpoints[status.NextCheckpoint];
+                float toCp = line.SignedDelta(prevProgress, cp); // forward distance prev -> cp
+                if (toCp <= 0f || toCp > step) break;             // next checkpoint not swept this step
+
+                int passed = status.NextCheckpoint;
+                status.NextCheckpoint = (passed + 1) % _checkpoints.Length;
+
+                if (passed == 0)
+                {
+                    // Back over the start/finish line. Count the lap only if the whole ring was cleared
+                    // in order first; a grid car's very first crossing has cleared none, so it just
+                    // arms lap 1 (matching the old distance-based start).
+                    if (status.CheckpointsPassedThisLap >= _checkpoints.Length - 1)
+                        ValidateLap(status);
+                    status.CheckpointsPassedThisLap = 0;
+                }
+                else
+                {
+                    status.CheckpointsPassedThisLap++;
+                }
+            }
+        }
+
+        private void ValidateLap(RaceCarStatus status)
+        {
+            status.ValidatedLaps++;
+            if (status.ValidatedLaps >= totalLaps)
+                OnCarCrossedFinish(status);
+        }
+
+        /// <summary>
+        /// After a teleport/mis-snap, aim the gate at the checkpoint just ahead of the car's new
+        /// position and drop the per-lap tally so the remaining checkpoints must be re-earned. A
+        /// teleport can therefore only delay a lap, never inject one (a reset near the line can't
+        /// fake a crossing). Distance is left untouched so the leaderboard doesn't lurch.
+        /// </summary>
+        private void ResyncCheckpoints(RaceCarStatus status, RacingLine line, float progress)
+        {
+            status.NextCheckpoint = NextCheckpointAhead(line, progress);
+            status.CheckpointsPassedThisLap = 0;
+        }
+
+        /// <summary>Index of the first checkpoint strictly ahead of a progress value (checkpoints are evenly spaced).</summary>
+        private int NextCheckpointAhead(RacingLine line, float progress)
+        {
+            int seg = Mathf.FloorToInt(line.Wrap(progress) / _checkpointSpacing);
+            return (seg + 1) % _checkpoints.Length;
         }
 
         private void OnCarCrossedFinish(RaceCarStatus status)

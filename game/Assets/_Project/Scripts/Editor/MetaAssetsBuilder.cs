@@ -90,7 +90,7 @@ namespace Shitboxer.Editor
                 {
                     p.Id = "sponsor_livery";
                     p.DisplayName = "Sponsor Livery";
-                    p.Description = "Backmarker TV time pays. +$1 per finishing position each race.";
+                    p.Description = "Backmarker TV time pays. +$1 per finishing position each race, capped at mid-pack (no bonus for tanking to the very back).";
                     p.Category = PartCategory.Economy;
                     p.Price = 5;
                     p.MoneyPerPositionHeld = 1;
@@ -99,7 +99,7 @@ namespace Shitboxer.Editor
                 {
                     p.Id = "team_accountant";
                     p.DisplayName = "Team Accountant";
-                    p.Description = "Squeezes the sponsors properly. +$2 per finishing position each race.";
+                    p.Description = "Squeezes the sponsors properly. +$2 per finishing position each race, capped at mid-pack.";
                     p.Category = PartCategory.Economy;
                     p.Price = 8;
                     p.MoneyPerPositionHeld = 2;
@@ -108,40 +108,41 @@ namespace Shitboxer.Editor
                 {
                     p.Id = "scrap_dealer";
                     p.DisplayName = "Scrap Dealer";
-                    p.Description = "Knows a guy. +$1 per finishing position (sell-for-cash hook comes later).";
+                    p.Description = "Knows a guy. +$1 per finishing position, capped at mid-pack (sell-for-cash hook comes later).";
                     p.Category = PartCategory.Economy;
                     p.Price = 4;
                     p.MoneyPerPositionHeld = 1;
                 }),
 
-                // ---- Attack parts (placeholder data; resolution is a later phase) ----
+                // ---- Attack parts (on-contact saps + proximity aura, doc 03) ----
                 EnsurePart("Part_RamBars", p =>
                 {
                     p.Id = "ram_bars";
                     p.DisplayName = "Ram Bars";
-                    p.Description = "Hit them harder than they hit you. (Does nothing yet.)";
+                    p.Description = "Weld-on battering ram. Shunt a rival hard and their tyres go greasy — -28% grip for a moment.";
                     p.Category = PartCategory.Attack;
                     p.Price = 6;
-                    p.ContactDamageMult = 1.5f;
+                    p.ContactGripSap = 0.28f;
                 }),
                 EnsurePart("Part_SpikePlates", p =>
                 {
                     p.Id = "spike_plates";
                     p.DisplayName = "Spike Plates";
-                    p.Description = "Contact costs THEM. (Does nothing yet.)";
+                    p.Description = "Contact costs THEM. A solid hit bleeds a rival's engine — -30% power and -10% grip.";
                     p.Category = PartCategory.Attack;
                     p.Price = 7;
-                    p.ContactDamageMult = 2.0f;
+                    p.ContactPowerSap = 0.30f;
+                    p.ContactGripSap = 0.10f;
                 }),
                 EnsurePart("Part_DisruptorField", p =>
                 {
                     p.Id = "disruptor_field";
                     p.DisplayName = "Disruptor Field";
-                    p.Description = "Nearby rivals lose their nerve. 6 m aura. (Does nothing yet.)";
+                    p.Description = "Rivals tucked in behind you can't find grip. 6 m aura, -18% grip to cars on your gearbox.";
                     p.Category = PartCategory.Attack;
                     p.Price = 8;
-                    p.ContactDamageMult = 1f;
                     p.AuraRadiusM = 6f;
+                    p.AuraGripSap = 0.18f;
                 }),
             };
 

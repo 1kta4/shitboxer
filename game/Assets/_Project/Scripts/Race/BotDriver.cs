@@ -14,15 +14,24 @@ namespace Shitboxer.Race
         private const float FlippedRecoverS = 3f;
         private const float ResetToTrackAfterS = 8f;
         private const float ProgressAnchorWindowM = 6f;
+        private const float NeighborSenseRadiusM = 30f; // must cover the brain's follow/draft ranges
 
         [SerializeField] private TrackPath trackPath;
         [SerializeField] private BotSkill skill = BotSkill.Default;
+        [Tooltip("Grip fraction an all-out (high-aggression) bot saps from a car it rams. Timid bots sap 40% of this. 0 disables bot attacks.")]
+        [SerializeField] private float maxContactGripSap = 0.16f;
 
         private VehicleController _controller;
         private BotBrain _brain;
         private float _flippedTimer;
         private float _noProgressTimer;
         private float _lastProgress;
+
+        // Opponent sensing: mirrors VehicleCombat's aura scan (Vehicle-layer OverlapSphere, resolve via
+        // the attached rigidbody). Buffers are reused each step so FixedUpdate stays allocation-free.
+        private int _vehicleMask;
+        private readonly Collider[] _neighborHits = new Collider[16];
+        private readonly BotNeighbor[] _neighborBuf = new BotNeighbor[15];
 
         /// <summary>Wires the bot up (used by editor builders — sets serialized fields only).</summary>
         public void Configure(TrackPath path, float cornerSpeedMult, float aggression, float lookaheadM, float lateralOffsetM = 0f)
@@ -41,6 +50,27 @@ namespace Shitboxer.Race
         private void Awake()
         {
             _controller = GetComponent<VehicleController>();
+            _vehicleMask = 1 << gameObject.layer; // cars all share the Vehicle layer (same convention as VehicleCombat)
+        }
+
+        private void Start()
+        {
+            ApplyAttackProfile();
+        }
+
+        /// <summary>
+        /// Gives the bot a contact-only attack scaled by aggression so ramming is two-way:
+        /// aggressive bots punish contact, timid ones only nibble. Uses the already-serialized
+        /// skill, so it works in the saved scene without a rebuild. Proximity auras stay a player
+        /// tool for now; bots keep the universal self-rattle from VehicleCombat regardless.
+        /// </summary>
+        private void ApplyAttackProfile()
+        {
+            if (maxContactGripSap <= 0f) return;
+            float aggro01 = Mathf.Clamp01(Mathf.InverseLerp(0.7f, 1.15f, skill.Aggression));
+            AttackProfile profile = AttackProfile.None;
+            profile.ContactGripSap = Mathf.Lerp(maxContactGripSap * 0.4f, maxContactGripSap, aggro01);
+            VehicleCombat.GetOrAdd(gameObject).SetProfile(profile);
         }
 
         private void OnDisable()
@@ -65,9 +95,36 @@ namespace Shitboxer.Race
                 Forward = transform.forward,
                 Velocity = velocity,
                 DrivenWheelSlip = MaxDrivenWheelSlip(),
+                Neighbors = _neighborBuf,
+                NeighborCount = GatherNeighbors(transform.position),
             };
 
             _controller.Input = _brain.Step(Time.fixedDeltaTime, sensors);
+        }
+
+        /// <summary>
+        /// Fills <see cref="_neighborBuf"/> with the rival cars within sensing range, in world-space
+        /// relative position + velocity. Same scan the combat aura uses: Vehicle-layer OverlapSphere,
+        /// resolve the VehicleController off the attached rigidbody, skip ourselves. Returns the count.
+        /// </summary>
+        private int GatherNeighbors(Vector3 pos)
+        {
+            int hits = Physics.OverlapSphereNonAlloc(pos, NeighborSenseRadiusM, _neighborHits,
+                _vehicleMask, QueryTriggerInteraction.Ignore);
+            int n = 0;
+            for (int i = 0; i < hits && n < _neighborBuf.Length; i++)
+            {
+                Collider col = _neighborHits[i];
+                if (!col) continue;
+                Rigidbody rb = col.attachedRigidbody;
+                if (!rb || rb.gameObject == gameObject) continue;        // skip self (all our colliders share our body)
+                if (!rb.TryGetComponent(out VehicleController _)) continue; // race cars only
+
+                _neighborBuf[n].RelativePosition = rb.position - pos;
+                _neighborBuf[n].Velocity = rb.linearVelocity;
+                n++;
+            }
+            return n;
         }
 
         private float MaxDrivenWheelSlip()
