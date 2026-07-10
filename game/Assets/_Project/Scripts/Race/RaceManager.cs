@@ -124,6 +124,22 @@ namespace Shitboxer.Race
             cutoffFraction = cutoff;
         }
 
+        /// <summary>
+        /// Runtime bot-commitment tune (see difficultyScalar). Lets the run director ramp the whole
+        /// field per circuit at bind time without touching Configure or any race logic. Clamped to
+        /// the serialized field's authored band so a caller can never push it out of range; the
+        /// per-bot rubber-band still clamps the final commitment subtle. 1 = shipped balance.
+        /// </summary>
+        public void SetDifficultyScalar(float value) => difficultyScalar = Mathf.Clamp(value, 0.5f, 1.5f);
+
+        /// <summary>
+        /// Runtime tune of the survival cutoff window (see cutoffFraction). Lets the director tighten
+        /// the gate on later circuits. Clamped to the field's sane range so the cutoff can never be
+        /// zero (instant elimination) or a full extra lap of slack. Leaves the lap/leaderboard logic
+        /// untouched — it only sets the fraction the deadline is computed from.
+        /// </summary>
+        public void SetCutoffFraction(float value) => cutoffFraction = Mathf.Clamp(value, 0.01f, 1f);
+
         /// <summary>Seconds of countdown left before the green flag; 0 once racing.</summary>
         public float CountdownRemainingS => Mathf.Max(0f, -_raceTime);
 

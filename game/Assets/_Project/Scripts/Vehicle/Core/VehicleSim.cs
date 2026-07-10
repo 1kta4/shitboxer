@@ -38,6 +38,22 @@ namespace Shitboxer.Vehicle
         private const float LongRelaxationLengthM = 0.15f;
         private const float LatRelaxationLengthM = 0.35f;
 
+        // Internal substep count for the stiff wheel-spin / tyre-slip integration. The wheel
+        // angular-velocity ODE and the slip-relaxation state have a time constant (~3 ms) far shorter
+        // than a 20 ms FixedUpdate, so a single explicit Euler step over the full dt leans on the
+        // overshoot clamps below to stay stable. Each public Step instead advances only that per-wheel
+        // spin/slip state over N micro-steps of dt/N — drivetrain, steering, suspension geometry, aero
+        // and assists are computed ONCE per Step and held fixed across the substeps — which shrinks the
+        // effective dt below the time constant and makes the integration robust on its own. Spec-
+        // independent by design (a private const, not a serialized field) so a headless server steps
+        // identical maths. N in 4..8 is the practical band; 4 is a safe, cheap default.
+        private const int WheelSubsteps = 4;
+
+        // Per-substep multiplier reproducing the per-Step airborne slip-state decay (0.9 over one full
+        // Step) for any WheelSubsteps: 0.9^(1/N) applied N times == 0.9. Keeps airborne relaxation
+        // identical per Step to the pre-substep behaviour rather than decaying N times as fast.
+        private static readonly float AirborneSlipDecayPerSubstep = Mathf.Pow(0.9f, 1f / WheelSubsteps);
+
         // Sustained airtime (seconds with no wheel grounded). Gates the extra-gravity assist so a car
         // that has sunk under the world is not driven further down — the blind-sink fall-through trap.
         private float _airborneTime;
@@ -185,8 +201,27 @@ namespace Shitboxer.Vehicle
             // Arcade pedal convention: while reversing, the brake pedal is the reverse throttle.
             float driveTorquePerWheel = ComputeDriveTorque(InReverse ? input.Brake : input.Throttle);
 
+            // Substep the stiff wheel/tyre integration. Contacts and the suspension load computed
+            // above are held fixed across the substeps; only each wheel's spin and slip-relaxation
+            // state advances, over WheelSubsteps micro-steps of dt/N. Wheels don't couple to one
+            // another within a substep (the only cross-wheel coupling — the anti-roll bar — already
+            // ran on the fixed suspension load), so a wheel can run all its substeps before the next.
+            // The force handed back to the host is the per-wheel force AVERAGED over the substeps, so
+            // the net impulse applied over dt equals the integral of the tyre force across the step.
+            float subDt = dt / WheelSubsteps;
             for (int i = 0; i < WheelCount; i++)
-                StepWheel(i, dt, input, contacts[i], driveTorquePerWheel);
+            {
+                Vector3 forceAccum = Vector3.zero;
+                Vector3 appPoint = Vector3.zero;
+                for (int s = 0; s < WheelSubsteps; s++)
+                    forceAccum += StepWheel(i, subDt, input, contacts[i], driveTorquePerWheel, out appPoint);
+
+                _forces[i] = new ForceCommand
+                {
+                    Force = forceAccum / WheelSubsteps,
+                    Position = appPoint,
+                };
+            }
 
             // Aero: quadratic drag opposing velocity, plus downforce along -up. Speed is capped for
             // the quadratic terms only so a pathological velocity can't overflow them to Infinity.
@@ -438,8 +473,16 @@ namespace Shitboxer.Vehicle
 
         // ------------------------------------------------------------------ wheels & tyres
 
-        private void StepWheel(int i, float dt, in VehicleInput input, in GroundContact c, float driveTorquePerWheel)
+        /// <summary>
+        /// Advance one wheel's spin + tyre-slip state by a single substep of <paramref name="dt"/> and
+        /// return the world-space force it produces this substep (suspension load + tyre long/lat), with
+        /// its application point in <paramref name="appPoint"/>. Called WheelSubsteps times per Step; the
+        /// caller averages the returned forces. Suspension load (SuspensionForce[i]) and the contact are
+        /// held fixed across the substeps — only AngularVelocity[i] and the slip-relaxation state evolve.
+        /// </summary>
+        private Vector3 StepWheel(int i, float dt, in VehicleInput input, in GroundContact c, float driveTorquePerWheel, out Vector3 appPoint)
         {
+            appPoint = Vector3.zero;
             float inertia = 0.5f * Spec.WheelMassKg * Spec.WheelRadiusM * Spec.WheelRadiusM;
             float torque = IsDriven(i) ? driveTorquePerWheel : 0f;
 
@@ -454,13 +497,13 @@ namespace Shitboxer.Vehicle
 
             if (!c.Grounded)
             {
-                // Airborne: just spin the wheel from drive/brake torque, and relax slip state.
+                // Airborne: just spin the wheel from drive/brake torque, and relax slip state. Produces
+                // no ground force, so the averaged contribution over the substeps stays zero.
                 AngularVelocity[i] += torque / inertia * dt;
                 AngularVelocity[i] = ApplyBrake(AngularVelocity[i], brakeTorque, inertia, dt);
-                _slipRatioState[i] *= 0.9f;
-                _slipAngleState[i] *= 0.9f;
-                _forces[i] = default;
-                return;
+                _slipRatioState[i] *= AirborneSlipDecayPerSubstep;
+                _slipAngleState[i] *= AirborneSlipDecayPerSubstep;
+                return Vector3.zero;
             }
 
             TyreSpec tyre = IsFrontWheel(i) ? Spec.FrontTyre : Spec.RearTyre;
@@ -541,9 +584,8 @@ namespace Shitboxer.Vehicle
             // Tyre forces act between the contact patch and axle height (TyreForceAppLift):
             // full contact-patch application makes raycast cars roll over unrealistically hard,
             // because there's no real suspension geometry to generate jacking forces.
-            Vector3 appPoint = Vector3.Lerp(c.HitPoint, c.AttachPoint, Spec.TyreForceAppLift);
-            Vector3 force = c.SuspensionUp * SuspensionForce[i] + fwd * fLong + right * fLat;
-            _forces[i] = new ForceCommand { Force = force, Position = appPoint };
+            appPoint = Vector3.Lerp(c.HitPoint, c.AttachPoint, Spec.TyreForceAppLift);
+            return c.SuspensionUp * SuspensionForce[i] + fwd * fLong + right * fLat;
         }
 
         private static float ApplyBrake(float omega, float brakeTorque, float inertia, float dt)

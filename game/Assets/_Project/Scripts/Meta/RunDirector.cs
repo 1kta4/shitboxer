@@ -116,6 +116,7 @@ namespace Shitboxer.Meta
 
             ApplyEquippedParts();
             ApplyAttackProfile();
+            ApplyDifficulty();
         }
 
         /// <summary>
@@ -154,6 +155,34 @@ namespace Shitboxer.Meta
             VehicleCombat.GetOrAdd(_playerCar.gameObject).SetProfile(profile);
         }
 
+        // Season-ramp tuning. Deliberately gentle and bounded so circuit 1 plays exactly as
+        // shipped and later circuits get tense, not impossible.
+        private const float DifficultyScalarGain = 0.4f;   // fraction of DifficultyMult's excess folded into bot commitment
+        private const float MaxDifficultyScalar = 1.3f;    // ceiling of the bot-commitment band the director will request
+        private const float CutoffTightenPerCircuit = 0.02f; // survival window shaved off per later circuit
+        private const float MinCutoffFraction = 0.08f;     // floor so the cutoff never becomes brutal
+
+        /// <summary>
+        /// Ramps the freshly-bound race to the current circuit: lifts the whole bot field by mapping
+        /// RunState.DifficultyMult into a narrow band above neutral, and tightens the survival cutoff
+        /// a little each circuit off the scene's authored base. Both stay subtle and bounded — the
+        /// RaceManager clamps whatever we ask — and the referee's lap/leaderboard logic is untouched.
+        /// </summary>
+        private void ApplyDifficulty()
+        {
+            // DifficultyMult is 1.0 on circuit 1 and climbs (1.0, 1.35, 1.70, ...). Fold only a
+            // fraction of the excess into a band above neutral so bots commit harder without ever
+            // reading as cheating; the per-bot rubber-band clamps the final result regardless.
+            float scalar = 1f + (Run.DifficultyMult - 1f) * DifficultyScalarGain;
+            _raceManager.SetDifficultyScalar(Mathf.Clamp(scalar, 1f, MaxDifficultyScalar));
+
+            // Tighten the survival window per circuit off the authored base (a fresh RaceManager
+            // resets cutoffFraction each scene reload, so this reads the shipped value every time),
+            // clamped to a floor so the gate stays survivable on the hardest circuits.
+            float cutoff = _raceManager.CutoffFraction - CutoffTightenPerCircuit * Run.CircuitIndex;
+            _raceManager.SetCutoffFraction(Mathf.Max(MinCutoffFraction, cutoff));
+        }
+
         private void Update()
         {
             if (Phase != RunPhase.Racing || _raceResolved) return;
@@ -174,7 +203,11 @@ namespace Shitboxer.Meta
             }
 
             bool eliminated = me.State == CarRaceState.Eliminated;
-            bool bossFailed = !eliminated && Run.IsBossRace && me.Position > Run.BossTopN;
+            // The boss cushion tightens with the season: the required top-N shrinks by one slot per
+            // circuit (never below 1) so later bosses demand a sharper finish. RunState is untouched —
+            // this is a per-circuit view of Run.BossTopN, computed only here.
+            int effectiveBossTopN = Mathf.Max(1, Run.BossTopN - Run.CircuitIndex);
+            bool bossFailed = !eliminated && Run.IsBossRace && me.Position > effectiveBossTopN;
             bool failed = eliminated || bossFailed;
 
             // Failure — elimination OR a flunked boss race — pays only the flat consolation: the
@@ -202,7 +235,7 @@ namespace Shitboxer.Meta
                 Run.Lives -= 1;
                 LastRaceSummary = eliminated
                     ? $"P{me.Position} — ELIMINATED (missed the cutoff). +${totalPay}, -1 life."
-                    : $"P{me.Position} — boss race demands top {Run.BossTopN}. +${totalPay}, -1 life. Retry it.";
+                    : $"P{me.Position} — boss race demands top {effectiveBossTopN}. +${totalPay}, -1 life. Retry it.";
 
                 if (Run.Lives <= 0)
                 {

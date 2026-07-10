@@ -361,6 +361,134 @@ namespace Shitboxer.Tests
             Assert.That(rebuilt.DurabilityMult, Is.EqualTo(1f).Within(1e-6f), "a rebuilt sim should reset DurabilityMult to full");
         }
 
+        // -------------------------------------------------------------- internal substep coverage
+        //
+        // Step() advances the stiff wheel-spin / tyre-slip integration over several internal substeps
+        // of dt/N — holding the drivetrain, steering, suspension load and aero fixed — and hands back
+        // the per-wheel force AVERAGED over those substeps (so the net impulse over dt is unchanged).
+        // These tests assert the substep scheme keeps the sim finite and physically bounded under hard,
+        // sustained driving: no blow-up over many steps, a stable ride height, and per-wheel tyre forces
+        // that never exceed the friction circle (mu <= PeakMu, so the in-plane tyre force on a wheel is
+        // at most PeakMu * its suspension load). If substepping had destabilised the integration these
+        // bounds would be the first thing to break.
+
+        [Test]
+        public void Substepped_DrivenCar_ManySteps_ForcesStayFiniteAndSanelyBounded()
+        {
+            var sim = NewSim();
+            var spec = sim.Spec;
+            // Drive it as hard as the model allows: full throttle, full lock, a stab of handbrake,
+            // rolling fast enough to build heavy slip on every wheel and run every substepped path.
+            var input = new VehicleInput { Throttle = 1f, Steer = 1f, Handbrake = 0.5f };
+            Vector3 vel = Vector3.forward * 22f;
+
+            // Physical ceiling on any single wheel force: the vertical part is capped at
+            // MaxSuspensionForceN and the in-plane (tyre) part at PeakMu * that same ceiling, so the
+            // magnitude is at most sqrt(1 + PeakMu^2) * ceiling. A wide safety factor keeps this from
+            // being brittle while still catching a substep-induced blow-up.
+            float peakMu = Mathf.Max(spec.FrontTyre.PeakMu, spec.RearTyre.PeakMu);
+            float wheelForceCeiling = spec.MaxSuspensionForceN * Mathf.Sqrt(1f + peakMu * peakMu) * 1.5f;
+
+            var contacts = new GroundContact[VehicleSim.WheelCount];
+            for (int step = 0; step < 400; step++)
+            {
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    contacts[i] = FlatContact(sim, i, 0.65f, vel);
+                var forces = sim.Step(Dt, input, contacts, vel, Vector3.forward, Vector3.up, Vector3.zero);
+                AssertStepFinite(sim, forces);
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    Assert.Less(forces[i].Force.magnitude, wheelForceCeiling,
+                        $"wheel {i} force blew past its physical ceiling at step {step}");
+            }
+        }
+
+        [Test]
+        public void Substepped_DrivenCar_SettlesToStableRideHeight()
+        {
+            var sim = NewSim();
+            var spec = sim.Spec;
+            // A car under full throttle, rolling forward, on flat ground. Integrate ONLY the vertical
+            // ride-height DOF (the horizontal drive/grip forces lie in the ground plane and drop out of
+            // fy), exactly as the undriven settle test does — hard driving must not destabilise the
+            // height under the substepped integration.
+            var input = new VehicleInput { Throttle = 1f };
+            const float forwardSpeed = 14f;
+
+            float restHeight = spec.SuspensionRestLengthM - spec.AxleHeightM + spec.WheelRadiusM;
+            const float maxReach = 0.9f; // the ray gives up beyond suspension travel + wheel radius
+
+            float h = restHeight;
+            float vy = 0f;
+            float minHeight = h, maxHeight = h;
+
+            var contacts = new GroundContact[VehicleSim.WheelCount];
+            for (int step = 0; step < 500; step++)
+            {
+                Vector3 chassisVel = new Vector3(0f, vy, forwardSpeed);
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                {
+                    float attachY = h + sim.WheelLocalPosition(i).y;
+                    contacts[i] = attachY <= maxReach
+                        ? FlatContact(sim, i, h, chassisVel)
+                        : default; // out of reach -> airborne wheel
+                }
+
+                var forces = sim.Step(Dt, input, contacts, chassisVel, Vector3.forward, Vector3.up, Vector3.zero);
+                AssertStepFinite(sim, forces);
+
+                float fy = -spec.MassKg * G; // host applies real gravity; the sim supplies everything else
+                foreach (var f in forces) fy += f.Force.y;
+                vy += fy / spec.MassKg * Dt;
+                h += vy * Dt;
+                minHeight = Mathf.Min(minHeight, h);
+                maxHeight = Mathf.Max(maxHeight, h);
+            }
+
+            Assert.Greater(minHeight, 0.3f, "driven car sank far past its suspension travel");
+            Assert.Less(maxHeight, 1.2f, "driven car launched off the ground");
+            Assert.That(vy, Is.EqualTo(0f).Within(0.06f), "ride height had not come to rest");
+            // Settles between clearly compressed and free rest — a sane, stable ride height.
+            Assert.That(h, Is.InRange(0.45f, restHeight + 1e-3f), "did not settle to a stable ride height");
+        }
+
+        [Test]
+        public void Substepped_HardDriveAndSlide_TyreForcesRespectFrictionCircle()
+        {
+            var sim = NewSim();
+            var spec = sim.Spec;
+            // Full throttle while the whole car also slides sideways: the contact point velocity carries
+            // a large lateral component, so each tyre works deep in combined slip (longitudinal wheelspin
+            // + lateral slide) right up against the friction circle. The substepped integration must never
+            // let a wheel's in-plane tyre force exceed mu * load, and mu <= PeakMu, so the per-wheel
+            // ceiling is PeakMu * its suspension load. Well clear of the low-speed stiction regime.
+            var input = new VehicleInput { Throttle = 1f, Steer = 1f };
+            Vector3 vel = Vector3.forward * 18f + Vector3.right * 11f; // forward drive + hard sideways slide
+
+            var contacts = new GroundContact[VehicleSim.WheelCount];
+            for (int step = 0; step < 200; step++)
+            {
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    contacts[i] = FlatContact(sim, i, 0.65f, vel);
+                var forces = sim.Step(Dt, input, contacts, vel, Vector3.forward, Vector3.up, Vector3.zero);
+                AssertStepFinite(sim, forces);
+
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                {
+                    Assert.IsTrue(sim.Grounded[i], $"wheel {i} should be grounded");
+                    float load = sim.SuspensionForce[i];
+                    Assert.Greater(load, 0f, $"wheel {i} carried no load (test is degenerate)");
+
+                    // On the flat contact SuspensionUp is world-up, so the wheel's whole in-plane (x,z)
+                    // force is the tyre long/lat force; the suspension load is the pure-vertical y term.
+                    float peakMu = sim.IsFrontWheel(i) ? spec.FrontTyre.PeakMu : spec.RearTyre.PeakMu;
+                    Vector3 f = forces[i].Force;
+                    float horizontal = new Vector3(f.x, 0f, f.z).magnitude;
+                    Assert.LessOrEqual(horizontal, peakMu * load * 1.02f + 1f,
+                        $"wheel {i} tyre force exceeded the friction circle (PeakMu*load) at step {step}");
+                }
+            }
+        }
+
         // A fresh sim pre-worn by the given damage amount (0 = untouched).
         private static VehicleSim NewSimWith(float damage)
         {

@@ -6,7 +6,9 @@ namespace Shitboxer.Race
     /// <summary>
     /// Throwaway IMGUI race readout (same style as VehicleDebugHud): position, lap, race
     /// clock, the live cutoff countdown once the winner finishes, PASS/ELIMINATED verdicts,
-    /// and a small standings list for eyeballing the bots. Dies when a real HUD arrives.
+    /// GRIP/POWER spec bars, a durability bar + on-hit CRUNCH flash for the wave-4 damage
+    /// model, live combat saps, and a small standings list for eyeballing the bots. Grouped
+    /// into RACE / CAR / STANDINGS blocks. Dies when a real HUD arrives.
     /// </summary>
     public class RaceHud : MonoBehaviour
     {
@@ -28,13 +30,16 @@ namespace Shitboxer.Race
             if (me == null) return;
 
             DrawCountdown();
+            DrawImpactFlash();   // brief full-frame CRUNCH cue on a hard hit — drawn behind the box
 
-            GUILayout.BeginArea(new Rect(12, 12, 280, 384), GUI.skin.box);
+            // Height tracks the standings list so the box always fits its content (no clipping).
+            int rows = raceManager.Leaderboard.Count;
+            float areaHeight = 248f + rows * 18f;
+            GUILayout.BeginArea(new Rect(12, 12, 280, areaHeight), GUI.skin.box);
 
+            // ---- RACE ----------------------------------------------------------------
             GUILayout.Label($"POS {me.Position}/{raceManager.Cars.Count}     LAP {me.Lap}/{raceManager.TotalLaps}");
             GUILayout.Label($"TIME {FormatTime(Mathf.Max(0f, raceManager.RaceTimeS))}");
-
-            DrawSpecBars();
 
             if (me.State == CarRaceState.Racing && raceManager.WinnerFinished)
             {
@@ -56,9 +61,14 @@ namespace Shitboxer.Race
                     break;
             }
 
+            // ---- CAR -----------------------------------------------------------------
+            DrawSeparator();
+            DrawSpecBars();
+            DrawDurabilityBar();
             DrawCombatStatus(me);
 
-            GUILayout.Space(6);
+            // ---- STANDINGS -----------------------------------------------------------
+            DrawSeparator();
             foreach (RaceCarStatus s in raceManager.Leaderboard)
             {
                 string state = s.State switch
@@ -99,8 +109,7 @@ namespace Shitboxer.Race
             }
             GUI.color = prev;
 
-            if (!_playerCombat) _playerCombat = playerCar.GetComponent<VehicleCombat>();
-            if (_playerCombat && Time.time - _playerCombat.LastAttackLandedRealtime < 0.7f)
+            if (EnsureCombat() && Time.time - _playerCombat.LastAttackLandedRealtime < 0.7f)
             {
                 GUI.color = new Color(1f, 0.55f, 0.2f);
                 GUILayout.Label(_playerCombat.HasAura ? "DISRUPTING RIVALS" : "ATTACK HIT!");
@@ -122,7 +131,30 @@ namespace Shitboxer.Race
             DrawStatBar("POWER", power, new Color(1f, 0.55f, 0.2f));
         }
 
+        /// <summary>
+        /// Wave-4 damage readout: the player's persistent structural integrity (playerCar.Durability,
+        /// 1 = fresh). Fill shrinks and the bar bleeds green→red as the car wears; hidden while pristine
+        /// since a full green bar carries no information. Reaches full red at the wear floor
+        /// (<see cref="VehicleSim.MinDurability"/>), where the car is as battered as it can get.
+        /// </summary>
+        private void DrawDurabilityBar()
+        {
+            if (!playerCar || playerCar.Sim == null) return;
+            float dur = Mathf.Clamp01(playerCar.Durability);
+            if (dur >= 0.999f) return; // only meaningful once it drops below 1
+
+            float wearT = Mathf.InverseLerp(1f, VehicleSim.MinDurability, dur); // 0 fresh → 1 at the floor
+            Color fill = Color.Lerp(new Color(0.3f, 0.85f, 0.35f), new Color(0.9f, 0.2f, 0.15f), wearT);
+            DrawBar("DURA", dur, fill, dur.ToString("P0"));
+        }
+
         private static void DrawStatBar(string label, float value, Color fill)
+        {
+            DrawBar(label, value / 100f, fill, value.ToString("0"));
+        }
+
+        /// <summary>Shared labelled 0..1 progress bar for the spec/durability readouts.</summary>
+        private static void DrawBar(string label, float fraction01, Color fill, string valueText)
         {
             GUILayout.BeginHorizontal();
             GUILayout.Label(label, GUILayout.Width(52));
@@ -132,12 +164,73 @@ namespace Shitboxer.Race
             GUI.color = new Color(0f, 0f, 0f, 0.35f);
             GUI.DrawTexture(track, Texture2D.whiteTexture);
             GUI.color = fill;
-            float t = Mathf.Clamp01(value / 100f);
+            float t = Mathf.Clamp01(fraction01);
             GUI.DrawTexture(new Rect(track.x, track.y, track.width * t, track.height), Texture2D.whiteTexture);
             GUI.color = prev;
 
-            GUILayout.Label(value.ToString("0"), GUILayout.Width(30));
+            GUILayout.Label(valueText, GUILayout.Width(38));
             GUILayout.EndHorizontal();
+        }
+
+        /// <summary>Thin translucent rule used to group the box into RACE / CAR / STANDINGS blocks.</summary>
+        private static void DrawSeparator()
+        {
+            GUILayout.Space(4);
+            Rect line = GUILayoutUtility.GetRect(1, 1, GUILayout.ExpandWidth(true));
+            Color prev = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.22f);
+            GUI.DrawTexture(line, Texture2D.whiteTexture);
+            GUI.color = prev;
+            GUILayout.Space(4);
+        }
+
+        /// <summary>
+        /// Brief on-hit impact cue: a fading red screen-edge frame plus a "CRUNCH" punch whenever the
+        /// player just took a HARD hit. Reads the combat layer's shared impact stamp/severity so it stays
+        /// in sync with the physics response; only fires above a severity threshold so scrapes stay quiet,
+        /// and fades out in well under half a second so it never obscures the drive.
+        /// </summary>
+        private void DrawImpactFlash()
+        {
+            if (!EnsureCombat()) return;
+
+            const float flashWindow = 0.45f;
+            float since = Time.time - _playerCombat.LastImpactRealtime;
+            if (since < 0f || since > flashWindow) return;
+
+            float severity = Mathf.Clamp01(_playerCombat.LastImpactSeverity);
+            if (severity < 0.45f) return; // only hard hits crunch — minor contact stays silent
+
+            float fade = 1f - since / flashWindow;          // 1 → 0 over the window
+            float alpha = fade * fade * severity;           // ease-out, scaled by how hard the hit was
+            Color prev = GUI.color;
+
+            // Red screen-edge frame — thicker for a harder hit, but never covers the play area.
+            float thickness = Mathf.Lerp(6f, 22f, severity);
+            GUI.color = new Color(1f, 0.15f, 0.1f, 0.55f * alpha);
+            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, thickness), Texture2D.whiteTexture);                       // top
+            GUI.DrawTexture(new Rect(0f, Screen.height - thickness, Screen.width, thickness), Texture2D.whiteTexture); // bottom
+            GUI.DrawTexture(new Rect(0f, 0f, thickness, Screen.height), Texture2D.whiteTexture);                      // left
+            GUI.DrawTexture(new Rect(Screen.width - thickness, 0f, thickness, Screen.height), Texture2D.whiteTexture); // right
+
+            // "CRUNCH" punch near the top-centre, out of the way of the countdown and the HUD box.
+            var style = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = Mathf.RoundToInt(Mathf.Lerp(28f, 52f, severity)),
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+            };
+            GUI.color = new Color(1f, 0.85f, 0.3f, alpha);
+            GUI.Label(new Rect(0f, Screen.height * 0.13f, Screen.width, 60f), "CRUNCH", style);
+
+            GUI.color = prev;
+        }
+
+        /// <summary>Lazily binds the player's combat component; returns false until one exists.</summary>
+        private bool EnsureCombat()
+        {
+            if (!_playerCombat && playerCar) _playerCombat = playerCar.GetComponent<VehicleCombat>();
+            return _playerCombat;
         }
 
         /// <summary>
