@@ -80,5 +80,33 @@ namespace Shitboxer.Meta
         }
 
         public bool Unequip(PartDef part) => EquippedParts.Remove(part);
+
+        /// <summary>
+        /// Removes a part from the run entirely — both the equipped slot (if slotted) and the owned
+        /// pool. Parts are unique instances in the pool, so dropping the PartDef reference is a clean
+        /// delete. Returns true if the part was owned (and thus removed). Used when a Fragile part
+        /// breaks under heavy race damage (RunDirector); safe on null or an unowned part.
+        /// </summary>
+        public bool RemovePart(PartDef part)
+        {
+            if (part == null) return false;
+            EquippedParts.Remove(part);
+            return OwnedParts.Remove(part);
+        }
+
+        /// <summary>
+        /// Total end-of-run refund from owned Cashout parts: the Price of every owned part tagged
+        /// PartCondition.Cashout, whether equipped or not (refund-if-KEPT — you get the money back
+        /// for holding onto them to the end). RunDirector folds this into final Money when the run
+        /// terminates. 0 when no Cashout parts are held.
+        /// </summary>
+        public int CashoutRefundTotal()
+        {
+            int total = 0;
+            foreach (PartDef part in OwnedParts)
+                if (part != null && part.Condition == PartCondition.Cashout)
+                    total += part.Price;
+            return total;
+        }
     }
 }

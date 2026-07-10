@@ -518,6 +518,74 @@ namespace Shitboxer.Tests
             }
         }
 
+        [Test]
+        public void SurfaceGripMult_LowGripSurfaceScalesTyreForcesDown_GripOneReproducesTodaysForces()
+        {
+            // A hard-braking, sliding tyre is grip-limited (its horizontal force ~= mu * load), and
+            // SurfaceGripMult folds straight into mu alongside the combat/wear mults. So a low-grip
+            // patch (grass/dirt) must scale that force down by the same factor, while a grip-1 — or
+            // unset/default — contact reproduces today's full-grip force EXACTLY. Full braking locks
+            // the wheels identically regardless of grip, so the slip (and thus the tyre curve value) is
+            // the same across runs and the only remaining difference is the SurfaceGripMult factor.
+            var braking = new VehicleInput { Brake = 1f };
+            Vector3 brakeVel = Vector3.forward * 15f;
+
+            // Today's forces: the existing helper builds contacts WITHOUT setting SurfaceGripMult, so an
+            // unset/default contact must read as full grip (1) and reproduce the pre-surface baseline.
+            float defaultForce = StepAndMeasureHorizontalForce(NewSim(), braking, brakeVel, 60, 10);
+            float gripOneForce = StepAndMeasureHorizontalForceOnSurface(NewSim(), braking, brakeVel, 60, 10, 1f);
+            float halfGripForce = StepAndMeasureHorizontalForceOnSurface(NewSim(), braking, brakeVel, 60, 10, 0.5f);
+
+            Assert.Greater(defaultForce, 1f, "braking scenario produced no tyre force (test is degenerate)");
+
+            // An explicit grip-1 contact and an unset/default contact must be identical -> default reads as 1.
+            Assert.That(gripOneForce, Is.EqualTo(defaultForce).Within(defaultForce * 0.01f + 1f),
+                "an explicit SurfaceGripMult of 1 did not reproduce today's (unset/default) forces");
+
+            // A low-grip surface reduces tyre force, proportionally to the multiplier.
+            Assert.Less(halfGripForce, defaultForce, "a low-grip surface should reduce tyre force");
+            Assert.That(halfGripForce / defaultForce, Is.EqualTo(0.5f).Within(0.05f),
+                "low-grip tyre force did not drop in proportion to SurfaceGripMult");
+        }
+
+        // FlatContact with an explicit ground-grip multiplier (grass/dirt < 1); everything else identical.
+        private static GroundContact SurfaceContact(VehicleSim sim, int i, float chassisHeight, Vector3 pointVel,
+            float surfaceGrip)
+        {
+            var c = FlatContact(sim, i, chassisHeight, pointVel);
+            c.SurfaceGripMult = surfaceGrip;
+            return c;
+        }
+
+        // As StepAndMeasureHorizontalForce, but stamps a SurfaceGripMult on every contact so the grass/dirt
+        // grip fold-in can be measured against the full-grip baseline.
+        private static float StepAndMeasureHorizontalForceOnSurface(VehicleSim sim, in VehicleInput input,
+            Vector3 vel, int steps, int avgLast, float surfaceGrip)
+        {
+            var contacts = new GroundContact[VehicleSim.WheelCount];
+            float sum = 0f;
+            int counted = 0;
+            for (int step = 0; step < steps; step++)
+            {
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    contacts[i] = SurfaceContact(sim, i, 0.65f, vel, surfaceGrip);
+                var forces = sim.Step(Dt, input, contacts, vel, Vector3.forward, Vector3.up, Vector3.zero);
+                AssertStepFinite(sim, forces);
+                if (step >= steps - avgLast)
+                {
+                    float horizontal = 0f;
+                    for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    {
+                        Vector3 f = forces[i].Force;
+                        horizontal += new Vector3(f.x, 0f, f.z).magnitude;
+                    }
+                    sum += horizontal;
+                    counted++;
+                }
+            }
+            return counted > 0 ? sum / counted : 0f;
+        }
+
         // A fresh sim pre-worn by the given damage amount (0 = untouched).
         private static VehicleSim NewSimWith(float damage)
         {

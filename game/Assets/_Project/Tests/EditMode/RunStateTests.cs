@@ -200,5 +200,103 @@ namespace Shitboxer.Tests
             Assert.Greater(second, 1f);
             Assert.Greater(third, second); // later circuits are strictly harder
         }
+
+        // ---- Part conditions: Cashout refund + Fragile break (doc 03 modifiers) ---------------
+
+        private static PartDef NewPart(PartCondition condition, int price)
+        {
+            var p = ScriptableObject.CreateInstance<PartDef>();
+            p.Condition = condition;
+            p.Price = price;
+            return p;
+        }
+
+        [Test]
+        public void Condition_DefaultsToPassive()
+        {
+            // Every existing/newly-created PartDef is Passive so it stays a plain part.
+            Assert.AreEqual(PartCondition.Passive, NewPart().Condition);
+        }
+
+        [Test]
+        public void CashoutRefundTotal_SumsOwnedCashoutPrices()
+        {
+            var run = new RunState();
+            run.OwnedParts.Add(NewPart(PartCondition.Cashout, 8));
+            run.OwnedParts.Add(NewPart(PartCondition.Cashout, 10));
+            run.OwnedParts.Add(NewPart(PartCondition.Passive, 5));   // ignored
+            run.OwnedParts.Add(NewPart(PartCondition.Fragile, 99));  // ignored
+
+            // Only the two Cashout parts' Prices count toward the refund.
+            Assert.AreEqual(18, run.CashoutRefundTotal());
+        }
+
+        [Test]
+        public void CashoutRefundTotal_IsZeroWithNoCashoutParts()
+        {
+            var run = new RunState();
+            run.OwnedParts.Add(NewPart(PartCondition.Passive, 7));
+            run.OwnedParts.Add(NewPart(PartCondition.Fragile, 12));
+            Assert.AreEqual(0, run.CashoutRefundTotal());
+        }
+
+        [Test]
+        public void RemovePart_DropsPartFromOwnedAndEquipped()
+        {
+            var run = new RunState();
+            var a = NewPart();
+            var b = NewPart();
+            run.OwnedParts.Add(a);
+            run.OwnedParts.Add(b);
+            run.Equip(a);
+            run.Equip(b);
+
+            Assert.IsTrue(run.RemovePart(a));
+            Assert.IsFalse(run.Owns(a));
+            Assert.IsFalse(run.IsEquipped(a));
+            // Exactly one removed — the other part is untouched in both lists.
+            Assert.AreEqual(1, run.OwnedParts.Count);
+            Assert.AreEqual(1, run.EquippedParts.Count);
+            Assert.IsTrue(run.Owns(b));
+            Assert.IsTrue(run.IsEquipped(b));
+        }
+
+        [Test]
+        public void RemovePart_ReturnsFalseForNullOrUnowned()
+        {
+            var run = new RunState();
+            Assert.IsFalse(run.RemovePart(null));
+            Assert.IsFalse(run.RemovePart(NewPart())); // never owned
+        }
+
+        [Test]
+        public void FragileBreak_RemovesExactlyOneEquippedFragilePart()
+        {
+            // Mirrors RunDirector.BreakOneFragilePartOnHeavyDamage: find the first equipped Fragile
+            // part and RemovePart it. Exactly one leaves owned+equipped; the rest are untouched.
+            var run = new RunState { MaxEquipSlots = 4 };
+            var passive = NewPart(PartCondition.Passive, 5);
+            var fragile1 = NewPart(PartCondition.Fragile, 10);
+            var fragile2 = NewPart(PartCondition.Fragile, 11);
+            foreach (var p in new[] { passive, fragile1, fragile2 })
+            {
+                run.OwnedParts.Add(p);
+                run.Equip(p);
+            }
+
+            PartDef toBreak = null;
+            foreach (PartDef p in run.EquippedParts)
+                if (p.Condition == PartCondition.Fragile) { toBreak = p; break; }
+            Assert.AreSame(fragile1, toBreak); // the first equipped Fragile part
+            run.RemovePart(toBreak);
+
+            Assert.AreEqual(2, run.OwnedParts.Count);    // exactly one of three removed
+            Assert.AreEqual(2, run.EquippedParts.Count);
+            Assert.IsFalse(run.Owns(fragile1));
+            Assert.IsFalse(run.IsEquipped(fragile1));
+            // The second Fragile part and the Passive part both survive.
+            Assert.IsTrue(run.Owns(fragile2) && run.IsEquipped(fragile2));
+            Assert.IsTrue(run.Owns(passive) && run.IsEquipped(passive));
+        }
     }
 }

@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_GroundEffectFloor
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: ground_effect_floor
+  DisplayName: Ground Effect Floor
+  Description: "Venturi tunnels suck the car down. +30% downforce (additive \u2014
+    the biggest anchor to slot LEFT of Big Wing), but the heavy floor pan adds +3%
+    mass."
+  Category: 0
+  Rarity: 2
+  Price: 11
+  SpecMods:
+  - Target: 4
+    Multiplier: 0.3
+    Op: 1
+  - Target: 3
+    Multiplier: 1.03
+    Op: 0
+  MoneyPerPositionHeld: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0

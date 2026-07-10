@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_LightFlywheel
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: light_flywheel
+  DisplayName: Lightweight Flywheel
+  Description: Revs snap up instantly. +9% torque (additive), but the snappier throttle
+    costs -2% front grip.
+  Category: 0
+  Rarity: 1
+  Price: 6
+  SpecMods:
+  - Target: 2
+    Multiplier: 0.09
+    Op: 1
+  - Target: 0
+    Multiplier: 0.98
+    Op: 0
+  MoneyPerPositionHeld: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0

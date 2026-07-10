@@ -16,6 +16,11 @@ namespace Shitboxer.Meta
         [SerializeField] private RunDirector director;
 
         private Vector2 _scroll;
+        private Vector2 _endScroll;
+
+        // Part families listed in a stable order on the run-summary screen (see DrawOwnedPartsGrouped).
+        private static readonly PartCategory[] PartCategories =
+            { PartCategory.Stat, PartCategory.Economy, PartCategory.Attack };
 
         // Player's part-free base spec, snapshotted during the race (see TryCaptureBaseSpec) so the
         // garage can recompute Grip/Power for any equipped set without touching the live car.
@@ -42,7 +47,7 @@ namespace Shitboxer.Meta
                     DrawEndScreen("RUN OVER — out of lives.");
                     break;
                 case RunPhase.RunComplete:
-                    DrawEndScreen("SEASON CLEARED — run complete!");
+                    DrawEndScreen("SEASON CLEARED!");
                     break;
             }
         }
@@ -236,19 +241,70 @@ namespace Shitboxer.Meta
             GUI.color = prev;
         }
 
+        /// <summary>
+        /// End-of-run RUN SUMMARY, shared by RunOver ("RUN OVER") and RunComplete ("SEASON
+        /// CLEARED!") — the caller supplies the headline, which is the only difference between the
+        /// two verdicts. Reports how the run finished (circuits/races reached, final wallet, lives
+        /// left, the last race's verdict) and lists everything bought this run grouped by part
+        /// family. Scrolls when the parts list runs long. Read-only w.r.t. run state; NEW RUN kicks
+        /// a fresh run off through the director.
+        /// </summary>
         private void DrawEndScreen(string headline)
         {
             RunState run = director.Run;
-            const float width = 400f;
-            GUILayout.BeginArea(new Rect((Screen.width - width) * 0.5f, Screen.height * 0.3f, width, 220f), GUI.skin.box);
+            const float width = 460f;
+            float height = Mathf.Min(Screen.height - 64f, 520f);
+            GUILayout.BeginArea(
+                new Rect((Screen.width - width) * 0.5f, (Screen.height - height) * 0.5f, width, height),
+                GUI.skin.box);
+
             GUILayout.Label(headline);
             if (!string.IsNullOrEmpty(director.LastRaceSummary))
                 GUILayout.Label(director.LastRaceSummary);
-            GUILayout.Label($"Ended with ${run.Money}, {run.Lives} lives, {run.OwnedParts.Count} parts owned.");
-            GUILayout.Space(12);
+
+            GUILayout.Space(6);
+            GUILayout.Label("== RUN SUMMARY ==");
+            GUILayout.Label($"Circuits cleared: {run.CircuitIndex}/{run.TotalCircuits}");
+            GUILayout.Label($"Reached race {run.RaceIndex}/{run.RacesPerCircuit} of the current circuit");
+            GUILayout.Label($"Final money: ${run.Money}");
+            GUILayout.Label($"Lives remaining: {run.Lives}");
+
+            GUILayout.Space(6);
+            GUILayout.Label($"-- OWNED PARTS ({run.OwnedParts.Count}) --");
+
+            _endScroll = GUILayout.BeginScrollView(_endScroll);
+            if (run.OwnedParts.Count == 0)
+                GUILayout.Label("(none — bought nothing this run)");
+            else
+                DrawOwnedPartsGrouped(run);
+            GUILayout.EndScrollView();
+
+            GUILayout.Space(8);
             if (GUILayout.Button("NEW RUN", GUILayout.Height(32)))
                 director.StartNewRun();
+
             GUILayout.EndArea();
+        }
+
+        /// <summary>Owned parts as a name-per-line list under a header for each non-empty part family.</summary>
+        private void DrawOwnedPartsGrouped(RunState run)
+        {
+            foreach (PartCategory category in PartCategories)
+            {
+                int count = 0;
+                foreach (PartDef part in run.OwnedParts)
+                    if (part && part.Category == category) count++;
+                if (count == 0) continue;
+
+                GUILayout.Space(4);
+                GUILayout.Label($"[{category}]  ({count})");
+                foreach (PartDef part in run.OwnedParts)
+                {
+                    if (!part || part.Category != category) continue;
+                    string tag = run.IsEquipped(part) ? "  — EQUIPPED" : "";
+                    GUILayout.Label($"    {part.DisplayName}{tag}");
+                }
+            }
         }
     }
 }

@@ -175,6 +175,16 @@ namespace Shitboxer.Vehicle
                 Vector3 hitPoint = (hit && !degenerate) ? hitInfo.point : attach - transform.up * rayLength;
                 Vector3 hitNormal = (hit && !degenerate) ? hitInfo.normal : transform.up;
 
+                // Surface grip: a SurfaceZone on the hit collider (or a parent of it) marks grass/dirt as
+                // low-grip. Absent -> full tarmac grip (1), so unmarked tracks are unaffected.
+                float surfaceGrip = 1f;
+                if (hit && hitInfo.collider)
+                {
+                    SurfaceZone zone = hitInfo.collider.GetComponent<SurfaceZone>();
+                    if (!zone) zone = hitInfo.collider.GetComponentInParent<SurfaceZone>();
+                    if (zone) surfaceGrip = zone.GripMultiplier;
+                }
+
                 _contacts[i] = new GroundContact
                 {
                     Grounded = hit,
@@ -189,6 +199,7 @@ namespace Shitboxer.Vehicle
                     WheelForward = steerRot * transform.forward,
                     WheelRight = steerRot * transform.right,
                     AttachPoint = attach,
+                    SurfaceGripMult = surfaceGrip,
                 };
             }
         }

@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_BigTurbo
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: big_turbo
+  DisplayName: Big Turbo
+  Description: Comically oversized snail. x1.25 torque (stack Big Cam to its left
+    first), but the spikes overwhelm the tail (-6% rear grip) and the plumbing adds
+    +2% mass.
+  Category: 0
+  Rarity: 2
+  Price: 11
+  SpecMods:
+  - Target: 2
+    Multiplier: 1.25
+    Op: 0
+  - Target: 1
+    Multiplier: 0.94
+    Op: 0
+  - Target: 3
+    Multiplier: 1.02
+    Op: 0
+  MoneyPerPositionHeld: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0

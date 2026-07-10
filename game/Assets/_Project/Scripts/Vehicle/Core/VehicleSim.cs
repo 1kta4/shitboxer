@@ -550,7 +550,10 @@ namespace Shitboxer.Vehicle
             float rho = Mathf.Sqrt(sLong * sLong + sLat * sLat);
 
             float load = SuspensionForce[i];
-            float mu = TyreMu(tyre, rho, load) * GripEffectMult * DurabilityMult; // combat grip sap AND persistent wear fold straight into the friction circle
+            // Combat grip sap, persistent wear AND the ground surface (grass/dirt vs tarmac) all fold
+            // straight into the friction circle. SurfaceGripMult reads 1 for an unset contact, so this
+            // is a no-op until a track marks a low-grip zone.
+            float mu = TyreMu(tyre, rho, load) * GripEffectMult * DurabilityMult * c.SurfaceGripMult;
             if (!IsFrontWheel(i) && input.Handbrake > 0.1f)
                 mu *= Spec.HandbrakeGripFactor;
 

@@ -460,6 +460,71 @@ namespace Shitboxer.Editor
                     p.AuraRadiusM = 8f;
                     p.AuraGripSap = 0.22f;
                 }),
+
+                // ---- Conditioned parts (doc 03 part modifiers) ----------------------------------
+                // FRAGILE: outsized effect, but destroyed if the car finishes a race badly battered
+                // (RunDirector breaks one equipped Fragile part on heavy damage). CASHOUT: refunds its
+                // full Price into final money if still owned when the run ends (RunState.CashoutRefundTotal).
+                // Condition is set ONLY on these newly-created parts; existing assets stay Passive.
+                EnsurePart("Part_GrenadeTurbo", p =>
+                {
+                    p.Id = "grenade_turbo";
+                    p.DisplayName = "Grenade Turbo";
+                    p.Description = "Insane boost from a hand-grenade-spec snail. x1.35 torque, but the tail goes light (-6% rear grip) — and one hard race and it lets go. FRAGILE: destroyed if you finish a race badly battered.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 11;
+                    p.Condition = PartCondition.Fragile;
+                    p.SpecMods = ModList(
+                        Mul(SpecModTarget.Power, 1.35f),
+                        Mul(SpecModTarget.GripRear, 0.94f));
+                }),
+                EnsurePart("Part_CheaterSlicks", p =>
+                {
+                    p.Id = "cheater_slicks";
+                    p.DisplayName = "Cheater Slicks";
+                    p.Description = "Qualifying-only rubber that grips like glue. x1.30 grip front and rear — but the soft carcass shreds the moment you get bashed about. FRAGILE: destroyed if you finish a race badly battered.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 12;
+                    p.Condition = PartCondition.Fragile;
+                    p.SpecMods = ModList(
+                        Mul(SpecModTarget.GripFront, 1.30f),
+                        Mul(SpecModTarget.GripRear, 1.30f));
+                }),
+                EnsurePart("Part_GlassCannonRam", p =>
+                {
+                    p.Id = "glass_cannon_ram";
+                    p.DisplayName = "Glass-Cannon Ram";
+                    p.Description = "A vicious but brittle nose spike. Contact craters a rival — -40% grip AND -40% power — but the spike snaps clean off if YOU take a real beating. FRAGILE: destroyed if you finish a race badly battered.";
+                    p.Category = PartCategory.Attack;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 10;
+                    p.Condition = PartCondition.Fragile;
+                    p.ContactGripSap = 0.40f;
+                    p.ContactPowerSap = 0.40f;
+                }),
+                EnsurePart("Part_GoldBarBallast", p =>
+                {
+                    p.Id = "gold_bar_ballast";
+                    p.DisplayName = "Gold Bar Ballast";
+                    p.Description = "A literal gold bar bolted in as ballast. +$1 per finishing position each race — and CASHOUT: refunds its full price into your winnings if you still own it when the run ends.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 8;
+                    p.Condition = PartCondition.Cashout;
+                    p.MoneyPerPositionHeld = 1;
+                }),
+                EnsurePart("Part_VintagePlate", p =>
+                {
+                    p.Id = "vintage_plate";
+                    p.DisplayName = "Vintage Numberplate";
+                    p.Description = "A collector's plate that only appreciates. No on-track effect — but CASHOUT: refunds its full price into your final money if you hold it to the end of the run.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 10;
+                    p.Condition = PartCondition.Cashout;
+                }),
             };
 
             // The pool is refreshed every run so new parts always show up.

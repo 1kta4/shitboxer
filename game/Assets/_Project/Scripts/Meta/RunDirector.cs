@@ -211,6 +211,11 @@ namespace Shitboxer.Meta
             if (_playerCar != null && _playerCar.Sim != null)
                 Run.CarDurability = _playerCar.Sim.Durability;
 
+            // Fragile parts are strong but breakable: if the just-captured wear says the car finished
+            // this race battered near the sim's durability floor, ONE equipped Fragile part shakes loose
+            // and is destroyed. The note is folded into every race-summary branch below.
+            string fragileNote = BreakOneFragilePartOnHeavyDamage();
+
             RaceCarStatus me = _raceManager.GetStatus(_playerCar);
             if (me == null)
             {
@@ -249,12 +254,17 @@ namespace Shitboxer.Meta
             if (failed)
             {
                 Run.Lives -= 1;
-                LastRaceSummary = eliminated
+                LastRaceSummary = (eliminated
                     ? $"P{me.Position} — ELIMINATED (missed the cutoff). +${totalPay}, -1 life."
-                    : $"P{me.Position} — boss race demands top {effectiveBossTopN}. +${totalPay}, -1 life. Retry it.";
+                    : $"P{me.Position} — boss race demands top {effectiveBossTopN}. +${totalPay}, -1 life. Retry it.")
+                    + fragileNote;
 
                 if (Run.Lives <= 0)
                 {
+                    // Run's over: refund every owned Cashout part's Price into the final wallet.
+                    int cashout = Run.CashoutRefundTotal();
+                    Run.Money += cashout;
+                    if (cashout > 0) LastRaceSummary += $" Cashout parts refunded +${cashout}.";
                     Phase = RunPhase.RunOver;
                     Time.timeScale = 0f;
                     ClearSave(); // the run is dead — don't resume it next launch
@@ -273,7 +283,12 @@ namespace Shitboxer.Meta
                 {
                     if (Run.RunComplete)
                     {
-                        LastRaceSummary = $"P{me.Position} — survived. +${totalPay}. SEASON CLEARED!";
+                        // Season won — the run ends here: refund every owned Cashout part's Price.
+                        int cashout = Run.CashoutRefundTotal();
+                        Run.Money += cashout;
+                        LastRaceSummary = $"P{me.Position} — survived. +${totalPay}. SEASON CLEARED!"
+                            + fragileNote
+                            + (cashout > 0 ? $" Cashout parts refunded +${cashout}." : "");
                         Phase = RunPhase.RunComplete;
                         Time.timeScale = 0f;
                         ClearSave(); // season won — the finished run doesn't resume
@@ -282,15 +297,47 @@ namespace Shitboxer.Meta
                     Run.CircuitIndex += 1;
                     Run.RaceIndex = 0;
                     LastRaceSummary =
-                        $"P{me.Position} — boss down. +${totalPay}. Circuit {Run.CircuitIndex + 1}/{Run.TotalCircuits} begins.";
+                        $"P{me.Position} — boss down. +${totalPay}. Circuit {Run.CircuitIndex + 1}/{Run.TotalCircuits} begins."
+                        + fragileNote;
                 }
                 else
                 {
-                    LastRaceSummary = $"P{me.Position} — survived. +${totalPay}.";
+                    LastRaceSummary = $"P{me.Position} — survived. +${totalPay}." + fragileNote;
                 }
             }
 
             OpenGarage();
+        }
+
+        // A car that finished the race within this band ABOVE the sim's durability floor took HEAVY
+        // damage — the signal that a Fragile part shook loose (see BreakOneFragilePartOnHeavyDamage).
+        private const float FragileBreakDurabilityBand = 0.05f;
+
+        /// <summary>
+        /// Fragile parts (PartCondition.Fragile) are strong but breakable: if the car finished the race
+        /// battered near the sim's durability floor — read from the just-captured Run.CarDurability, the
+        /// HEAVY-damage signal — ONE equipped Fragile part shakes loose and is destroyed, removed from
+        /// both EquippedParts and OwnedParts (parts are unique, so dropping the PartDef is a clean delete).
+        /// At most one break per race. Returns a summary suffix noting the loss, or "" if nothing broke.
+        /// </summary>
+        private string BreakOneFragilePartOnHeavyDamage()
+        {
+            bool heavyDamage = Run.CarDurability <= VehicleSim.MinDurability + FragileBreakDurabilityBand;
+            if (!heavyDamage) return "";
+
+            PartDef toBreak = null;
+            foreach (PartDef part in Run.EquippedParts)
+            {
+                if (part != null && part.Condition == PartCondition.Fragile)
+                {
+                    toBreak = part;
+                    break;
+                }
+            }
+            if (toBreak == null) return "";
+
+            Run.RemovePart(toBreak);
+            return $" Your Fragile {toBreak.DisplayName} shook loose and broke!";
         }
 
         private void OpenGarage()

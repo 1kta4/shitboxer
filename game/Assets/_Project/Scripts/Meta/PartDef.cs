@@ -59,6 +59,20 @@ namespace Shitboxer.Meta
     }
 
     /// <summary>
+    /// doc 03's per-part modifier. Passive (0) is the default so every existing PartDef asset stays
+    /// a plain part with no special behaviour. Fragile parts carry a stronger effect but break (are
+    /// destroyed, removed from the run) if the car finishes a race badly battered (RunDirector).
+    /// Cashout parts refund their Price into final Money if still owned when the run ends
+    /// (RunDirector / RunState.CashoutRefundTotal) — a "buy it, keep it, get it back" economy hook.
+    /// </summary>
+    public enum PartCondition
+    {
+        Passive,
+        Fragile,
+        Cashout,
+    }
+
+    /// <summary>
     /// One shop part — the "jokers as equipment" unit (doc 03). Stat parts carry SpecMods that
     /// SpecModApplier bakes into the player's VehicleSpec; economy parts hook the payout step;
     /// attack parts carry on-contact and proximity-aura saps that RunDirector flattens into an
@@ -76,6 +90,8 @@ namespace Shitboxer.Meta
         [Tooltip("Shop draw-weight tier — Common shows up often, Rare rarely (ShopLogic.Roll).")]
         public Rarity Rarity = Rarity.Common;
         [Min(0)] public int Price = 5;
+        [Tooltip("doc 03 part modifier: Passive (default) is inert; Fragile breaks and is destroyed if the car finishes a race badly battered; Cashout refunds its Price into final money if still owned when the run ends.")]
+        public PartCondition Condition = PartCondition.Passive;
 
         [Header("Stat parts")]
         public List<SpecMod> SpecMods = new List<SpecMod>();

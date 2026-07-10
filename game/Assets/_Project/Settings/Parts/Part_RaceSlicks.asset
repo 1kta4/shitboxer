@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_RaceSlicks
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: race_slicks
+  DisplayName: Race Slicks
+  Description: "Full soft compound. x1.20 grip front and rear \u2014 wants every
+    additive grip part to ITS LEFT \u2014 but the extra rubber adds +3% mass."
+  Category: 0
+  Rarity: 2
+  Price: 12
+  SpecMods:
+  - Target: 0
+    Multiplier: 1.2
+    Op: 0
+  - Target: 1
+    Multiplier: 1.2
+    Op: 0
+  - Target: 3
+    Multiplier: 1.03
+    Op: 0
+  MoneyPerPositionHeld: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0
