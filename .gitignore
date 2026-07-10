@@ -40,6 +40,9 @@ game/[Aa]ssets/StreamingAssets/aa.meta
 game/[Aa]ssets/StreamingAssets/aa/*
 crashlytics-build.properties
 
+# Headless test-run artifacts (Unity -runTests output)
+game/test-results.xml
+
 # Builds / packages
 *.apk
 *.aab
