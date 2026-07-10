@@ -55,6 +55,15 @@ namespace Shitboxer.Meta
         [Tooltip("Cap on the Draft-Leech payoff granted in a single race. <= 0 means uncapped. Only ever applied when a DraftLeech part is owned, so its value never affects a run without one.")]
         [SerializeField] private int draftLeechCapPerRace = 10;
 
+        [Header("Per-circuit difficulty ramp (opt-in — default 0 reproduces today's difficulty exactly)")]
+        [Tooltip("Extra bot-commitment scalar added per circuit index, ON TOP of the shipped per-run difficulty. 0 (default) = OFF: the scalar handed to RaceManager.SetDifficultyScalar is byte-for-byte today's, and a run in progress is unchanged. >0 makes each later circuit lift the whole bot field a little more (base + ramp*CircuitIndex), clamped to difficultyRampMaxScalar and then re-clamped by SetDifficultyScalar to its own authored range. The license stake is already folded into the base via RunState.DifficultyMult, so the ramp never double-applies it.")]
+        [Range(0f, 0.5f)]
+        [SerializeField] private float difficultyRampPerCircuit = 0f;
+
+        [Tooltip("Ceiling the ramped difficulty scalar is clamped to WHEN THE RAMP IS ON (difficultyRampPerCircuit > 0). Defaults to RaceManager.SetDifficultyScalar's authored max (1.5). Ignored while the ramp is 0, where the shipped ceiling applies so the value stays byte-for-byte today.")]
+        [Range(0.5f, 1.5f)]
+        [SerializeField] private float difficultyRampMaxScalar = 1.5f;
+
         /// <summary>
         /// Opt-in boss-race master switch (default OFF). With it off, RunDirector makes no SetRuleset call
         /// and applies no boss reward, so the run plays and pays exactly as shipped. With it on, each
@@ -210,7 +219,8 @@ namespace Shitboxer.Meta
         // Season-ramp tuning. Deliberately gentle and bounded so circuit 1 plays exactly as
         // shipped and later circuits get tense, not impossible.
         private const float DifficultyScalarGain = 0.4f;   // fraction of DifficultyMult's excess folded into bot commitment
-        private const float MaxDifficultyScalar = 1.3f;    // ceiling of the bot-commitment band the director will request
+        private const float MinDifficultyScalar = 1f;      // neutral floor: the request never dips below shipped-neutral
+        private const float MaxDifficultyScalar = 1.3f;    // ceiling of the bot-commitment band the director requests with the ramp OFF
         private const float CutoffTightenPerCircuit = 0.02f; // survival window shaved off per later circuit
         private const float MinCutoffFraction = 0.08f;     // floor so the cutoff never becomes brutal
 
@@ -224,15 +234,44 @@ namespace Shitboxer.Meta
         {
             // DifficultyMult is 1.0 on circuit 1 and climbs (1.0, 1.35, 1.70, ...). Fold only a
             // fraction of the excess into a band above neutral so bots commit harder without ever
-            // reading as cheating; the per-bot rubber-band clamps the final result regardless.
-            float scalar = 1f + (Run.DifficultyMult - 1f) * DifficultyScalarGain;
-            _raceManager.SetDifficultyScalar(Mathf.Clamp(scalar, 1f, MaxDifficultyScalar));
+            // reading as cheating; the per-bot rubber-band clamps the final result regardless. This
+            // base already carries the license stake (RunState.DifficultyMult multiplies in StakeMult),
+            // so the ramp below must NOT re-apply the stake — it only adds a per-circuit term.
+            float baseScalar = 1f + (Run.DifficultyMult - 1f) * DifficultyScalarGain;
+
+            // Per-circuit difficulty ramp (opt-in). With difficultyRampPerCircuit == 0 (the default)
+            // RampedDifficulty adds nothing and clamps into today's [MinDifficultyScalar, MaxDifficultyScalar]
+            // band, so the value handed to SetDifficultyScalar is byte-for-byte the shipped one — a run in
+            // progress is unchanged. With it > 0 each later circuit lifts the field a little more, clamped
+            // into [MinDifficultyScalar, difficultyRampMaxScalar]; SetDifficultyScalar re-clamps to its own
+            // authored [0.5, 1.5] range regardless, so the request can never leave that range.
+            float ceiling = difficultyRampPerCircuit > 0f ? difficultyRampMaxScalar : MaxDifficultyScalar;
+            float scalar = RampedDifficulty(baseScalar, Run.CircuitIndex, difficultyRampPerCircuit, MinDifficultyScalar, ceiling);
+            _raceManager.SetDifficultyScalar(scalar);
 
             // Tighten the survival window per circuit off the authored base (a fresh RaceManager
             // resets cutoffFraction each scene reload, so this reads the shipped value every time),
             // clamped to a floor so the gate stays survivable on the hardest circuits.
             float cutoff = _raceManager.CutoffFraction - CutoffTightenPerCircuit * Run.CircuitIndex;
             _raceManager.SetCutoffFraction(Mathf.Max(MinCutoffFraction, cutoff));
+        }
+
+        /// <summary>
+        /// The per-circuit-ramped bot-commitment scalar: <paramref name="baseScalar"/> plus
+        /// <paramref name="rampPerCircuit"/> for each circuit already reached, clamped into
+        /// [<paramref name="min"/>, <paramref name="max"/>]. Pure/static so the ramp is unit-testable
+        /// without a live scene. With <paramref name="rampPerCircuit"/> &lt;= 0 (the shipped default) it
+        /// adds NOTHING and reduces to <c>Mathf.Clamp(baseScalar, min, max)</c> for EVERY circuit — the
+        /// difficulty stays exactly today's flat-per-run value. With it &gt; 0 the result is strictly
+        /// increasing in <paramref name="circuitIndex"/> until it saturates at <paramref name="max"/>, and
+        /// never leaves the [min, max] band. A negative circuit index contributes no ramp. The MonoBehaviour
+        /// still passes the value through <see cref="RaceManager.SetDifficultyScalar"/>, which re-clamps to
+        /// its own authored range, so the returned value can never push the race out of range.
+        /// </summary>
+        public static float RampedDifficulty(float baseScalar, int circuitIndex, float rampPerCircuit, float min, float max)
+        {
+            float added = rampPerCircuit > 0f ? rampPerCircuit * Mathf.Max(0, circuitIndex) : 0f;
+            return Mathf.Clamp(baseScalar + added, min, max);
         }
 
         /// <summary>

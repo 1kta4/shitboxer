@@ -6,9 +6,11 @@ namespace Shitboxer.Race
     /// <summary>
     /// Throwaway IMGUI race readout (same style as VehicleDebugHud): position, lap, race
     /// clock, the live cutoff countdown once the winner finishes, PASS/ELIMINATED verdicts,
-    /// GRIP/POWER spec bars, a durability bar + on-hit CRUNCH flash for the wave-4 damage
-    /// model, live combat saps, and a small standings list for eyeballing the bots. Grouped
-    /// into RACE / CAR / STANDINGS blocks. Dies when a real HUD arrives.
+    /// GRIP/POWER spec bars, an always-on durability bar + on-hit CRUNCH flash for the wave-4
+    /// damage model, live combat saps, a live SLIPSTREAM cue while drafting, the in-progress
+    /// lap's pace vs the player's best, and a small standings list for eyeballing the bots.
+    /// Grouped into RACE / CAR / STANDINGS blocks. Purely a readout of ACTIVE data — it never
+    /// touches driving, the race referee, or the economy. Dies when a real HUD arrives.
     /// </summary>
     public class RaceHud : MonoBehaviour
     {
@@ -16,6 +18,7 @@ namespace Shitboxer.Race
         [SerializeField] private VehicleController playerCar;
 
         private VehicleCombat _playerCombat;
+        private DraftSensor _playerDraft;
 
         public void Configure(RaceManager manager, VehicleController player)
         {
@@ -33,8 +36,10 @@ namespace Shitboxer.Race
             DrawImpactFlash();   // brief full-frame CRUNCH cue on a hard hit — drawn behind the box
 
             // Height tracks the standings list so the box always fits its content (no clipping).
+            // Base bumped for the always-on durability bar + the permanent CUR pace line and the
+            // transient SLIPSTREAM cue so none of them can push the standings out of the clipped area.
             int rows = raceManager.Leaderboard.Count;
-            float areaHeight = 248f + rows * 18f;
+            float areaHeight = 292f + rows * 18f;
             GUILayout.BeginArea(new Rect(12, 12, 280, areaHeight), GUI.skin.box);
 
             // ---- RACE ----------------------------------------------------------------
@@ -43,6 +48,7 @@ namespace Shitboxer.Race
             // Lap timing (wave-12): FormatTime renders "-:--.-" for the sentinel -1, so both read as
             // placeholders until the player completes their first lap. Additive readout only.
             GUILayout.Label($"LAST {FormatTime(me.LastLapTimeS)}    BEST {FormatTime(me.BestLapTimeS)}");
+            DrawLapPace(me);
 
             if (me.State == CarRaceState.Racing && raceManager.WinnerFinished)
             {
@@ -68,6 +74,7 @@ namespace Shitboxer.Race
             DrawSeparator();
             DrawSpecBars();
             DrawDurabilityBar();
+            DrawDraftStatus(me);
             DrawCombatStatus(me);
 
             // ---- STANDINGS -----------------------------------------------------------
@@ -136,19 +143,79 @@ namespace Shitboxer.Race
 
         /// <summary>
         /// Wave-4 damage readout: the player's persistent structural integrity (playerCar.Durability,
-        /// 1 = fresh). Fill shrinks and the bar bleeds green→red as the car wears; hidden while pristine
-        /// since a full green bar carries no information. Reaches full red at the wear floor
-        /// (<see cref="VehicleSim.MinDurability"/>), where the car is as battered as it can get.
+        /// 1 = fresh). Always shown so it reads as a live status even while pristine — a full green bar
+        /// says "undamaged". Fill shrinks and the bar bleeds green→red as the car wears, reaching full
+        /// red at the wear floor (<see cref="VehicleSim.MinDurability"/>), where the car is as battered
+        /// as it can get.
         /// </summary>
         private void DrawDurabilityBar()
         {
             if (!playerCar || playerCar.Sim == null) return;
             float dur = Mathf.Clamp01(playerCar.Durability);
-            if (dur >= 0.999f) return; // only meaningful once it drops below 1
 
             float wearT = Mathf.InverseLerp(1f, VehicleSim.MinDurability, dur); // 0 fresh → 1 at the floor
             Color fill = Color.Lerp(new Color(0.3f, 0.85f, 0.35f), new Color(0.9f, 0.2f, 0.15f), wearT);
             DrawBar("DURA", dur, fill, dur.ToString("P0"));
+        }
+
+        /// <summary>
+        /// Live slipstream cue: lights up while the player's <see cref="DraftSensor"/> reports it is
+        /// tucked in a leading car's wake and already banking the aero draft. Racing-only and transient —
+        /// it simply disappears the moment the car pulls out of the tow. Display of ACTIVE sensor state;
+        /// it never asserts or alters the draft itself (the sensor and sim own that).
+        /// </summary>
+        private void DrawDraftStatus(RaceCarStatus me)
+        {
+            if (me.State != CarRaceState.Racing) return;
+            if (!EnsureDraft() || !_playerDraft.IsDrafting) return;
+
+            Color prev = GUI.color;
+            GUI.color = new Color(0.2f, 0.9f, 1f); // slipstream blue, matching the sensor gizmo
+            GUILayout.Label("DRAFT — SLIPSTREAM");
+            GUI.color = prev;
+        }
+
+        /// <summary>
+        /// Live lap-pace readout: the in-progress lap's elapsed time (<see cref="RaceManager.CurrentLapTimeS"/>)
+        /// next to the player's BEST, plus a signed delta once a best exists. The delta is this lap's elapsed
+        /// minus the best lap's total: it counts up from a large negative toward 0 as the lap runs, then goes
+        /// positive (and tints warm) the instant this lap overruns the best — i.e. it is guaranteed slower.
+        /// FormatTime renders the -1 "no lap yet" sentinel as a placeholder, so BEST reads "-:--.-" until the
+        /// first lap validates and the delta is simply omitted. Additive readout — no effect on the race.
+        /// </summary>
+        private void DrawLapPace(RaceCarStatus me)
+        {
+            float current = raceManager.CurrentLapTimeS(me);
+            float best = me.BestLapTimeS;
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"CUR {FormatTime(current)}    BEST {FormatTime(best)}");
+
+            string delta = FormatPaceDelta(current, best);
+            if (delta.Length > 0)
+            {
+                Color prev = GUI.color;
+                GUI.color = current - best <= 0f
+                    ? new Color(0.35f, 0.9f, 0.4f)  // still under the best lap's total — on or ahead of pace
+                    : new Color(1f, 0.55f, 0.2f);   // this lap has already overrun the best — off pace
+                GUILayout.Label($"({delta})", GUILayout.Width(64));
+                GUI.color = prev;
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Pure pace-delta text for the current lap: the signed seconds of the in-progress lap's elapsed
+        /// time (<paramref name="currentLapS"/>) minus the player's best lap (<paramref name="bestLapS"/>),
+        /// e.g. "+1.2" or "-0.8". Returns an empty string when there is no best yet (sentinel &lt; 0) or the
+        /// current time is not valid, so callers show nothing until a comparison is meaningful. No engine,
+        /// scene or clock state, so it is unit-testable and a headless readout would format it identically.
+        /// </summary>
+        public static string FormatPaceDelta(float currentLapS, float bestLapS)
+        {
+            if (bestLapS < 0f || currentLapS < 0f) return string.Empty;
+            float delta = currentLapS - bestLapS;
+            return delta.ToString("+0.0;-0.0");
         }
 
         private static void DrawStatBar(string label, float value, Color fill)
@@ -234,6 +301,13 @@ namespace Shitboxer.Race
         {
             if (!_playerCombat && playerCar) _playerCombat = playerCar.GetComponent<VehicleCombat>();
             return _playerCombat;
+        }
+
+        /// <summary>Lazily binds the player's draft sensor; returns false until one exists.</summary>
+        private bool EnsureDraft()
+        {
+            if (!_playerDraft && playerCar) _playerDraft = playerCar.GetComponent<DraftSensor>();
+            return _playerDraft;
         }
 
         /// <summary>

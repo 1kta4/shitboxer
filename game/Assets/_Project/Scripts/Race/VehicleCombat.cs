@@ -58,9 +58,24 @@ namespace Shitboxer.Race
         [Tooltip("Impulse severity (0..1) a contact must exceed to leave any lasting damage. Below it a hit still rattles grip but only scrapes/taps — no permanent wear.")]
         [Range(0f, 1f)][SerializeField] private float damageSeverityThreshold = 0.4f;
 
+        /// <summary>Shipped multiplier applied to the combat damage this car deals while the active race
+        /// carries the boss-only <see cref="RaceModifier.DamageAmplified"/> modifier. Bounded (see the
+        /// serialized field's Range); 1 would be a no-op, so it stays modest. Exposed so a test can pin
+        /// the shipped factor without a scene.</summary>
+        public const float DefaultDamageAmplifiedFactor = 1.5f;
+
+        [Header("Boss ruleset: DamageAmplified modifier (opt-in, boss races only)")]
+        [Tooltip("Multiplier on the combat damage this car deals — persistent contact wear plus attack grip/power/aura saps — while the active race's ruleset carries RaceModifier.DamageAmplified, a boss-only, opt-in flag. Bounded so the modifier can never runaway-scale damage. Every normal race carries no such modifier, so the factor is exactly 1 and damage is byte-for-byte the shipped value.")]
+        [Range(1f, 3f)][SerializeField] private float damageAmplifiedFactor = DefaultDamageAmplifiedFactor;
+
         private VehicleController _controller;
         private int _vehicleMask;
         private readonly Collider[] _auraHits = new Collider[16];
+
+        // The scene's race referee, resolved once (same-assembly Race->Race lookup — never Meta). Read only
+        // for the boss DamageAmplified modifier; a null manager (no race, or a car outside one) reads as not
+        // amplified, so the combat damage this car deals stays byte-for-byte the shipped value.
+        private RaceManager _race;
 
         /// <summary>Realtime stamp of the last attack this car LANDED on a rival — HUD flash only.</summary>
         public float LastAttackLandedRealtime { get; private set; } = -99f;
@@ -119,6 +134,37 @@ namespace Shitboxer.Race
             _vehicleMask = 1 << gameObject.layer; // cars all share the Vehicle layer; only their root box collides
         }
 
+        private void Start()
+        {
+            // Same-assembly lookup only (Race must not reference Meta). Prefer a manager on a parent (nested
+            // race rigs), else the single scene manager — the exact pattern BotDriver already uses. Null is
+            // fine: no ruleset => not amplified => combat damage unchanged.
+            _race = GetComponentInParent<RaceManager>();
+            if (!_race) _race = FindFirstObjectByType<RaceManager>();
+        }
+
+        /// <summary>True when the active race's ruleset carries the boss-only
+        /// <see cref="RaceModifier.DamageAmplified"/> modifier, so the combat damage this car deals is scaled
+        /// by <see cref="damageAmplifiedFactor"/>. A null race (no scene manager, or a car outside a race)
+        /// reads false — factor 1, damage byte-for-byte unchanged.</summary>
+        private bool DamageAmplified => IsDamageAmplified(_race);
+
+        /// <summary>Whether combat damage should be amplified for <paramref name="race"/>: true only when a
+        /// non-null race carries the boss-only <see cref="RaceModifier.DamageAmplified"/> modifier. A
+        /// null/absent race reads false (no NRE) — so a race with no ruleset, and every non-boss race, is left
+        /// unchanged. Pure over its argument, so the null guard and the modifier read are unit-testable
+        /// without a scene.</summary>
+        public static bool IsDamageAmplified(RaceManager race) =>
+            race != null && race.HasModifier(RaceModifier.DamageAmplified);
+
+        /// <summary>Combat damage after the boss <see cref="RaceModifier.DamageAmplified"/> modifier: the base
+        /// amount UNCHANGED (identity — byte-for-byte) when <paramref name="amplified"/> is false, i.e. every
+        /// normal race and every race while bosses are off; otherwise scaled by the bounded
+        /// <paramref name="factor"/>. Pure and side-effect-free, so the amplified / normal split is
+        /// unit-testable.</summary>
+        public static float AmplifiedDamage(float baseDamage, bool amplified, float factor) =>
+            amplified ? baseDamage * factor : baseDamage;
+
         private void OnCollisionEnter(Collision collision)
         {
             // Impact magnitude drives everything below (rattle, saps, surge, the presentation hook), so a
@@ -149,6 +195,12 @@ namespace Shitboxer.Race
             // role-neutral (full). Cheap and side-effect-free, so it is safe to compute unconditionally.
             float selfRoleMult = isCarHit ? Mathf.Lerp(victimRattleMult, aggressorRattleMult, aggressorness) : 1f;
 
+            // Boss DamageAmplified modifier: scale the combat damage this car deals this hit (the persistent
+            // wear below and the attack saps at the end). Read once for the whole collision; false — no boss
+            // ruleset, or no scene manager — leaves every amount byte-for-byte the shipped value. The self
+            // rattle above is collision FEEL, not damage, so it is deliberately left unscaled.
+            bool amplified = DamageAmplified;
+
             // Universal feel: any hard hit rattles our own grip, scaled by severity AND by role — the
             // aggressor shrugs it off, the victim takes the heavier dip. Clamped so it can never over-sap.
             if (severity01 > 0f && _controller.Sim != null)
@@ -166,7 +218,7 @@ namespace Shitboxer.Race
             if (severity01 > damageSeverityThreshold && _controller.Sim != null)
             {
                 float hardness = Mathf.InverseLerp(damageSeverityThreshold, 1f, severity01); // 0..1 past the gate
-                _controller.Sim.ApplyDamage(damagePerFullHit * hardness * selfRoleMult);
+                _controller.Sim.ApplyDamage(AmplifiedDamage(damagePerFullHit * hardness * selfRoleMult, amplified, damageAmplifiedFactor));
             }
 
             // Aggressor reward: a brief, finite forward surge so a good ram carries momentum through the
@@ -182,8 +234,8 @@ namespace Shitboxer.Race
             // and ApplyGripSap/ApplyPowerSap clamp again, so the result is always finite and bounded.
             float attackScale = Mathf.Clamp01(Mathf.Lerp(attackSeverityFloor, 1f, severity01)
                                               * Mathf.Lerp(attackVictimFloor, 1f, aggressorness));
-            other.Sim.ApplyGripSap(profile.ContactGripSap * attackScale, profile.ContactRecoverPerS);
-            other.Sim.ApplyPowerSap(profile.ContactPowerSap * attackScale, profile.ContactRecoverPerS);
+            other.Sim.ApplyGripSap(AmplifiedDamage(profile.ContactGripSap * attackScale, amplified, damageAmplifiedFactor), profile.ContactRecoverPerS);
+            other.Sim.ApplyPowerSap(AmplifiedDamage(profile.ContactPowerSap * attackScale, amplified, damageAmplifiedFactor), profile.ContactRecoverPerS);
             LastAttackLandedRealtime = Time.time;
         }
 
@@ -241,6 +293,9 @@ namespace Shitboxer.Race
         {
             if (!profile.HasAura) return;
 
+            // Boss DamageAmplified modifier scales the aura sap too; read once per pass. False (no boss
+            // ruleset / no scene manager) leaves the sap byte-for-byte the shipped value.
+            bool amplified = DamageAmplified;
             Vector3 pos = transform.position;
             Vector3 fwd = transform.forward;
             int count = Physics.OverlapSphereNonAlloc(pos, profile.AuraRadiusM, _auraHits,
@@ -255,7 +310,7 @@ namespace Shitboxer.Race
                 // Disruptor Field bites the cars sitting on your gearbox, not the ones you're chasing.
                 if (Vector3.Dot(other.transform.position - pos, fwd) >= 0f) continue;
 
-                other.Sim.ApplyGripSap(profile.AuraGripSap, profile.AuraRecoverPerS);
+                other.Sim.ApplyGripSap(AmplifiedDamage(profile.AuraGripSap, amplified, damageAmplifiedFactor), profile.AuraRecoverPerS);
                 landed = true;
             }
             if (landed) LastAttackLandedRealtime = Time.time;
