@@ -92,6 +92,8 @@ namespace Shitboxer.Meta
         [Min(0)] public int Price = 5;
         [Tooltip("doc 03 part modifier: Passive (default) is inert; Fragile breaks and is destroyed if the car finishes a race badly battered; Cashout refunds its Price into final money if still owned when the run ends.")]
         public PartCondition Condition = PartCondition.Passive;
+        [Tooltip("Balatro-foil-style edition — None (default) is today's exact numbers; higher tiers amplify the MAGNITUDE of this part's stat effect (SpecModApplier via PartEditionInfo.StatMult), never its sign.")]
+        public PartEdition Edition = PartEdition.None;
 
         [Header("Stat parts")]
         public List<SpecMod> SpecMods = new List<SpecMod>();

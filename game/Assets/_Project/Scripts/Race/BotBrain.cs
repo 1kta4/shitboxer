@@ -141,6 +141,12 @@ namespace Shitboxer.Race
         // SetDifficulty; nothing here reads the scene, so the core stays engine-loop-independent.
         private BotDifficulty _difficulty = BotDifficulty.Nominal;
 
+        // Personality/archetype layer (orthogonal to difficulty: personality = how it races others, difficulty
+        // = how good it is). Neutral by default -> every tactical bias is identity, so a bot with no personality
+        // set defends/passes/follows exactly as before. The host opts in via SetPersonality; nothing here reads
+        // the scene, so the core stays engine-loop-independent.
+        private BotPersonality _personality = BotPersonality.Neutral;
+
         public BotBrain(RacingLine line, BotSkill skill)
         {
             _line = line;
@@ -154,6 +160,14 @@ namespace Shitboxer.Race
         /// — the default — reproduces today's behaviour exactly.
         /// </summary>
         public void SetDifficulty(in BotDifficulty difficulty) => _difficulty = difficulty;
+
+        /// <summary>
+        /// Sets the bounded on-track personality/archetype consulted each <see cref="Step"/>, biasing the
+        /// EXISTING tactical knobs (line cover, pass commitment, follow gap). Fed by the host and kept out of
+        /// the core so a headless server can set it too. <see cref="BotPersonality.Neutral"/> — the default —
+        /// leaves every bias at identity, reproducing today's behaviour exactly.
+        /// </summary>
+        public void SetPersonality(in BotPersonality personality) => _personality = personality;
 
         /// <summary>
         /// Clamps a raw commitment/rubber-band factor to the subtle bounded band. Kept pure and
@@ -340,11 +354,13 @@ namespace Shitboxer.Race
             speedCap = float.MaxValue;
             desiredTactical = 0f;
 
-            // Personality: a more defensive bot picks a drafter up from further back and covers more of the
-            // line; a bolder bot commits to passes on a slimmer speed advantage (and squeezes closer, see
-            // PickOvertakeOffset). At 0 each term below is the pre-personality constant.
-            float defensiveness = Mathf.Clamp01(_skill.Defensiveness);
-            float boldness = Mathf.Clamp01(_skill.OvertakeBoldness);
+            // Racecraft (per-bot skill) folded with the archetype personality bias (orthogonal character): a
+            // more defensive bot / a Blocker archetype picks a drafter up from further back and covers more of
+            // the line; a bolder bot / a Diver archetype commits to passes on a slimmer speed advantage (and
+            // squeezes closer, see PickOvertakeOffset). Each archetype bias is 0 at Neutral, so for a neutral
+            // personality every term below is bit-for-bit the pre-archetype value.
+            float defensiveness = Mathf.Clamp01(_skill.Defensiveness + _personality.BlockBiasClamped);
+            float boldness = Mathf.Clamp01(_skill.OvertakeBoldness + _personality.DiveAggressionClamped);
             float draftRange = DraftRangeM * (1f + DraftRangeDefenseGain * defensiveness);
 
             int count = sensors.Neighbors != null ? Mathf.Min(sensors.NeighborCount, sensors.Neighbors.Length) : 0;
@@ -384,8 +400,11 @@ namespace Shitboxer.Race
             if (hasAhead)
             {
                 // Following model: more clear gap buys more approach speed; back right off inside the buffer
-                // so we never nose into a stopped/slow car.
-                float effGap = aheadDist - FollowBufferM;
+                // so we never nose into a stopped/slow car. A Diver archetype trims the buffer (FollowGapScale
+                // < 1) so it tucks in and closes harder; a Cruiser keeps more room (> 1). Neutral == 1, so this
+                // is bit-for-bit the base follow gap for a neutral bot, and the scale is bounded so the buffer
+                // stays positive (never rear-ends).
+                float effGap = aheadDist - FollowBufferM * _personality.FollowGapScale;
                 float theirSpeed = Mathf.Max(0f, aheadAlongSpeed);
                 float cap = theirSpeed + effGap * FollowClosingGainMps;
                 speedCap = Mathf.Max(effGap > 0f ? MinFollowSpeed : 0f, cap);
@@ -415,8 +434,11 @@ namespace Shitboxer.Race
         private float PickOvertakeOffset(in BotSensors sensors, int count, Vector3 trackDir,
             Vector3 trackRight, float blockerLateral, float baseLateral)
         {
-            // Bolder bots leave less room as they slice past — bounded so there's always a positive gap.
-            float clearance = PassClearanceM * (1f - OvertakeClearanceBoldnessCut * Mathf.Clamp01(_skill.OvertakeBoldness));
+            // Bolder bots leave less room as they slice past — bounded so there's always a positive gap. The
+            // Diver/Cruiser archetype bias folds into boldness here too, so a bolder character squeezes closer;
+            // the bias is 0 at Neutral, so this is bit-for-bit the pre-archetype clearance for a neutral bot.
+            float boldness = Mathf.Clamp01(_skill.OvertakeBoldness + _personality.DiveAggressionClamped);
+            float clearance = PassClearanceM * (1f - OvertakeClearanceBoldnessCut * boldness);
             float leftTarget = blockerLateral - clearance;
             float rightTarget = blockerLateral + clearance;
             float chosen = ScoreLane(sensors, count, trackDir, trackRight, leftTarget)

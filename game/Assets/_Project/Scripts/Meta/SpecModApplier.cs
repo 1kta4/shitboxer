@@ -36,12 +36,21 @@ namespace Shitboxer.Meta
             foreach (PartDef part in equippedParts)
             {
                 if (part == null || part.Category != PartCategory.Stat) continue;
+                // Edition amplifies the MAGNITUDE of this part's effect (its deviation from
+                // identity), never its sign. Edition.None → edition == 1f → the branch below takes
+                // the exact original expression, so un-editioned parts bake byte-for-byte as before.
+                float edition = PartEditionInfo.StatMult(part.Edition);
                 foreach (SpecMod mod in part.SpecMods)
                 {
                     float current = factor.TryGetValue(mod.Target, out float f) ? f : 1f;
+                    float amount = edition == 1f
+                        ? mod.Multiplier
+                        : (mod.Op == SpecModOp.Add
+                            ? mod.Multiplier * edition            // Add: Multiplier IS the +fraction effect
+                            : 1f + (mod.Multiplier - 1f) * edition);  // Multiply: scale deviation from 1
                     factor[mod.Target] = mod.Op == SpecModOp.Add
-                        ? current + mod.Multiplier
-                        : current * mod.Multiplier;
+                        ? current + amount
+                        : current * amount;
                 }
             }
 

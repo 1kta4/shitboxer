@@ -89,9 +89,32 @@ namespace Shitboxer.Race
         private float _raceTime;
         private bool _greenFlag;
         private bool _running;
+        // Boss / special-race state applied by SetRuleset. Default false / None reproduces the standard
+        // race exactly, so a race left on the standard ruleset behaves byte-for-byte as before it existed.
+        private bool _isBoss;
+        private RaceModifier _modifiers = RaceModifier.None;
 
         public int TotalLaps => totalLaps;
         public float CutoffFraction => cutoffFraction;
+
+        /// <summary>True when the active ruleset marks this as a boss race. Default false (standard race).</summary>
+        public bool IsBossRace => _isBoss;
+
+        /// <summary>Special rules the active ruleset layers on the standard format. Default None (standard race).</summary>
+        public RaceModifier Modifiers => _modifiers;
+
+        /// <summary>True if every bit of <paramref name="modifier"/> is active on this race.</summary>
+        public bool HasModifier(RaceModifier modifier) => (_modifiers & modifier) == modifier;
+
+        /// <summary>The race's current ruleset, reconstructed from live state (laps, cutoff, boss, modifiers).</summary>
+        public RaceRuleset Ruleset => new RaceRuleset
+        {
+            Laps = totalLaps,
+            CutoffFraction = cutoffFraction,
+            IsBoss = _isBoss,
+            Modifiers = _modifiers,
+        };
+
         public float RaceTimeS => _raceTime;
         public float TrackLengthM => trackPath ? trackPath.TotalLength : 0f;
 
@@ -139,6 +162,24 @@ namespace Shitboxer.Race
         /// untouched — it only sets the fraction the deadline is computed from.
         /// </summary>
         public void SetCutoffFraction(float value) => cutoffFraction = Mathf.Clamp(value, 0.01f, 1f);
+
+        /// <summary>
+        /// Applies a <see cref="RaceRuleset"/> — the data-driven description of how this race runs (laps,
+        /// survival cutoff, boss flag, special modifiers) — the mechanism behind boss and event races.
+        /// Folds the lap count and cutoff into the same backing fields <see cref="Configure"/> and the
+        /// runtime setters already drive (clamped to their authored ranges), so the lap / leaderboard /
+        /// checkpoint logic is untouched and reads exactly what it always did. Passing
+        /// <see cref="RaceRuleset.Standard"/> restores the shipped defaults exactly. Call before
+        /// <see cref="Start"/> (bind time) so the checkpoint ring is laid for the final lap count. Default
+        /// (no call) leaves the race on the standard ruleset — byte-for-byte the shipped behaviour.
+        /// </summary>
+        public void SetRuleset(in RaceRuleset ruleset)
+        {
+            totalLaps = Mathf.Max(1, ruleset.Laps);
+            cutoffFraction = Mathf.Clamp(ruleset.CutoffFraction, 0.01f, 1f);
+            _isBoss = ruleset.IsBoss;
+            _modifiers = ruleset.Modifiers;
+        }
 
         /// <summary>Seconds of countdown left before the green flag; 0 once racing.</summary>
         public float CountdownRemainingS => Mathf.Max(0f, -_raceTime);

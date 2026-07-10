@@ -24,6 +24,8 @@ namespace Shitboxer.Race
 
         [SerializeField] private TrackPath trackPath;
         [SerializeField] private BotSkill skill = BotSkill.Default;
+        [Tooltip("On-track archetype layered on top of the driving stats: biases how hard this bot covers the line and how boldly it dives for passes, always within a subtle bounded band. Neutral (the default) leaves today's behaviour unchanged. Orthogonal to skill; set per-bot by the host, never randomised here.")]
+        [SerializeField] private BotPersonalityKind personality = BotPersonalityKind.Neutral;
         [Tooltip("Grip fraction an all-out (high-aggression) bot saps from a car it rams. Timid bots sap 40% of this. 0 disables bot attacks.")]
         [SerializeField] private float maxContactGripSap = 0.16f;
 
@@ -110,7 +112,13 @@ namespace Shitboxer.Race
         private void FixedUpdate()
         {
             if (!trackPath || trackPath.Line == null) return;
-            _brain ??= new BotBrain(trackPath.Line, skill);
+            if (_brain == null)
+            {
+                _brain = new BotBrain(trackPath.Line, skill);
+                // Opt-in archetype; Neutral (the serialized default) maps to identity biases, so an unset
+                // personality leaves the brain's tactical output bit-for-bit as before.
+                _brain.SetPersonality(BotPersonality.FromKind(personality));
+            }
 
             Vector3 velocity = _controller.Body ? _controller.Body.linearVelocity : Vector3.zero;
             UpdateFlipRecovery(velocity);
