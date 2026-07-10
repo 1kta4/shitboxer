@@ -249,7 +249,7 @@ namespace Shitboxer.Race
                 }
 
                 status.TotalDistanceM += step;
-                if (step > 0f) CreditCheckpoints(status, line, prev, step);
+                CreditCheckpoints(status, line, progress);
                 status.Lap = Mathf.Clamp(status.ValidatedLaps + 1, 1, totalLaps);
             }
 
@@ -266,18 +266,25 @@ namespace Shitboxer.Race
         }
 
         /// <summary>
-        /// Credits every checkpoint the forward step swept past, in order (usually 0 or 1 per step;
-        /// the loop covers a fast car clearing two close checkpoints at once). A lap validates only
-        /// when the start/finish line is crossed having cleared every other checkpoint since the last
-        /// crossing — so cutting the course, which skips checkpoints, never counts a lap.
+        /// Credits each checkpoint the car has reached, in ring order, by POSITION — the car is at or
+        /// just past the checkpoint — not by requiring one physics step to sweep exactly across it. The
+        /// old per-step-window version measured from the PREVIOUS frame's projected position, so a
+        /// one-metre forward blip of the spline projection near a checkpoint (common when driving wide
+        /// or cutting a corner) could overshoot the window and permanently strand the gate — the lap
+        /// would never validate and the car had to drive an extra lap. Anti-cut is still enforced
+        /// upstream: a real cut or mis-snap jumps the projection past MaxPlausibleStepM and is rejected
+        /// (and re-syncs the gate) before this runs, so only checkpoints the car genuinely drove past
+        /// reach here. The guard loop and the two-spacing window bound a fast car to at most one ring of
+        /// credits and stop a stale pointer from crediting a far-behind checkpoint. A lap validates only
+        /// when the start/finish line (checkpoint 0) is crossed having cleared every other checkpoint.
         /// </summary>
-        private void CreditCheckpoints(RaceCarStatus status, RacingLine line, float prevProgress, float step)
+        private void CreditCheckpoints(RaceCarStatus status, RacingLine line, float progress)
         {
             for (int guard = 0; guard < _checkpoints.Length; guard++)
             {
                 float cp = _checkpoints[status.NextCheckpoint];
-                float toCp = line.SignedDelta(prevProgress, cp); // forward distance prev -> cp
-                if (toCp <= 0f || toCp > step) break;             // next checkpoint not swept this step
+                float pastBy = line.SignedDelta(cp, progress); // >= 0 => car is at/just past this checkpoint
+                if (pastBy < 0f || pastBy > _checkpointSpacing * 2f) break; // still ahead, or a stale far-behind pointer
 
                 int passed = status.NextCheckpoint;
                 status.NextCheckpoint = (passed + 1) % _checkpoints.Length;

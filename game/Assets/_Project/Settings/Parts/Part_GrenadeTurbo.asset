@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_GrenadeTurbo
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: grenade_turbo
+  DisplayName: Grenade Turbo
+  Description: "Insane boost from a hand-grenade-spec snail. x1.35 torque, but the
+    tail goes light (-6% rear grip) \u2014 and one hard race and it lets go. FRAGILE:
+    destroyed if you finish a race badly battered."
+  Category: 0
+  Rarity: 2
+  Price: 11
+  Condition: 1
+  SpecMods:
+  - Target: 2
+    Multiplier: 1.35
+    Op: 0
+  - Target: 1
+    Multiplier: 0.94
+    Op: 0
+  MoneyPerPositionHeld: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0

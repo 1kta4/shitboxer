@@ -111,7 +111,14 @@ namespace Shitboxer.Editor
                 AssetDatabase.CreateFolder("Assets/_Project", "Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[Shitboxer] Race test scene built. Open {ScenePath} and press Play — 3 laps, 15% survival cutoff.");
+
+            // Rebuilding the scene from scratch drops the RunRig (RunDirector). Without it the race
+            // completes but never advances to the garage — the player just keeps driving a finished
+            // track. Add run mode automatically so a rebuilt scene is always play-ready (it reopens
+            // and re-saves RaceTest.unity with the RunRig wired to the PartPool).
+            MetaAssetsBuilder.AddRunModeToRaceScene();
+
+            Debug.Log($"[Shitboxer] Race test scene built WITH run mode. Open {ScenePath} and press Play — full loop: 3-lap race, survival cutoff, then the garage.");
         }
 
         private static void EnsurePhase1Assets()
