@@ -162,6 +162,10 @@ namespace Shitboxer.Race
             foreach (VehicleController car in cars)
             {
                 if (!car) continue;
+                // A registered racer must always be simulated. A VehicleController left disabled in
+                // the scene (e.g. a leftover from debugging) makes that car sit inert on the floor —
+                // no suspension, no drive — while every other car races. Guarantee it steps.
+                car.enabled = true;
                 // Every racer can be hit and can carry attack parts — guarantee the resolver
                 // even for scenes/prefabs built before the combat layer existed.
                 VehicleCombat.GetOrAdd(car.gameObject);
