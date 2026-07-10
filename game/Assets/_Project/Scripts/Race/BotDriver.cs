@@ -126,7 +126,11 @@ namespace Shitboxer.Race
                 NeighborCount = GatherNeighbors(transform.position),
             };
 
-            _controller.Input = _brain.Step(Time.fixedDeltaTime, sensors, ComputeRubberband());
+            // Rubber-band commitment factor AND the raw signed gap-to-field (+ ahead, - behind). The gap
+            // feeds BotBrain's difficulty/skill-tier model; with the default (nominal) difficulty that model
+            // is inert, so passing the real gap changes nothing until a host opts in via SetDifficulty.
+            float rubberband = ComputeRubberband(out float signedGapM);
+            _controller.Input = _brain.Step(Time.fixedDeltaTime, sensors, rubberband, signedGapM);
         }
 
         /// <summary>
@@ -136,8 +140,9 @@ namespace Shitboxer.Race
         /// scaled by the manager's global difficulty. Returns 1 (neutral) with no manager or too small
         /// a field; BotBrain re-clamps the result so it can never read as cheating.
         /// </summary>
-        private float ComputeRubberband()
+        private float ComputeRubberband(out float signedGapM)
         {
+            signedGapM = 0f; // neutral gap for every early-out below (solo run / not on the board yet)
             if (!_race) return 1f;
             var board = _race.Leaderboard;
             if (board == null || board.Count < 2) return 1f;
@@ -161,6 +166,7 @@ namespace Shitboxer.Race
             if (!found || n < 2) return 1f;
 
             float gap = mine - sum / n; // + = ahead of the pack (ease off), - = behind it (boost)
+            signedGapM = gap;
             float t = Mathf.Clamp(gap / RubberbandFullGapM, -1f, 1f);
             return (1f - t * RubberbandSpan) * _race.DifficultyScalar;
         }

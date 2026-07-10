@@ -132,5 +132,83 @@ namespace Shitboxer.Meta
                     total += part.Price;
             return total;
         }
+
+        // ---- Economy depth (Balatro-style): shop interest + reroll escalation --------------------
+        // All tunables default so the run plays and pays exactly as shipped: interest rate 0 pays
+        // nothing, and the reroll increment 0 leaves ShopLogic's +$1/reroll curve untouched. These
+        // are additive, opt-in hooks — no existing money path is altered except ApplyShopInterest,
+        // which is an explicit step a caller must invoke to grant interest.
+
+        /// <summary>$ interest paid per whole block of banked money at shop time. 0 (default) = no interest.</summary>
+        public int InterestPerBlock;
+
+        /// <summary>$ of banked money per interest block (Balatro's "per $5"). Shipped default block size.</summary>
+        public int InterestBlockSize = ShopEconomy.DefaultInterestBlockSize;
+
+        /// <summary>Cap on interest paid in a single shop. int.MaxValue (default) = uncapped.</summary>
+        public int InterestCap = int.MaxValue;
+
+        /// <summary>Base cost of the first reroll of a visit (mirrors ShopLogic's shipped base).</summary>
+        public int RerollBaseCost = ShopLogic.BaseRerollCost;
+
+        /// <summary>
+        /// Extra per-reroll escalation layered on top of <see cref="ShopLogic.RerollCostStep"/>.
+        /// 0 (default) reproduces the shipped +$1/reroll curve. Mirrors ShopLogic.RerollCostIncrement
+        /// so a headless economy driver can compute reroll costs off RunState alone.
+        /// </summary>
+        public int RerollCostIncrement;
+
+        /// <summary>Rerolls bought so far this garage visit (transient; not persisted).</summary>
+        private int _rerollsThisVisit;
+
+        /// <summary>Rerolls bought so far this garage visit.</summary>
+        public int RerollsThisVisit => _rerollsThisVisit;
+
+        /// <summary>
+        /// Interest the current banked <see cref="Money"/> would earn at shop time, per the interest
+        /// tunables. Pure — computes without mutating. 0 unless InterestPerBlock is raised.
+        /// </summary>
+        public int ShopInterest() =>
+            ShopEconomy.Interest(Money, InterestPerBlock, InterestBlockSize, InterestCap);
+
+        /// <summary>
+        /// Grants <see cref="ShopInterest"/> by ADDING it to <see cref="Money"/> and returning the
+        /// amount granted. An explicit, opt-in step: nothing calls it automatically, so leaving the
+        /// interest rate at 0 (or never invoking it) keeps the shipped economy exactly. Call it once
+        /// when a garage opens to pay Balatro-style interest on hoarded cash.
+        /// </summary>
+        public int ApplyShopInterest()
+        {
+            int bonus = ShopInterest();
+            Money += bonus;
+            return bonus;
+        }
+
+        /// <summary>
+        /// Cost of the next reroll given how many have been bought this visit, routed through
+        /// <see cref="ShopEconomy.RerollCost"/>. The effective per-reroll step is the shipped
+        /// <see cref="ShopLogic.RerollCostStep"/> plus <see cref="RerollCostIncrement"/>, so with the
+        /// default increment 0 it matches the live shop's curve (base, base+step, base+2*step, ...).
+        /// </summary>
+        public int NextRerollCost() => ShopEconomy.RerollCost(
+            RerollBaseCost, _rerollsThisVisit, ShopLogic.RerollCostStep + RerollCostIncrement);
+
+        /// <summary>Resets the per-visit reroll counter — call when a fresh garage visit opens.</summary>
+        public void ResetRerollCounter() => _rerollsThisVisit = 0;
+
+        /// <summary>
+        /// Charges <see cref="NextRerollCost"/> against <see cref="Money"/> and advances the per-visit
+        /// counter (so the next reroll costs more). Returns the amount charged, or -1 if unaffordable
+        /// (in which case nothing is charged and the counter is untouched). A standalone economy API;
+        /// the live garage reroll runs through <see cref="ShopLogic"/> instead.
+        /// </summary>
+        public int ChargeReroll()
+        {
+            int cost = NextRerollCost();
+            if (Money < cost) return -1;
+            Money -= cost;
+            _rerollsThisVisit++;
+            return cost;
+        }
     }
 }

@@ -136,12 +136,24 @@ namespace Shitboxer.Race
         private float _reverseTimer;
         private float _tacticalOffsetM; // smoothed lateral tactic (right-of-travel m), added onto the base line offset
 
+        // Difficulty/skill-tier layer. Nominal by default -> Evaluate() yields identity modifiers, so a bot
+        // with no difficulty set drives exactly as before. The host (BotDriver / a server) opts in via
+        // SetDifficulty; nothing here reads the scene, so the core stays engine-loop-independent.
+        private BotDifficulty _difficulty = BotDifficulty.Nominal;
+
         public BotBrain(RacingLine line, BotSkill skill)
         {
             _line = line;
             _skill = skill;
             _mistakeSeed = ComputeSeed(skill);
         }
+
+        /// <summary>
+        /// Sets the bounded difficulty/skill-tier model consulted each <see cref="Step"/>. Fed by the host
+        /// (kept out of the core so a headless server can drive it too). <see cref="BotDifficulty.Nominal"/>
+        /// — the default — reproduces today's behaviour exactly.
+        /// </summary>
+        public void SetDifficulty(in BotDifficulty difficulty) => _difficulty = difficulty;
 
         /// <summary>
         /// Clamps a raw commitment/rubber-band factor to the subtle bounded band. Kept pure and
@@ -155,9 +167,16 @@ namespace Shitboxer.Race
         /// Drives one step. <paramref name="rubberband"/> is the host's commitment factor
         /// (gap-to-field * difficulty); it is clamped internally to the subtle band and scales the
         /// free-flowing speed plan, so 1 (the default) reproduces the base behaviour exactly.
+        /// <paramref name="signedGapM"/> is this bot's track-distance gap to the field (+ ahead, - behind),
+        /// supplied by the host; it feeds the difficulty/skill-tier model set via <see cref="SetDifficulty"/>.
+        /// With the default (nominal) difficulty the model returns identity modifiers, so the gap has no
+        /// effect and the output is bit-for-bit the base behaviour.
         /// </summary>
-        public VehicleInput Step(float dt, in BotSensors sensors, float rubberband = 1f)
+        public VehicleInput Step(float dt, in BotSensors sensors, float rubberband = 1f, float signedGapM = 0f)
         {
+            // Bounded difficulty/skill-tier modifiers for this step (identity under the default nominal config).
+            BotModifiers mods = _difficulty.Evaluate(signedGapM);
+
             Vector3 fwd = sensors.Forward;
             fwd.y = 0f;
             fwd = fwd.sqrMagnitude > 0.001f ? fwd.normalized : Vector3.forward;
@@ -177,9 +196,11 @@ namespace Shitboxer.Race
 
             // Free-flowing speed plan (before rivals / off-line penalties). Also tells the opponent
             // logic whether we're quick enough to want a pass. The bounded rubber-band nudges the whole
-            // plan up/down so a trailing bot commits a little harder and a runaway leader eases off; it
-            // rides on top of, and never overrides, the corner-safety and following caps below.
-            float freeTargetSpeed = PlanTargetSpeed(progress, speed) * ClampRubberband(rubberband);
+            // plan up/down so a trailing bot commits a little harder and a runaway leader eases off; the
+            // difficulty/skill tier layers a second bounded scale on top (pro carries a touch more speed,
+            // rookie a touch less). Both ride on top of, and never override, the corner-safety and following
+            // caps below. At nominal difficulty mods.TargetSpeedScale == 1, so this is unchanged.
+            float freeTargetSpeed = PlanTargetSpeed(progress, speed) * ClampRubberband(rubberband) * mods.TargetSpeedScale;
 
             // Opponent awareness: a speed cap so we settle in behind a slower car instead of rear-ending it,
             // plus a lateral tactic (overtake to the clearer side, or a light cover of a drafting follower).
@@ -215,8 +236,9 @@ namespace Shitboxer.Race
                 };
             }
 
-            // --- Steering: pure pursuit.
-            float steer = Mathf.Clamp(headingErrDeg / SteerSaturationDeg, -1f, 1f);
+            // --- Steering: pure pursuit. Skill sharpens/softens the response (mods.SteerSharpness == 1 at
+            // nominal, so `headingErrDeg * 1f / SteerSaturationDeg` is the base expression bit-for-bit).
+            float steer = Mathf.Clamp(headingErrDeg * mods.SteerSharpness / SteerSaturationDeg, -1f, 1f);
 
             // --- Speed plan: slowest corner within braking range wins.
             float targetSpeed = freeTargetSpeed;
@@ -237,6 +259,12 @@ namespace Shitboxer.Race
                 brake = Mathf.Clamp01(-speedError * 0.25f);
             else
                 throttle = 0.15f; // hold speed against drag
+
+            // Difficulty/skill throttle bias, bounded: a pro commits a touch more, a rookie a touch less, and
+            // a trailing bot pushes via the rubber-band. Clamped back into [0,1]; the traction-control and
+            // stuck-detection checks below still see the result. mods.ThrottleScale == 1 at nominal, and
+            // throttle is already in [0,1] here, so Clamp01(throttle * 1) leaves it untouched bit-for-bit.
+            throttle = Mathf.Clamp01(throttle * mods.ThrottleScale);
 
             // Traction control: past ~1.5x peak slip the tyre is burning grip it could
             // spend cornering — the Power bots' spin-then-stall cycle starts exactly here.

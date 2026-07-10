@@ -23,6 +23,18 @@ namespace Shitboxer.Vehicle
         public readonly float[] SlipAngleDeg = new float[WheelCount];
         public readonly bool[] Grounded = new bool[WheelCount];
 
+        // --- Tyre heat / wear (opt-in) ---
+        /// <summary>
+        /// When false (the default) the tyre heat/wear model is NOT stepped and never touches tyre grip —
+        /// the force path is identical to a sim without it, so the user's tuned driving feel is unchanged.
+        /// Flip on to let tyres warm, reach an optimal-grip band, overheat and slowly wear across a race.
+        /// </summary>
+        public bool TyreWearEnabled = false;
+
+        // One heat/wear model per wheel. Always allocated (four tiny objects) but only stepped/consulted
+        // when TyreWearEnabled — an un-stepped model reads GripMult == 1, so the disabled path is a no-op.
+        private readonly TyreWear[] _tyreWear = new TyreWear[WheelCount];
+
         // --- Drivetrain state ---
         public int Gear { get; private set; } = 1;        // 1-based; 0 = reverse
         public bool InReverse { get; private set; }
@@ -64,6 +76,7 @@ namespace Shitboxer.Vehicle
             Spec = spec;
             Spec.Validate(); // clamp every divisor field to a positive minimum before a step can divide by it
             EngineRpm = spec.Engine.IdleRpm;
+            for (int i = 0; i < WheelCount; i++) _tyreWear[i] = new TyreWear();
         }
 
         /// <summary>Local attach position for wheel i (FL, FR, RL, RR) in chassis space.</summary>
@@ -226,6 +239,26 @@ namespace Shitboxer.Vehicle
         public void SetDurability(float durability)
         {
             Durability = Mathf.Clamp(durability, MinDurability, 1f);
+        }
+
+        // ------------------------------------------------------------------ tyre heat / wear
+
+        /// <summary>
+        /// The per-wheel tyre heat/wear model for wheel <paramref name="i"/> (FL, FR, RL, RR) — telemetry
+        /// and tuning. <see cref="TyreWear.GripMult"/> reads 1 on a fresh/un-stepped model, so this is
+        /// inert until <see cref="TyreWearEnabled"/> is set and the model is stepped.
+        /// </summary>
+        public TyreWear WheelTyreWear(int i) => _tyreWear[i];
+
+        /// <summary>
+        /// Race-start reset: return every tyre to ambient temperature and clear the slow wear accumulated
+        /// over the previous race. A freshly-built VehicleSim already starts reset — call this to reuse an
+        /// existing sim across races. The host (RaceManager) is expected to call it at each race start;
+        /// it is deliberately NOT wired to any caller here.
+        /// </summary>
+        public void ResetTyreWear()
+        {
+            for (int i = 0; i < WheelCount; i++) _tyreWear[i].Reset();
         }
 
         /// <summary>
@@ -592,6 +625,15 @@ namespace Shitboxer.Vehicle
             // straight into the friction circle. SurfaceGripMult reads 1 for an unset contact, so this
             // is a no-op until a track marks a low-grip zone.
             float mu = TyreMu(tyre, rho, load) * GripEffectMult * DurabilityMult * c.SurfaceGripMult;
+            if (TyreWearEnabled)
+            {
+                // Warm/wear the tyre from this substep's slip and load, then fold its thermal+wear grip
+                // factor into the friction circle. rho is the friction-circle slip (1 = peak), clamped to
+                // a 0..1 heating input; load is normalized by the tyre's rated load (already >0 via
+                // VehicleSpec.Validate). Gated so this whole block — and any grip change — is absent by default.
+                _tyreWear[i].Step(dt, Mathf.Clamp01(rho), Mathf.Clamp01(load / tyre.RatedLoadN));
+                mu *= _tyreWear[i].GripMult;
+            }
             if (!IsFrontWheel(i) && input.Handbrake > 0.1f)
                 mu *= Spec.HandbrakeGripFactor;
 

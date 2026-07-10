@@ -15,14 +15,46 @@ namespace Shitboxer.Meta
         public const int BaseRerollCost = 5;
         public const int RerollCostStep = 1;
 
+        /// <summary>
+        /// Extra per-reroll escalation layered ON TOP of <see cref="RerollCostStep"/> (Balatro-style
+        /// economy depth). 0 (default) reproduces the shipped +$1/reroll curve exactly; raise it to
+        /// make rerolls bite harder each time within a visit. Resets nothing — it is a run-wide knob.
+        /// </summary>
+        public int RerollCostIncrement;
+
+        /// <summary>
+        /// Optional dynamic-pricing multiplier per <see cref="Rarity"/> tier, indexed by (int)Rarity.
+        /// null (default) means every tier prices at 1x — i.e. the shipped sticker price. See
+        /// <see cref="PriceOf"/> / <see cref="ShopEconomy.PartPrice(int, Rarity, PartCategory, float[], float[])"/>.
+        /// </summary>
+        public float[] RarityPriceMult;
+
+        /// <summary>
+        /// Optional dynamic-pricing multiplier per part <see cref="PartCategory"/> family, indexed by
+        /// (int)PartCategory. null (default) means every family prices at 1x — the shipped price.
+        /// </summary>
+        public float[] FamilyPriceMult;
+
         private Random _rng;
         private readonly List<PartDef> _offers = new List<PartDef>();
+
+        /// <summary>How many rerolls have been bought so far this visit (drives the escalating cost).</summary>
+        private int _rerollsThisVisit;
 
         /// <summary>The parts currently on the shelf (bought ones are removed in place).</summary>
         public IReadOnlyList<PartDef> Offers => _offers;
 
         /// <summary>Cost of the next reroll this visit.</summary>
         public int RerollCost { get; private set; } = BaseRerollCost;
+
+        /// <summary>
+        /// The price this shop actually charges for a part, after any rarity/family pricing multipliers.
+        /// With the default (null) multiplier tables this is exactly <c>part.Price</c>, so buying costs
+        /// the shipped sticker price. Returns 0 for a null part.
+        /// </summary>
+        public int PriceOf(PartDef part) => part == null
+            ? 0
+            : ShopEconomy.PartPrice(part.Price, part.Rarity, part.Category, RarityPriceMult, FamilyPriceMult);
 
         public ShopLogic() : this(Environment.TickCount) { }
         public ShopLogic(int seed) => _rng = new Random(seed);
@@ -38,6 +70,7 @@ namespace Shitboxer.Meta
         /// <summary>Opens a shop visit: resets the reroll cost and rolls fresh stock.</summary>
         public void BeginVisit(IReadOnlyList<PartDef> pool, RunState run)
         {
+            _rerollsThisVisit = 0;
             RerollCost = BaseRerollCost;
             Roll(pool, run);
         }
@@ -58,7 +91,12 @@ namespace Shitboxer.Meta
         {
             if (run.Money < RerollCost) return false;
             run.Money -= RerollCost;
-            RerollCost += RerollCostStep;
+            // Advance the per-visit counter and recompute the next cost through ShopEconomy. The
+            // effective per-reroll step is the shipped RerollCostStep plus any extra depth tuning;
+            // with RerollCostIncrement = 0 this is byte-for-byte today's +$1/reroll curve.
+            _rerollsThisVisit++;
+            RerollCost = ShopEconomy.RerollCost(
+                BaseRerollCost, _rerollsThisVisit, RerollCostStep + RerollCostIncrement);
             Roll(pool, run);
             return true;
         }
@@ -69,8 +107,9 @@ namespace Shitboxer.Meta
         /// </summary>
         public bool TryBuy(PartDef part, RunState run)
         {
-            if (part == null || !_offers.Contains(part) || run.Money < part.Price) return false;
-            run.Money -= part.Price;
+            int price = PriceOf(part);
+            if (part == null || !_offers.Contains(part) || run.Money < price) return false;
+            run.Money -= price;
             _offers.Remove(part);
             run.OwnedParts.Add(part);
             run.Equip(part);
