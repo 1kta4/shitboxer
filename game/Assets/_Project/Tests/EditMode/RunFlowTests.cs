@@ -1,0 +1,210 @@
+using NUnit.Framework;
+using Shitboxer.Meta;
+using Shitboxer.Race;
+using Shitboxer.Vehicle;
+using UnityEngine;
+
+namespace Shitboxer.Tests
+{
+    /// <summary>
+    /// Covers RunDirector's opt-in boss-race wiring and the repair/economy-depth knobs, all defaulting to
+    /// today's exact behaviour. The load-bearing contract: with boss races DISABLED no race is designated a
+    /// boss, the ruleset stays Standard and no boss reward/free-repair fires; with them ENABLED the circuit's
+    /// final race takes RaceRuleset.Boss and a clean finish earns the boss bonus while NoRepairAfter withholds
+    /// the interlude repair. Repair pricing at the shipped exponent 1 reproduces the original inline formula
+    /// bit-for-bit and only reshapes off the endpoints when a designer dials the exponent. The boss flow is
+    /// exercised through RunDirector's pure static helpers (no MonoBehaviour/scene needed) and the economy
+    /// through RunState, mirroring how the existing Meta fixtures pin these formulas.
+    /// </summary>
+    public class RunFlowTests : TestBase
+    {
+        // The shipped RunDirector serialized default these tests price against.
+        private const int ShippedFullRepairCost = 12;
+
+        private static void AssertRuleset(in RaceRuleset expected, in RaceRuleset actual, string ctx)
+        {
+            Assert.AreEqual(expected.Laps, actual.Laps, $"{ctx}: laps");
+            Assert.AreEqual(expected.CutoffFraction, actual.CutoffFraction, $"{ctx}: cutoff");
+            Assert.AreEqual(expected.IsBoss, actual.IsBoss, $"{ctx}: boss flag");
+            Assert.AreEqual(expected.Modifiers, actual.Modifiers, $"{ctx}: modifiers");
+        }
+
+        // --- Boss designation + ruleset selection (default OFF == today) ----------------------------
+
+        [Test]
+        public void BossDisabled_NeverDesignatesBoss_AndKeepsStandardRuleset()
+        {
+            // The master switch off: neither a boss race nor an ordinary one is ever a boss, and the
+            // ruleset selected for EITHER is the neutral Standard — byte-for-byte the shipped race.
+            Assert.IsFalse(RunDirector.IsDesignatedBoss(false, true), "boss races off must never designate a boss");
+            Assert.IsFalse(RunDirector.IsDesignatedBoss(false, false));
+
+            AssertRuleset(RaceRuleset.Standard, RunDirector.RulesetForRace(false, true), "disabled, circuit boss");
+            AssertRuleset(RaceRuleset.Standard, RunDirector.RulesetForRace(false, false), "disabled, ordinary race");
+        }
+
+        [Test]
+        public void BossEnabled_DesignatesOnlyTheCircuitBoss()
+        {
+            // Enabled: only the circuit's boss (its final race) is a boss; ordinary races stay Standard.
+            Assert.IsFalse(RunDirector.IsDesignatedBoss(true, false), "an ordinary race is never a boss");
+            Assert.IsTrue(RunDirector.IsDesignatedBoss(true, true), "the circuit's final race is the boss");
+
+            AssertRuleset(RaceRuleset.Standard, RunDirector.RulesetForRace(true, false), "enabled, ordinary race");
+            AssertRuleset(RaceRuleset.Boss, RunDirector.RulesetForRace(true, true), "enabled, circuit boss");
+        }
+
+        [Test]
+        public void EnabledBossRuleset_CarriesBossFlagsButNotDoublePayout()
+        {
+            // The designated boss gets the Boss template's flags (boss + damage-amplified + no-repair),
+            // and NOT DoublePayout — the shipped Boss template does not double credits.
+            RaceRuleset r = RunDirector.RulesetForRace(true, true);
+            Assert.IsTrue(r.IsBoss);
+            Assert.IsTrue(r.Has(RaceModifier.DamageAmplified), "boss amplifies contact damage (consumed race-side)");
+            Assert.IsTrue(r.Has(RaceModifier.NoRepairAfter), "boss withholds the interlude repair");
+            Assert.IsFalse(r.Has(RaceModifier.DoublePayout), "the shipped Boss template does not double payout");
+        }
+
+        [Test]
+        public void RulesetForRace_TracksRunStateBossDesignationAcrossACircuit()
+        {
+            // Ties the designation to RunState.IsBossRace (final race of the circuit): only the last race
+            // becomes a boss when enabled, and every race stays Standard when disabled.
+            var run = new RunState { RacesPerCircuit = 3 };
+            for (int race = 0; race < run.RacesPerCircuit; race++)
+            {
+                run.RaceIndex = race;
+                bool isCircuitBoss = race == run.RacesPerCircuit - 1;
+                Assert.AreEqual(isCircuitBoss, run.IsBossRace, $"race {race}");
+
+                AssertRuleset(RaceRuleset.Standard, RunDirector.RulesetForRace(false, run.IsBossRace),
+                    $"disabled, race {race}");
+                AssertRuleset(isCircuitBoss ? RaceRuleset.Boss : RaceRuleset.Standard,
+                    RunDirector.RulesetForRace(true, run.IsBossRace), $"enabled, race {race}");
+            }
+        }
+
+        // --- Boss reward payout (Meta-side) ---------------------------------------------------------
+
+        [Test]
+        public void ApplyBossReward_AddsFlatBonusWithoutDoublePayout()
+        {
+            // The shipped Boss template lacks DoublePayout, so a clean boss finish just adds the flat bonus.
+            Assert.AreEqual(18, RunDirector.ApplyBossReward(10, RaceRuleset.Boss, 8));
+            Assert.AreEqual(18, RunDirector.ApplyBossReward(10, RaceRuleset.Standard, 8),
+                "a ruleset without DoublePayout only adds the bonus");
+        }
+
+        [Test]
+        public void ApplyBossReward_DoublesFirstThenAddsBonusWhenDoublePayoutSet()
+        {
+            // A DoublePayout ruleset (e.g. the double-or-nothing event) doubles the position cash, then adds
+            // the flat bonus on top: 10 * 2 + 8 = 28.
+            Assert.IsTrue(RaceRuleset.DoubleOrNothing.Has(RaceModifier.DoublePayout));
+            Assert.AreEqual(28, RunDirector.ApplyBossReward(10, RaceRuleset.DoubleOrNothing, 8));
+        }
+
+        [Test]
+        public void ApplyBossReward_ZeroBonusIsIdentityWithoutDoublePayout()
+        {
+            // A zero bonus with a non-doubling ruleset leaves the payout untouched (defensive: proves the
+            // bonus is purely additive, so the reward's magnitude never leaks into a non-boss payout).
+            Assert.AreEqual(10, RunDirector.ApplyBossReward(10, RaceRuleset.Boss, 0));
+        }
+
+        // --- NoRepairAfter gate on the interlude free-repair ----------------------------------------
+
+        [Test]
+        public void GrantsFreeRepair_HonoursNoRepairAfter()
+        {
+            // The shipped Boss template carries NoRepairAfter, so a clean boss finish does NOT free-repair —
+            // its damage rides into the garage. A ruleset without the flag would grant the repair.
+            Assert.IsFalse(RunDirector.GrantsFreeRepair(true, RaceRuleset.Boss),
+                "NoRepairAfter must skip the interlude repair");
+            Assert.IsTrue(RunDirector.GrantsFreeRepair(true, RaceRuleset.Standard),
+                "a boss ruleset without NoRepairAfter grants the free repair");
+            Assert.IsFalse(RunDirector.GrantsFreeRepair(false, RaceRuleset.Standard),
+                "a non-boss race never free-repairs");
+        }
+
+        // --- Repair cost: default reproduces today; exponent reshapes off the endpoints -------------
+
+        // The original inline RunDirector formula these tests pin the default against.
+        private static int ShippedRepairCost(float carDurability, int fullRepairCost)
+        {
+            float wear = 1f - carDurability;
+            if (wear <= 0f) return 0;
+            float span = 1f - VehicleSim.MinDurability;
+            float t = span > 0f ? Mathf.Clamp01(wear / span) : 1f;
+            return Mathf.Max(1, Mathf.CeilToInt(fullRepairCost * t));
+        }
+
+        [Test]
+        public void RepairCost_DefaultExponent_MatchesShippedFormulaBitForBit()
+        {
+            // Across the whole durability range (incl. below the floor), the default-exponent cost equals
+            // the original inline formula exactly — the shipped repair number is untouched.
+            float[] durabilities = { 1f, 0.99f, 0.95f, 0.9f, 0.8f, 0.7f, 0.6f, 0.5f, 0.45f, 0.4f, 0.3f, 0f };
+            foreach (float dur in durabilities)
+            {
+                int expected = ShippedRepairCost(dur, ShippedFullRepairCost);
+                Assert.AreEqual(expected, RunState.RepairCostFor(dur, ShippedFullRepairCost),
+                    $"default-arg repair cost drifted at durability {dur}");
+                Assert.AreEqual(expected, RunState.RepairCostFor(dur, ShippedFullRepairCost, 1f),
+                    $"explicit exponent-1 repair cost drifted at durability {dur}");
+            }
+        }
+
+        [Test]
+        public void RepairCost_PristineIsFree_FloorIsFull_AnyWearCostsAtLeastOne()
+        {
+            Assert.AreEqual(0, RunState.RepairCostFor(1f, ShippedFullRepairCost), "a pristine car repairs for free");
+            Assert.GreaterOrEqual(RunState.RepairCostFor(0.999f, ShippedFullRepairCost), 1,
+                "any wear at all costs at least $1");
+            Assert.AreEqual(ShippedFullRepairCost, RunState.RepairCostFor(VehicleSim.MinDurability, ShippedFullRepairCost),
+                "at the durability floor a repair costs the full price");
+            Assert.AreEqual(ShippedFullRepairCost, RunState.RepairCostFor(0.2f, ShippedFullRepairCost),
+                "below the floor still clamps to the full price");
+        }
+
+        [Test]
+        public void RepairCost_ExponentReshapesCurveButKeepsEndpoints()
+        {
+            // Endpoints are exponent-invariant: pristine is free and the floor is full price for any exponent.
+            foreach (float exp in new[] { 0.5f, 2f, 3f })
+            {
+                Assert.AreEqual(0, RunState.RepairCostFor(1f, ShippedFullRepairCost, exp), $"pristine, exp {exp}");
+                Assert.AreEqual(ShippedFullRepairCost,
+                    RunState.RepairCostFor(VehicleSim.MinDurability, ShippedFullRepairCost, exp), $"floor, exp {exp}");
+            }
+
+            // Mid-damage (durability 0.7 → normalized wear 0.5): a convex exponent (>1) makes a partial repair
+            // strictly cheaper than the linear default, a concave one (<1) strictly dearer — the "scales when
+            // configured" behaviour, off the fixed endpoints.
+            int linear = RunState.RepairCostFor(0.7f, ShippedFullRepairCost, 1f);       // 12 * 0.5     = 6
+            int convex = RunState.RepairCostFor(0.7f, ShippedFullRepairCost, 2f);       // 12 * 0.5^2   = 3
+            int concave = RunState.RepairCostFor(0.7f, ShippedFullRepairCost, 0.5f);    // 12 * 0.5^0.5 ≈ 8.49 → 9
+            Assert.AreEqual(6, linear);
+            Assert.Less(convex, linear, "a convex exponent makes partial damage cheaper than linear");
+            Assert.Greater(concave, linear, "a concave exponent makes partial damage dearer than linear");
+        }
+
+        // --- Garage economy hooks are no-ops at the shipped defaults --------------------------------
+
+        [Test]
+        public void GarageEconomyHooks_AreNoOpsAtShippedDefaults()
+        {
+            // OpenGarage calls ResetRerollCounter + ApplyShopInterest each visit; at the shipped defaults
+            // (interest rate 0, reroll increment 0) neither moves money or the reroll curve off today's.
+            var run = new RunState { Money = 100 };
+            Assert.AreEqual(0, run.ApplyShopInterest(), "default interest rate pays nothing");
+            Assert.AreEqual(100, run.Money, "no-op interest must not change banked money");
+
+            run.ResetRerollCounter();
+            Assert.AreEqual(0, run.RerollsThisVisit, "a fresh visit starts at zero rerolls");
+            Assert.AreEqual(ShopLogic.BaseRerollCost, run.NextRerollCost(),
+                "the first reroll of a visit costs the shipped base");
+        }
+    }
+}

@@ -187,6 +187,22 @@ namespace Shitboxer.Vehicle
             if (floor < DraftDragMult) DraftDragMult = floor;
         }
 
+        // ------------------------------------------------------------------ overtake boost (KERS)
+
+        /// <summary>
+        /// Multiplier on engine drive torque this step, 1 = nominal (no boost). A HOST component
+        /// (DraftBoost) builds a bounded charge from sustained drafting and, when the player deploys it,
+        /// drives this above 1 for a short burst — an NFS/KERS-style overtake button — then back to 1.
+        /// Unlike <see cref="PowerEffectMult"/> (the combat sap, which the sim itself decays) this is a
+        /// plain host-driven input the host RE-ASSERTS every step, so the sim never decays or clamps it;
+        /// it folds into the drivetrain multiplicatively alongside the sap/wear channels so the two
+        /// compose cleanly. Left at its default of 1 it is a perfect no-op — the delivered torque, and
+        /// every force downstream, is byte-for-byte the un-boosted sim, so today's driving feel is
+        /// unchanged until a host flips the boost on. A bare field (not decayed here) keeps the core
+        /// engine-loop-independent: a headless server folds an identical multiplier the host hands it.
+        /// </summary>
+        public float BoostMult = 1f;
+
         // ------------------------------------------------------------------ persistent damage / durability
 
         /// <summary>Floor Durability can never drop below — even a total wreck still drives, just badly.</summary>
@@ -471,8 +487,10 @@ namespace Shitboxer.Vehicle
             float engineTorque;
             if (throttle > 0.01f)
             {
-                // Transient power sap AND persistent wear both scale the delivered engine torque.
-                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle * PowerEffectMult * DurabilityMult;
+                // Transient power sap, persistent wear AND the host's overtake boost all scale the
+                // delivered engine torque. BoostMult defaults to 1 (a host raises it during a deployed
+                // boost), so with no boost this is byte-for-byte the original power * sap * wear expression.
+                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle * PowerEffectMult * DurabilityMult * BoostMult;
                 // Rev limiter: no more torque at the wall.
                 if (EngineRpm >= Spec.Engine.RedlineRpm - 10f) engineTorque = 0f;
             }

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Shitboxer.Vehicle;
+using UnityEngine;
 
 namespace Shitboxer.Meta
 {
@@ -131,6 +133,30 @@ namespace Shitboxer.Meta
                 if (part != null && part.Condition == PartCondition.Cashout)
                     total += part.Price;
             return total;
+        }
+
+        /// <summary>
+        /// Pure cash cost to fully repair a car sitting at <paramref name="carDurability"/>, given the
+        /// full-repair price and an optional damage-curve exponent — the formula behind RunDirector's
+        /// garage REPAIR button, lifted here as a static, engine-loop-free helper so the economy is
+        /// unit-testable without a scene. 0 when pristine, at least $1 for any wear at all, up to
+        /// <paramref name="fullRepairCost"/> when battered all the way to the durability floor.
+        ///
+        /// The shipped default <paramref name="damageExponent"/> = 1 keeps the cost LINEAR in normalized
+        /// wear and skips the exponent entirely, so it reproduces the number the garage has always
+        /// charged bit-for-bit. An exponent above 1 makes deep damage cost proportionally more (a convex
+        /// money sink); below 1 front-loads light damage. The exponent only reshapes the curve between
+        /// the endpoints — pristine still costs $0 and the durability floor still costs fullRepairCost.
+        /// </summary>
+        public static int RepairCostFor(float carDurability, int fullRepairCost, float damageExponent = 1f)
+        {
+            float wear = 1f - carDurability;                     // 0 (pristine) .. (1 - MinDurability) at the floor
+            if (wear <= 0f) return 0;
+            float span = 1f - VehicleSim.MinDurability;          // total wear span from pristine to the floor
+            float t = span > 0f ? Mathf.Clamp01(wear / span) : 1f;
+            // Default exponent 1 short-circuits Pow so the priced value is the exact shipped expression.
+            float shaped = damageExponent == 1f ? t : Mathf.Pow(t, Mathf.Max(0f, damageExponent));
+            return Mathf.Max(1, Mathf.CeilToInt(fullRepairCost * shaped)); // any wear costs at least $1
         }
 
         // ---- Economy depth (Balatro-style): shop interest + reroll escalation --------------------

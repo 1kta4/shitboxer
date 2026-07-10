@@ -38,6 +38,24 @@ namespace Shitboxer.Meta
         [Tooltip("Cash to fully repair a car worn all the way to the durability floor; lighter wear costs proportionally less. A money sink tensioning the inverted catch-up economy.")]
         [SerializeField] private int fullRepairCost = 12;
 
+        [Tooltip("Damage-curve exponent for the repair price (see RunState.RepairCostFor). 1 (default) prices repairs LINEARLY in wear — byte-for-byte today's cost; >1 makes deep damage disproportionately dear; <1 front-loads light damage. Endpoints are unchanged either way.")]
+        [SerializeField] private float repairDamageExponent = 1f;
+
+        [Header("Boss races (opt-in — default OFF reproduces today's sequence exactly)")]
+        [Tooltip("When ON, each circuit's final race runs under RaceRuleset.Boss and a clean boss finish pays the boss bonus (and any DoublePayout) and honours NoRepairAfter. OFF (default) makes NO SetRuleset call and no boss reward — the race sequence, rulesets, rewards and repairs are byte-for-byte as shipped.")]
+        [SerializeField] private bool bossRacesEnabled = false;
+
+        [Tooltip("Flat cash added to a clean boss-race finish when boss races are enabled. Only ever applied on a designated boss race, so its value never affects a run with boss races OFF.")]
+        [SerializeField] private int bossRewardBonus = 8;
+
+        /// <summary>
+        /// Opt-in boss-race master switch (default OFF). With it off, RunDirector makes no SetRuleset call
+        /// and applies no boss reward, so the run plays and pays exactly as shipped. With it on, each
+        /// circuit's boss (its final race) runs under <see cref="RaceRuleset.Boss"/> (see
+        /// <see cref="ApplyRuleset"/>) and a clean boss finish earns <see cref="bossRewardBonus"/>.
+        /// </summary>
+        public bool BossRacesEnabled => bossRacesEnabled;
+
         /// <summary>Live state of the current run.</summary>
         public RunState Run { get; private set; } = new RunState();
 
@@ -129,6 +147,7 @@ namespace Shitboxer.Meta
 
             ApplyEquippedParts();
             ApplyAttackProfile();
+            ApplyRuleset();     // opt-in boss ruleset BEFORE ApplyDifficulty so the per-circuit tighten reads its base
             ApplyDifficulty();
 
             // Persistent wear carries ACROSS races within a run: a freshly-rebuilt sim resets to full
@@ -203,6 +222,60 @@ namespace Shitboxer.Meta
             _raceManager.SetCutoffFraction(Mathf.Max(MinCutoffFraction, cutoff));
         }
 
+        /// <summary>
+        /// Opt-in boss wiring: when <see cref="BossRacesEnabled"/> is on, pushes <see cref="RaceRuleset.Boss"/>
+        /// onto the freshly-bound race iff this is the circuit's boss (its final race), else the neutral
+        /// <see cref="RaceRuleset.Standard"/>. Runs BEFORE <see cref="ApplyDifficulty"/> so the per-circuit
+        /// cutoff tighten layers on top of the ruleset's base laps/cutoff. With boss races OFF (the default)
+        /// it makes NO SetRuleset call at all, leaving the RaceManager on its authored Standard defaults —
+        /// byte-for-byte the behaviour before this wave.
+        ///
+        /// NOTE: <see cref="RaceModifier.DamageAmplified"/> (carried by the Boss template) is consumed
+        /// RACE-side later — RaceManager/VehicleCombat will scale contact damage from it during the race.
+        /// This method only selects and applies the ruleset flag; the combat scaling is out of scope here.
+        /// </summary>
+        private void ApplyRuleset()
+        {
+            if (!bossRacesEnabled) return; // shipped path: no ruleset call — the race stays on its Standard defaults
+            _raceManager.SetRuleset(RulesetForRace(bossRacesEnabled, Run.IsBossRace));
+        }
+
+        /// <summary>
+        /// True when boss races are enabled AND the given race is the circuit's boss (its final race). Pure
+        /// and static so the designation is unit-testable without a live scene. Defaults false — with boss
+        /// races off, no race is ever designated a boss and the run plays exactly as shipped.
+        /// </summary>
+        public static bool IsDesignatedBoss(bool bossRacesEnabled, bool runIsBossRace) =>
+            bossRacesEnabled && runIsBossRace;
+
+        /// <summary>
+        /// The ruleset to apply to a race: <see cref="RaceRuleset.Boss"/> for a designated boss (see
+        /// <see cref="IsDesignatedBoss"/>), else <see cref="RaceRuleset.Standard"/>. Pure/static for unit
+        /// tests; SetRuleset(Standard) is itself a documented no-op, so an enabled non-boss race still
+        /// behaves as shipped.
+        /// </summary>
+        public static RaceRuleset RulesetForRace(bool bossRacesEnabled, bool runIsBossRace) =>
+            IsDesignatedBoss(bossRacesEnabled, runIsBossRace) ? RaceRuleset.Boss : RaceRuleset.Standard;
+
+        /// <summary>
+        /// Boss-clear payout: doubles the position cash iff the ruleset carries
+        /// <see cref="RaceModifier.DoublePayout"/>, then adds the flat <paramref name="bossRewardBonus"/>.
+        /// Pure/static so the boss economy is testable in isolation. Only ever called on a clean boss finish.
+        /// </summary>
+        public static int ApplyBossReward(int payout, in RaceRuleset ruleset, int bossRewardBonus)
+        {
+            if (ruleset.Has(RaceModifier.DoublePayout)) payout *= 2;
+            return payout + bossRewardBonus;
+        }
+
+        /// <summary>
+        /// Whether a clean boss finish grants the interlude free-repair: yes on a boss race UNLESS the
+        /// ruleset withholds it via <see cref="RaceModifier.NoRepairAfter"/> (which <see cref="RaceRuleset.Boss"/>
+        /// carries, so the shipped boss template's damage rides into the garage). Pure/static for tests.
+        /// </summary>
+        public static bool GrantsFreeRepair(bool bossRace, in RaceRuleset ruleset) =>
+            bossRace && !ruleset.Has(RaceModifier.NoRepairAfter);
+
         private void Update()
         {
             if (Phase != RunPhase.Racing || _raceResolved) return;
@@ -242,6 +315,12 @@ namespace Shitboxer.Meta
             bool bossFailed = !eliminated && Run.IsBossRace && me.Position > effectiveBossTopN;
             bool failed = eliminated || bossFailed;
 
+            // Opt-in boss race: true only when BossRacesEnabled designated THIS race a boss (its circuit's
+            // final race) — the same designation ApplyRuleset used to push RaceRuleset.Boss at bind time.
+            // Default (disabled) leaves this false, so every boss-reward/repair branch below is skipped and
+            // the payout/repair stay byte-for-byte as shipped.
+            bool bossRace = IsDesignatedBoss(bossRacesEnabled, Run.IsBossRace);
+
             // Failure — elimination OR a flunked boss race — pays only the flat consolation: the
             // price of failure is the life AND the wallet, so tanking a boss for the fat inverted
             // payout and retrying richer is no longer a play. Only a clean finish collects the
@@ -265,6 +344,18 @@ namespace Shitboxer.Meta
                 // payout stays byte-for-byte as shipped.
                 if (Run.StakeLevel > 0)
                     payout = Mathf.CeilToInt(payout * Run.StakeMult);
+
+                // Boss-race rewards on a clean boss finish (opt-in): honour the ruleset's DoublePayout
+                // modifier and add the flat boss-clear bonus, then grant the interlude free-repair unless
+                // the ruleset withholds it via NoRepairAfter (RaceRuleset.Boss does, so its damage rides
+                // into the garage). All gated on bossRace, so a disabled run never reaches this and the
+                // economy stays byte-for-byte as shipped.
+                if (bossRace)
+                {
+                    payout = ApplyBossReward(payout, _raceManager.Ruleset, bossRewardBonus);
+                    if (GrantsFreeRepair(bossRace, _raceManager.Ruleset))
+                        Run.CarDurability = 1f;
+                }
             }
             Run.Money += payout + economyBonus;
             int totalPay = payout + economyBonus;
@@ -364,6 +455,15 @@ namespace Shitboxer.Meta
         {
             Phase = RunPhase.Garage;
             Time.timeScale = 0f;
+
+            // Economy-depth hooks, both no-ops at the shipped defaults: reset the standalone per-visit
+            // reroll counter, and pay Balatro-style interest on banked cash. RunState.InterestPerBlock
+            // defaults to 0, so ApplyShopInterest grants $0 and Money is unchanged — the shipped economy
+            // is untouched until a designer raises the interest rate. (The live garage reroll runs through
+            // ShopLogic; ResetRerollCounter only clears RunState's separate ChargeReroll counter.)
+            Run.ResetRerollCounter();
+            Run.ApplyShopInterest();
+
             // Seed the shop deterministically from the run so a resumed/shared run reproduces the
             // exact same stock and rerolls, then persist the post-race state.
             Shop.BeginVisit(partPool ? partPool.Parts : null, Run, VisitSeed());
@@ -393,14 +493,11 @@ namespace Shitboxer.Meta
         /// </summary>
         public int RepairCost => ComputeRepairCost();
 
-        private int ComputeRepairCost()
-        {
-            float wear = 1f - Run.CarDurability;                 // 0 (pristine) .. (1 - MinDurability) at the floor
-            if (wear <= 0f) return 0;
-            float span = 1f - VehicleSim.MinDurability;          // total wear span from pristine to the floor
-            float t = span > 0f ? Mathf.Clamp01(wear / span) : 1f;
-            return Mathf.Max(1, Mathf.CeilToInt(fullRepairCost * t)); // any wear costs at least $1
-        }
+        // Repair pricing lives in RunState.RepairCostFor (a pure, testable helper). At the shipped
+        // repairDamageExponent of 1 this is byte-for-byte the original inline formula:
+        // Mathf.Max(1, Mathf.CeilToInt(fullRepairCost * normalizedWear)).
+        private int ComputeRepairCost() =>
+            RunState.RepairCostFor(Run.CarDurability, fullRepairCost, repairDamageExponent);
 
         /// <summary>
         /// Garage REPAIR CAR button: pays to restore the car to full durability. The cost scales with how

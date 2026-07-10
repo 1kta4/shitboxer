@@ -41,6 +41,26 @@ namespace Shitboxer.Meta
         /// </summary>
         public List<string> unlocks = new List<string>();
 
+        /// <summary>
+        /// Best (fastest) lap time recorded per track, keyed by trackId. A parallel List of flat
+        /// [Serializable] entries (NOT a Dictionary) so JsonUtility serialises it inline with the rest
+        /// of the profile. Purely a history/leaderboard stat — no gameplay or economy effect.
+        /// </summary>
+        public List<LapRecord> lapRecords = new List<LapRecord>();
+
+        /// <summary>
+        /// Rolling log of the last <see cref="MaxRunHistory"/> finished runs, oldest first / newest last.
+        /// Bounded so the profile can't grow without limit. Purely a record of past runs — reading it
+        /// never influences a future run's difficulty, reward or feel.
+        /// </summary>
+        public List<RunHistoryEntry> runHistory = new List<RunHistoryEntry>();
+
+        /// <summary>Cap on <see cref="runHistory"/>; older entries are trimmed once it is exceeded.</summary>
+        public const int MaxRunHistory = 50;
+
+        /// <summary>Sentinel returned by <see cref="BestLap"/> when a track has no recorded lap yet.</summary>
+        public const float NoLapRecord = 0f;
+
         /// <summary>Default absolute path of the profile file.</summary>
         public static string DefaultPath => Path.Combine(Application.persistentDataPath, FileName);
 
@@ -110,6 +130,62 @@ namespace Shitboxer.Meta
             return UnlockStake(stakeLevel + 1) ? StakeFlag(stakeLevel + 1) : null;
         }
 
+        // ---- Per-track lap records + run history ----------------------------
+
+        /// <summary>
+        /// Records a completed lap for <paramref name="trackId"/>, keeping only the FASTEST time seen.
+        /// Returns true only when it is a new record — the first valid lap for that track, or a time that
+        /// beats the stored best; a slower/equal lap leaves the record untouched and returns false. A
+        /// blank trackId or a non-positive lapSeconds (an invalid/unfinished lap) is ignored. Purely
+        /// additive bookkeeping — lap records have no gameplay or economy effect.
+        /// </summary>
+        public bool RecordBestLap(string trackId, float lapSeconds)
+        {
+            if (string.IsNullOrEmpty(trackId) || lapSeconds <= 0f) return false;
+            lapRecords ??= new List<LapRecord>();
+            for (int i = 0; i < lapRecords.Count; i++)
+            {
+                if (lapRecords[i].trackId == trackId)
+                {
+                    if (lapSeconds >= lapRecords[i].lapSeconds) return false; // not an improvement
+                    lapRecords[i] = new LapRecord { trackId = trackId, lapSeconds = lapSeconds };
+                    return true;
+                }
+            }
+            lapRecords.Add(new LapRecord { trackId = trackId, lapSeconds = lapSeconds });
+            return true; // first lap on this track is always a new record
+        }
+
+        /// <summary>
+        /// Best (fastest) recorded lap seconds for <paramref name="trackId"/>, or <see cref="NoLapRecord"/>
+        /// (0) when the track has no record yet. Stored laps are always &gt; 0, so 0 unambiguously means
+        /// "none".
+        /// </summary>
+        public float BestLap(string trackId)
+        {
+            if (string.IsNullOrEmpty(trackId) || lapRecords == null) return NoLapRecord;
+            for (int i = 0; i < lapRecords.Count; i++)
+                if (lapRecords[i].trackId == trackId) return lapRecords[i].lapSeconds;
+            return NoLapRecord;
+        }
+
+        /// <summary>True once <paramref name="trackId"/> has any recorded lap.</summary>
+        public bool HasLapRecord(string trackId) => BestLap(trackId) > NoLapRecord;
+
+        /// <summary>
+        /// Appends one finished-run summary to the rolling <see cref="runHistory"/> log and trims the
+        /// OLDEST entries so the log never exceeds <see cref="MaxRunHistory"/> (newest kept at the end).
+        /// Purely additive bookkeeping — history has no gameplay or economy effect. Does not persist; the
+        /// caller saves the profile once after run-end.
+        /// </summary>
+        public void RecordRun(RunHistoryEntry entry)
+        {
+            runHistory ??= new List<RunHistoryEntry>();
+            runHistory.Add(entry);
+            int overflow = runHistory.Count - MaxRunHistory;
+            if (overflow > 0) runHistory.RemoveRange(0, overflow);
+        }
+
         // ---- File IO --------------------------------------------------------
 
         public static MetaProgress Load() => Load(DefaultPath);
@@ -128,7 +204,11 @@ namespace Shitboxer.Meta
                     MetaProgress loaded = JsonUtility.FromJson<MetaProgress>(json);
                     if (loaded != null)
                     {
+                        // Guard every collection so a save written before these fields existed (the field
+                        // simply absent from its JSON) loads with empty records rather than nulls.
                         loaded.unlocks ??= new List<string>();
+                        loaded.lapRecords ??= new List<LapRecord>();
+                        loaded.runHistory ??= new List<RunHistoryEntry>();
                         return loaded;
                     }
                 }
