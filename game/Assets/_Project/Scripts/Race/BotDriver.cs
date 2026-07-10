@@ -40,16 +40,32 @@ namespace Shitboxer.Race
         private readonly Collider[] _neighborHits = new Collider[16];
         private readonly BotNeighbor[] _neighborBuf = new BotNeighbor[15];
 
-        /// <summary>Wires the bot up (used by editor builders — sets serialized fields only).</summary>
-        public void Configure(TrackPath path, float cornerSpeedMult, float aggression, float lookaheadM, float lateralOffsetM = 0f)
+        /// <summary>
+        /// Wires the bot up (used by editor builders — sets serialized fields only). The personality/racecraft
+        /// knobs are optional: left null they are DERIVED from the driving stats, so the existing presets fan
+        /// out into distinct characters (quick, aggressive bots attack and defend harder and rarely bobble;
+        /// slow, timid ones cede the line and make more of the bounded mistakes) without any caller change.
+        /// Pass an explicit 0..1 value to override a derived knob.
+        /// </summary>
+        public void Configure(TrackPath path, float cornerSpeedMult, float aggression, float lookaheadM,
+            float lateralOffsetM = 0f, float? defensiveness = null, float? overtakeBoldness = null,
+            float? mistakeRate = null, float? consistency = null)
         {
             trackPath = path;
+            // 0..1 driving-skill proxy from the two stats the presets already vary — high = quick & committed.
+            float skill01 = Mathf.Clamp01(0.5f * (Mathf.InverseLerp(0.78f, 1.05f, cornerSpeedMult)
+                                                + Mathf.InverseLerp(0.75f, 1.15f, aggression)));
+            float aggro01 = Mathf.Clamp01(Mathf.InverseLerp(0.75f, 1.15f, aggression));
             skill = new BotSkill
             {
                 CornerSpeedMult = cornerSpeedMult,
                 Aggression = aggression,
                 LookaheadM = lookaheadM,
                 LateralOffsetM = lateralOffsetM,
+                Defensiveness = Mathf.Clamp01(defensiveness ?? aggro01),
+                OvertakeBoldness = Mathf.Clamp01(overtakeBoldness ?? aggro01),
+                MistakeRate = Mathf.Clamp01(mistakeRate ?? Mathf.Lerp(0.30f, 0.05f, skill01)),
+                Consistency = Mathf.Clamp01(consistency ?? skill01),
             };
             _brain = null;
         }

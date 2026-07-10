@@ -35,6 +35,8 @@ namespace Shitboxer.Meta
         [SerializeField] private PayoutTable payoutTable = new PayoutTable();
         [Tooltip("Cash a fresh run starts with.")]
         [SerializeField] private int startingMoney = 5;
+        [Tooltip("Cash to fully repair a car worn all the way to the durability floor; lighter wear costs proportionally less. A money sink tensioning the inverted catch-up economy.")]
+        [SerializeField] private int fullRepairCost = 12;
 
         /// <summary>Live state of the current run.</summary>
         public RunState Run { get; private set; } = new RunState();
@@ -117,6 +119,13 @@ namespace Shitboxer.Meta
             ApplyEquippedParts();
             ApplyAttackProfile();
             ApplyDifficulty();
+
+            // Persistent wear carries ACROSS races within a run: a freshly-rebuilt sim resets to full
+            // durability (and ApplyEquippedParts may have just rebuilt it via SetSpec), so re-apply the
+            // run's carried value here — after the other Apply* calls — so a battered car stays battered
+            // until the player pays to repair it in the garage.
+            if (_playerCar.Sim != null)
+                _playerCar.Sim.SetDurability(Run.CarDurability);
         }
 
         /// <summary>
@@ -194,6 +203,13 @@ namespace Shitboxer.Meta
         private void ResolveRace()
         {
             _raceResolved = true;
+
+            // Carry the car's accumulated wear out of this race BEFORE any payout/boss/save branch below,
+            // so damage persists into the next race (and into the save the garage writes on open). Done
+            // once here regardless of the verdict — a battered car is battered whether it finished or was
+            // eliminated. Repairing it costs money in the garage (see RepairCar).
+            if (_playerCar != null && _playerCar.Sim != null)
+                Run.CarDurability = _playerCar.Sim.Durability;
 
             RaceCarStatus me = _raceManager.GetStatus(_playerCar);
             if (me == null)
@@ -301,6 +317,39 @@ namespace Shitboxer.Meta
             bool rerolled = Shop.TryReroll(partPool ? partPool.Parts : null, Run);
             if (rerolled) Save();
             return rerolled;
+        }
+
+        /// <summary>
+        /// Current cost to fully repair the run's car, scaling with how worn it is: 0 when pristine,
+        /// up to <see cref="fullRepairCost"/> when battered all the way to the durability floor, and at
+        /// least $1 for any wear at all. The garage reads this to label and gate the REPAIR CAR button.
+        /// </summary>
+        public int RepairCost => ComputeRepairCost();
+
+        private int ComputeRepairCost()
+        {
+            float wear = 1f - Run.CarDurability;                 // 0 (pristine) .. (1 - MinDurability) at the floor
+            if (wear <= 0f) return 0;
+            float span = 1f - VehicleSim.MinDurability;          // total wear span from pristine to the floor
+            float t = span > 0f ? Mathf.Clamp01(wear / span) : 1f;
+            return Mathf.Max(1, Mathf.CeilToInt(fullRepairCost * t)); // any wear costs at least $1
+        }
+
+        /// <summary>
+        /// Garage REPAIR CAR button: pays to restore the car to full durability. The cost scales with how
+        /// worn the car is (see <see cref="RepairCost"/>) — a money sink that tensions the inverted catch-up
+        /// economy. No-op returning false when the car is already pristine or the wallet can't cover the cost;
+        /// otherwise deducts the cost, resets CarDurability to full, persists and returns true.
+        /// </summary>
+        public bool RepairCar()
+        {
+            if (Run.CarDurability >= 1f) return false; // nothing to repair
+            int cost = ComputeRepairCost();
+            if (Run.Money < cost) return false;        // can't afford it
+            Run.Money -= cost;
+            Run.CarDurability = 1f;
+            Save();
+            return true;
         }
 
         /// <summary>Garage NEXT RACE button: unpause and reload the race scene for a clean grid.</summary>

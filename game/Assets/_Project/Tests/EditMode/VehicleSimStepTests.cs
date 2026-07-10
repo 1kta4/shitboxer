@@ -361,6 +361,35 @@ namespace Shitboxer.Tests
             Assert.That(rebuilt.DurabilityMult, Is.EqualTo(1f).Within(1e-6f), "a rebuilt sim should reset DurabilityMult to full");
         }
 
+        [Test]
+        public void SetDurability_ClampsToFloorAndCeiling_AndDrivesDurabilityMult()
+        {
+            var sim = NewSim();
+
+            // A mid-range value assigns straight through and pulls the performance mult below full,
+            // so RunDirector can carry a run's accumulated wear onto a freshly-rebuilt (full) sim.
+            sim.SetDurability(0.7f);
+            Assert.That(sim.Durability, Is.EqualTo(0.7f).Within(1e-6f), "mid-range durability did not set through");
+            Assert.Less(sim.DurabilityMult, 1f, "wear should pull DurabilityMult below full");
+
+            // Above 1 clamps to a pristine car — a repair restoring CarDurability to 1 lands here.
+            sim.SetDurability(1.5f);
+            Assert.That(sim.Durability, Is.EqualTo(1f).Within(1e-6f), "durability did not clamp to the ceiling of 1");
+            Assert.That(sim.DurabilityMult, Is.EqualTo(1f).Within(1e-6f), "a pristine car should have a full-performance mult");
+
+            // Below the floor clamps up to MinDurability (even a total wreck still drives, just badly).
+            sim.SetDurability(0f);
+            Assert.That(sim.Durability, Is.EqualTo(VehicleSim.MinDurability).Within(1e-6f), "durability did not clamp up to its floor");
+            sim.SetDurability(-5f);
+            Assert.That(sim.Durability, Is.EqualTo(VehicleSim.MinDurability).Within(1e-6f), "a negative durability did not clamp to the floor");
+
+            // At the floor SetDurability and hammering ApplyDamage to the floor must agree on the mult.
+            var floored = NewSim();
+            for (int i = 0; i < 50; i++) floored.ApplyDamage(1f);
+            Assert.That(sim.DurabilityMult, Is.EqualTo(floored.DurabilityMult).Within(1e-6f),
+                "SetDurability(floor) and ApplyDamage-to-floor should yield the same DurabilityMult");
+        }
+
         // -------------------------------------------------------------- internal substep coverage
         //
         // Step() advances the stiff wheel-spin / tyre-slip integration over several internal substeps

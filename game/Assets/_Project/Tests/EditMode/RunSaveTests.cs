@@ -80,6 +80,30 @@ namespace Shitboxer.Tests
         }
 
         [Test]
+        public void SaveDto_RoundTrips_CarDurability_ThroughJson()
+        {
+            // Persistent car wear must survive a save/resume so a battered run stays battered.
+            var run = new RunState { Money = 10, Lives = 3, CarDurability = 0.62f };
+
+            RunSave dto = RunSave.From(run);
+            string json = JsonUtility.ToJson(dto);
+            RunSave restoredDto = JsonUtility.FromJson<RunSave>(json);
+            RunState restored = restoredDto.ToRunState(Pool());
+
+            Assert.AreEqual(0.62f, restored.CarDurability, 1e-6f);
+        }
+
+        [Test]
+        public void CarDurability_AbsentFromJson_DefaultsToPristine()
+        {
+            // An old save written before persistent damage existed carries no carDurability field; a
+            // resumed run must read it as a pristine car (1), not a wreck (0).
+            RunSave dto = JsonUtility.FromJson<RunSave>("{\"money\":5,\"lives\":3,\"seed\":1}");
+            RunState run = dto.ToRunState(Pool());
+            Assert.AreEqual(1f, run.CarDurability, 1e-6f);
+        }
+
+        [Test]
         public void EquippedId_NotAlsoOwned_IsDroppedOnLoad()
         {
             var a = Part("a");

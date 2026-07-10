@@ -85,6 +85,17 @@ namespace Shitboxer.Meta
                 DrawStatBar("POWER", now.Power, new Color(1f, 0.55f, 0.2f));
             }
 
+            // Persistent wear carries across races; the garage is the only place to pay it back off.
+            if (run.CarDurability < 1f)
+            {
+                int repairCost = director.RepairCost;
+                GUILayout.Space(4);
+                GUI.enabled = run.Money >= repairCost;
+                if (GUILayout.Button($"REPAIR CAR (${repairCost}) — durability {run.CarDurability * 100f:0}%"))
+                    director.RepairCar();
+                GUI.enabled = true;
+            }
+
             _scroll = GUILayout.BeginScrollView(_scroll);
 
             GUILayout.Space(6);

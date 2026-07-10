@@ -180,6 +180,18 @@ namespace Shitboxer.Vehicle
         }
 
         /// <summary>
+        /// Directly assign persistent <see cref="Durability"/>, clamped to [<see cref="MinDurability"/>, 1].
+        /// Unlike <see cref="ApplyDamage"/> (which only ever lowers it and rejects out-of-range amounts)
+        /// this sets an ABSOLUTE value, so the host can carry a run's accumulated wear onto a freshly-rebuilt
+        /// sim (a new VehicleSim resets to full) or restore it after a garage repair. Lives in the plain-C#
+        /// core so a headless server can carry wear across races identically.
+        /// </summary>
+        public void SetDurability(float durability)
+        {
+            Durability = Mathf.Clamp(durability, MinDurability, 1f);
+        }
+
+        /// <summary>
         /// Advance the sim by dt. Returns forces to apply to the chassis rigidbody this step.
         /// The returned array is reused between calls — consume it immediately.
         /// </summary>

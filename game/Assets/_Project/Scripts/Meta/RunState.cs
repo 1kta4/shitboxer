@@ -37,6 +37,14 @@ namespace Shitboxer.Meta
 
         public int MaxEquipSlots = 6;
 
+        /// <summary>
+        /// Persistent 0..1 structural integrity of the run's car (1 = pristine). Unlike the sim's
+        /// per-race Durability this carries ACROSS races within a run: RunDirector re-applies it onto
+        /// each freshly-rebuilt sim, captures the sim's ending value back after every race, and resets
+        /// it to 1 when the player pays to repair in the garage. A fresh run starts pristine.
+        /// </summary>
+        public float CarDurability = 1f;
+
         /// <summary>Everything bought this run.</summary>
         public List<PartDef> OwnedParts = new List<PartDef>();
 

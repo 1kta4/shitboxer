@@ -212,6 +212,98 @@ namespace Shitboxer.Editor
                         Mul(SpecModTarget.Downforce, 0.96f));
                 }),
 
+                // ---- More stat parts: additive anchors for under-served targets (doc 03) ----
+                // Rear-only grip, downforce, and power-to-weight anchors. The Op=Add entries want
+                // to sit LEFT of the x-payoffs above (Race Slicks / Big Wing / Big Turbo) so equip
+                // order pays off; each carries a real trade-off, never a free +stat.
+                EnsurePart("Part_WeldedDiff", p =>
+                {
+                    p.Id = "welded_diff";
+                    p.DisplayName = "Welded Diff";
+                    p.Description = "Both rear wheels locked together. +12% rear grip on power (additive — slot it LEFT of Semi-Slicks or Race Slicks), but it scrubs the nose wide: -3% front grip.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Common;
+                    p.Price = 4;
+                    p.SpecMods = ModList(
+                        AddPct(SpecModTarget.GripRear, 0.12f),
+                        Mul(SpecModTarget.GripFront, 0.97f));
+                }),
+                EnsurePart("Part_PolyBushings", p =>
+                {
+                    p.Id = "poly_bushings";
+                    p.DisplayName = "Poly Bushings";
+                    p.Description = "Firm urethane mounts sharpen every input. +6% grip front and rear (additive) — cheap glue that makes your later x-grip parts hit harder.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Common;
+                    p.Price = 3;
+                    p.SpecMods = ModList(
+                        AddPct(SpecModTarget.GripFront, 0.06f),
+                        AddPct(SpecModTarget.GripRear, 0.06f));
+                }),
+                EnsurePart("Part_ColdAirIntake", p =>
+                {
+                    p.Id = "cold_air_intake";
+                    p.DisplayName = "Cold Air Intake";
+                    p.Description = "Feeds the engine denser air. +7% torque (additive — pair it before a x-power part), but the bonnet scoop spoils the airflow for -3% downforce.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Common;
+                    p.Price = 4;
+                    p.SpecMods = ModList(
+                        AddPct(SpecModTarget.Power, 0.07f),
+                        Mul(SpecModTarget.Downforce, 0.97f));
+                }),
+                EnsurePart("Part_FrontSplitter", p =>
+                {
+                    p.Id = "front_splitter";
+                    p.DisplayName = "Front Splitter";
+                    p.Description = "Bolts under the nose for bite. +20% downforce (additive — slot it LEFT of Big Wing to stack), but the extra lip adds +2% mass.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 6;
+                    p.SpecMods = ModList(
+                        AddPct(SpecModTarget.Downforce, 0.20f),
+                        Mul(SpecModTarget.Weight, 1.02f));
+                }),
+                EnsurePart("Part_MagnesiumWheels", p =>
+                {
+                    p.Id = "magnesium_wheels";
+                    p.DisplayName = "Magnesium Wheels";
+                    p.Description = "Featherweight unsprung mass. -6% mass and +5% grip front and rear (additive), but the thin rims flex under load: -3% downforce.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 7;
+                    p.SpecMods = ModList(
+                        Mul(SpecModTarget.Weight, 0.94f),
+                        AddPct(SpecModTarget.GripFront, 0.05f),
+                        AddPct(SpecModTarget.GripRear, 0.05f),
+                        Mul(SpecModTarget.Downforce, 0.97f));
+                }),
+                EnsurePart("Part_GroundEffectFloor", p =>
+                {
+                    p.Id = "ground_effect_floor";
+                    p.DisplayName = "Ground Effect Floor";
+                    p.Description = "Venturi tunnels suck the car down. +30% downforce (additive — the biggest anchor to slot LEFT of Big Wing), but the heavy floor pan adds +3% mass.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 11;
+                    p.SpecMods = ModList(
+                        AddPct(SpecModTarget.Downforce, 0.30f),
+                        Mul(SpecModTarget.Weight, 1.03f));
+                }),
+                EnsurePart("Part_TitaniumInternals", p =>
+                {
+                    p.Id = "titanium_internals";
+                    p.DisplayName = "Titanium Internals";
+                    p.Description = "Exotic rods and valves chase pure power-to-weight. -10% mass and +8% torque (additive — anchor it before Big Turbo), but the stripped-out engine bay loses -3% downforce. Expensive.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 13;
+                    p.SpecMods = ModList(
+                        AddPct(SpecModTarget.Power, 0.08f),
+                        Mul(SpecModTarget.Weight, 0.90f),
+                        Mul(SpecModTarget.Downforce, 0.97f));
+                }),
+
                 // ---- Economy parts (payout hook only, this phase) ----
                 EnsurePart("Part_SponsorLivery", p =>
                 {
@@ -249,6 +341,38 @@ namespace Shitboxer.Editor
                     p.Rarity = Rarity.Uncommon;
                     p.Price = 8;
                     p.MoneyPerPositionHeld = 3;
+                }),
+
+                // ---- More economy parts (same mid-pack-capped payout hook, new price points) ----
+                EnsurePart("Part_PizzaSponsor", p =>
+                {
+                    p.Id = "pizza_sponsor";
+                    p.DisplayName = "Pizza Sponsor";
+                    p.Description = "A local takeaway slaps a sticker on the door. +$1 per finishing position each race, capped at mid-pack — the cheapest way into the payout game.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Common;
+                    p.Price = 3;
+                    p.MoneyPerPositionHeld = 1;
+                }),
+                EnsurePart("Part_MerchStand", p =>
+                {
+                    p.Id = "merch_stand";
+                    p.DisplayName = "Merch Stand";
+                    p.Description = "Fans buy caps when you put on a show. +$2 per finishing position each race, capped at mid-pack.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 7;
+                    p.MoneyPerPositionHeld = 2;
+                }),
+                EnsurePart("Part_BroadcastDeal", p =>
+                {
+                    p.Id = "tv_broadcast_deal";
+                    p.DisplayName = "Prime-Time Broadcast Deal";
+                    p.Description = "The network pays per second you're on screen scrapping in the pack. +$4 per finishing position each race, capped at mid-pack — the fattest payout, and it rewards mixing it up mid-field over a clean win.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 12;
+                    p.MoneyPerPositionHeld = 4;
                 }),
 
                 // ---- Attack parts (on-contact saps + proximity aura, doc 03) ----
@@ -290,6 +414,51 @@ namespace Shitboxer.Editor
                     p.Rarity = Rarity.Rare;
                     p.Price = 10;
                     p.ContactPowerSap = 0.45f;
+                }),
+
+                // ---- More attack parts: contact saps + auras at new radius / strength / price bands ----
+                EnsurePart("Part_KerbFeelers", p =>
+                {
+                    p.Id = "kerb_feelers";
+                    p.DisplayName = "Kerb Feelers";
+                    p.Description = "Sharpened side rails that bite on a swipe. A glancing hit shaves a rival's grip — -20% for a moment. Cheap and light.";
+                    p.Category = PartCategory.Attack;
+                    p.Rarity = Rarity.Common;
+                    p.Price = 5;
+                    p.ContactGripSap = 0.20f;
+                }),
+                EnsurePart("Part_HeavyBullbar", p =>
+                {
+                    p.Id = "heavy_bullbar";
+                    p.DisplayName = "Heavy Bullbar";
+                    p.Description = "A brute steel hoop that unsettles anything you lean on. A solid hit costs a rival -15% grip AND -20% power.";
+                    p.Category = PartCategory.Attack;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 6;
+                    p.ContactGripSap = 0.15f;
+                    p.ContactPowerSap = 0.20f;
+                }),
+                EnsurePart("Part_OilDripper", p =>
+                {
+                    p.Id = "oil_dripper";
+                    p.DisplayName = "Oil Dripper";
+                    p.Description = "Leaves a greasy trail for whoever's close. A tight 4 m aura saps -12% grip from rivals right on your bumper — no contact needed.";
+                    p.Category = PartCategory.Attack;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 7;
+                    p.AuraRadiusM = 4f;
+                    p.AuraGripSap = 0.12f;
+                }),
+                EnsurePart("Part_ShockwaveEmitter", p =>
+                {
+                    p.Id = "shockwave_emitter";
+                    p.DisplayName = "Shockwave Emitter";
+                    p.Description = "A wide pressure field that rattles everyone near you. A big 8 m aura strips -22% grip from surrounding rivals — the strongest, widest aura in the shop, and priced like it.";
+                    p.Category = PartCategory.Attack;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 12;
+                    p.AuraRadiusM = 8f;
+                    p.AuraGripSap = 0.22f;
                 }),
             };
 

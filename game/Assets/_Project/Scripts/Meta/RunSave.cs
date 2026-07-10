@@ -26,6 +26,13 @@ namespace Shitboxer.Meta
         public int raceIndex;
         public int seed;
 
+        /// <summary>
+        /// Persistent car durability carried across races (RunState.CarDurability). Defaults to 1 so an
+        /// older save written before persistent damage existed (the field absent from its JSON) resumes
+        /// as a pristine car rather than a wreck.
+        /// </summary>
+        public float carDurability = 1f;
+
         /// <summary>Ids of everything bought this run (PartDef.Id).</summary>
         public List<string> ownedPartIds = new List<string>();
 
@@ -48,6 +55,7 @@ namespace Shitboxer.Meta
                 circuitIndex = run.CircuitIndex,
                 raceIndex = run.RaceIndex,
                 seed = run.Seed,
+                carDurability = run.CarDurability,
             };
             foreach (PartDef part in run.OwnedParts)
                 if (part && !string.IsNullOrEmpty(part.Id)) dto.ownedPartIds.Add(part.Id);
@@ -71,6 +79,7 @@ namespace Shitboxer.Meta
                 CircuitIndex = circuitIndex,
                 RaceIndex = raceIndex,
                 Seed = seed,
+                CarDurability = carDurability,
             };
             run.OwnedParts.Clear();
             run.EquippedParts.Clear();

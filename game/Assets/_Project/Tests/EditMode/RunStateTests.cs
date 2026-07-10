@@ -177,6 +177,15 @@ namespace Shitboxer.Tests
         }
 
         [Test]
+        public void CarDurability_DefaultsToFull_AndIsSettable()
+        {
+            var run = new RunState();
+            Assert.AreEqual(1f, run.CarDurability, 1e-6f); // a fresh run rolls a pristine car
+            run.CarDurability = 0.55f;                     // wear carried across races within a run
+            Assert.AreEqual(0.55f, run.CarDurability, 1e-6f);
+        }
+
+        [Test]
         public void DifficultyMult_StartsAtOneAndRampsUp()
         {
             var run = new RunState();

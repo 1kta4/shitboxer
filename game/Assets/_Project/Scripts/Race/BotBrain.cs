@@ -44,7 +44,33 @@ namespace Shitboxer.Race
         [Tooltip("Sideways offset from the centreline, metres (+ = right of travel). Spreads the field so bots race instead of forming a train.")]
         public float LateralOffsetM;
 
-        public static BotSkill Default => new BotSkill { CornerSpeedMult = 1f, Aggression = 1f, LookaheadM = 12f };
+        // --- Personality/racecraft (all 0..1; 0 = today's neutral behaviour, so old presets and
+        // already-saved scenes that leave these fields at their struct default drive exactly as before). ---
+
+        [Tooltip("0..1. How hard the bot covers the racing line when a rival is drafting it. 0 = today's light cover, 1 = blocks harder and picks up drafters from further back.")]
+        public float Defensiveness;
+
+        [Tooltip("0..1. Commitment when passing: bolder bots attack on a slimmer speed advantage and slice past leaving less room. 0 = today's cautious pass.")]
+        public float OvertakeBoldness;
+
+        [Tooltip("0..1. Chance of an occasional brief, bounded throttle-lift bobble so the bot isn't robotic. Deterministic per bot (seeded off its own track position). 0 = flawless (today's behaviour).")]
+        public float MistakeRate;
+
+        [Tooltip("0..1. Steadiness: higher damps the size of any bobble. Only matters when MistakeRate > 0.")]
+        public float Consistency;
+
+        public static BotSkill Default => new BotSkill
+        {
+            CornerSpeedMult = 1f,
+            Aggression = 1f,
+            LookaheadM = 12f,
+            // Neutral racecraft: the reference bot defends/passes exactly as the pre-personality code did
+            // and never bobbles, so BotSkill.Default reproduces prior behaviour bit-for-bit.
+            Defensiveness = 0f,
+            OvertakeBoldness = 0f,
+            MistakeRate = 0f,
+            Consistency = 1f,
+        };
     }
 
     /// <summary>
@@ -89,8 +115,22 @@ namespace Shitboxer.Race
         private const float TacticalSlewMps = 5f;          // how fast the tactical offset may move (offset-m per s)
         private const float OvertakeMinSpeed = 5f;         // don't weave for a pass while crawling/spun
 
+        // --- Personality/racecraft (all bounded so a field of distinct characters still completes clean laps).
+        // Every knob is a 0..1 BotSkill value; at 0 each expression below collapses to the pre-personality
+        // constant, so the neutral bot is unchanged. ---
+        private const float DraftRangeDefenseGain = 0.5f;         // full defensiveness picks a drafter up 50% further back
+        private const float DefendOffsetDefenseGain = 1f;         // ...and covers up to 2x the base line (still corridor-clamped)
+        private const float OvertakeMarginBoldnessCut = 0.6f;     // full boldness commits on 40% of the base speed advantage
+        private const float OvertakeClearanceBoldnessCut = 0.55f; // ...and slices past leaving 45% of the base gap (never negative)
+        private const float MistakeBinLengthM = 16f;              // each ~16 m of track gets one stable mistake draw (~0.5 s bobble at pace)
+        private const float MistakeMaxChance = 0.35f;             // at MistakeRate 1, ~35% of bins bobble
+        private const float MistakeMaxLift = 0.5f;                // a bobble eases at most half the throttle — a lift, never a stop
+        private const float MistakeConsistencyDamp = 0.6f;        // a rock-steady (Consistency 1) bot only ever twitches
+        private const float MistakeBrakeSoften = 0.5f;            // the late-brake half is bounded to half the lift so it stays on the corridor
+
         private readonly RacingLine _line;
         private readonly BotSkill _skill;
+        private readonly int _mistakeSeed; // stable per-bot seed so no two cars bobble in lockstep at the same corner
 
         private float _stuckTimer;
         private float _reverseTimer;
@@ -100,6 +140,7 @@ namespace Shitboxer.Race
         {
             _line = line;
             _skill = skill;
+            _mistakeSeed = ComputeSeed(skill);
         }
 
         /// <summary>
@@ -203,6 +244,18 @@ namespace Shitboxer.Race
                 throttle = Mathf.Min(throttle, Mathf.Lerp(0.5f, 0.1f,
                     Mathf.InverseLerp(TractionSlipLimit, TractionSlipLimit * 3f, sensors.DrivenWheelSlip)));
 
+            // --- Personality: an occasional brief, bounded, per-bot-DETERMINISTIC bobble. It is seeded off our
+            // own quantised progress (a hash — never Math/Unity Random or Time), so it reproduces bit-for-bit on
+            // a headless server and repeats lap-to-lap for a given bot. It only ever eases the throttle (and
+            // softens the brake a touch), so a mistake costs time and strings the field out without ever
+            // carrying enough speed to leave the corridor. MistakeRate 0 leaves throttle/brake untouched.
+            float mistake = MistakeFactor(progress, _skill.MistakeRate, _skill.Consistency, _mistakeSeed);
+            if (mistake > 0f)
+            {
+                throttle *= 1f - mistake;
+                brake *= 1f - mistake * MistakeBrakeSoften;
+            }
+
             // --- Stuck detection: commanded forward but not moving (nosed into a wall).
             if (speed < StuckSpeedMps && throttle > 0.3f)
                 _stuckTimer += dt;
@@ -259,6 +312,13 @@ namespace Shitboxer.Race
             speedCap = float.MaxValue;
             desiredTactical = 0f;
 
+            // Personality: a more defensive bot picks a drafter up from further back and covers more of the
+            // line; a bolder bot commits to passes on a slimmer speed advantage (and squeezes closer, see
+            // PickOvertakeOffset). At 0 each term below is the pre-personality constant.
+            float defensiveness = Mathf.Clamp01(_skill.Defensiveness);
+            float boldness = Mathf.Clamp01(_skill.OvertakeBoldness);
+            float draftRange = DraftRangeM * (1f + DraftRangeDefenseGain * defensiveness);
+
             int count = sensors.Neighbors != null ? Mathf.Min(sensors.NeighborCount, sensors.Neighbors.Length) : 0;
             if (count == 0) return;
 
@@ -284,7 +344,7 @@ namespace Shitboxer.Race
                     aheadAlongSpeed = Vector3.Dot(nvel, trackDir);
                     hasAhead = true;
                 }
-                else if (along < -1f && along > -DraftRangeM && Mathf.Abs(lateral) < LaneHalfWidthM * 1.5f && -along < behindDist)
+                else if (along < -1f && along > -draftRange && Mathf.Abs(lateral) < LaneHalfWidthM * 1.5f && -along < behindDist)
                 {
                     behindDist = -along;
                     behindLateral = lateral;
@@ -302,15 +362,21 @@ namespace Shitboxer.Race
                 float cap = theirSpeed + effGap * FollowClosingGainMps;
                 speedCap = Mathf.Max(effGap > 0f ? MinFollowSpeed : 0f, cap);
 
+                // Bolder bots need less of a speed advantage before they commit to the move.
+                float overtakeMargin = OvertakeSpeedMargin * (1f - OvertakeMarginBoldnessCut * boldness);
                 wantToPass = ourAlongSpeed > OvertakeMinSpeed
-                    && freeTargetSpeed > theirSpeed + OvertakeSpeedMargin;
+                    && freeTargetSpeed > theirSpeed + overtakeMargin;
             }
 
             if (wantToPass)
                 desiredTactical = PickOvertakeOffset(sensors, count, trackDir, trackRight, aheadLateral, baseLateral);
             else if (hasBehind)
-                // Light block: lean toward the side the follower is drifting to; small, and corridor-clamped later.
-                desiredTactical = Mathf.Clamp(behindLateral, -DefendMaxOffsetM, DefendMaxOffsetM);
+            {
+                // Light block: lean toward the side the follower is drifting to; a more defensive bot covers
+                // a little more of the line. Still small, and corridor-clamped later.
+                float defendMax = DefendMaxOffsetM * (1f + DefendOffsetDefenseGain * defensiveness);
+                desiredTactical = Mathf.Clamp(behindLateral, -defendMax, defendMax);
+            }
         }
 
         /// <summary>
@@ -321,8 +387,10 @@ namespace Shitboxer.Race
         private float PickOvertakeOffset(in BotSensors sensors, int count, Vector3 trackDir,
             Vector3 trackRight, float blockerLateral, float baseLateral)
         {
-            float leftTarget = blockerLateral - PassClearanceM;
-            float rightTarget = blockerLateral + PassClearanceM;
+            // Bolder bots leave less room as they slice past — bounded so there's always a positive gap.
+            float clearance = PassClearanceM * (1f - OvertakeClearanceBoldnessCut * Mathf.Clamp01(_skill.OvertakeBoldness));
+            float leftTarget = blockerLateral - clearance;
+            float rightTarget = blockerLateral + clearance;
             float chosen = ScoreLane(sensors, count, trackDir, trackRight, leftTarget)
                          >= ScoreLane(sensors, count, trackDir, trackRight, rightTarget)
                 ? leftTarget : rightTarget;
@@ -346,6 +414,63 @@ namespace Shitboxer.Race
                     score -= 30f;
             }
             return score;
+        }
+
+        /// <summary>
+        /// A brief, bounded, deterministic "mistake" signal in [0, <see cref="MistakeMaxLift"/>]: 0 nearly
+        /// always (a clean stretch of track), and occasionally a small throttle-ease so a field of bots strings
+        /// out instead of driving in lockstep. Seeded purely off the bot's quantised track progress (plus a
+        /// per-bot seed) — no Math/Unity Random, no Time — so it reproduces bit-for-bit on a headless server and
+        /// repeats lap-to-lap. Frequency scales with <paramref name="mistakeRate"/>; the bobble's size is damped
+        /// by <paramref name="consistency"/>. Rate 0 returns 0 (today's flawless behaviour). Pure and static so
+        /// the boundedness is unit-testable without a scene.
+        /// </summary>
+        public static float MistakeFactor(float progress, float mistakeRate, float consistency, int seed = 0)
+        {
+            mistakeRate = Mathf.Clamp01(mistakeRate);
+            if (mistakeRate <= 0f) return 0f;
+            consistency = Mathf.Clamp01(consistency);
+
+            // One stable pseudo-random draw per short progress bin decides whether this stretch bobbles.
+            long bin = (long)Mathf.Floor(progress / MistakeBinLengthM);
+            unchecked
+            {
+                if (Hash01(bin * 0x2545F4914F6CDD1DL + seed) >= mistakeRate * MistakeMaxChance)
+                    return 0f;
+
+                // A second independent draw sets the bobble's size; steady bots barely wobble. Clamped to
+                // MistakeMaxLift no matter the inputs, so laps always complete cleanly and stay on the corridor.
+                float mag = Hash01(bin * 0x5851F42D4C957F2DL - seed);
+                float lift = mag * (1f - MistakeConsistencyDamp * consistency);
+                return Mathf.Clamp01(lift) * MistakeMaxLift;
+            }
+        }
+
+        /// <summary>SplitMix64 bit-avalanche → [0,1). Pure and deterministic; the bot's only source of "noise".</summary>
+        private static float Hash01(long x)
+        {
+            unchecked
+            {
+                ulong z = (ulong)x + 0x9E3779B97F4A7C15UL;
+                z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
+                z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
+                z ^= z >> 31;
+                return (float)((z >> 11) * (1.0 / 9007199254740992.0));
+            }
+        }
+
+        /// <summary>Stable per-bot seed from its skill knobs so two cars never bobble at the same corner.</summary>
+        private static int ComputeSeed(in BotSkill s)
+        {
+            unchecked
+            {
+                int h = 17;
+                h = h * 31 + Mathf.RoundToInt(s.LateralOffsetM * 8f);
+                h = h * 31 + Mathf.RoundToInt(s.Aggression * 128f);
+                h = h * 31 + Mathf.RoundToInt(s.CornerSpeedMult * 128f);
+                h = h * 31 + Mathf.RoundToInt(s.LookaheadM * 4f);
+                return h;
+            }
         }
     }
 }
