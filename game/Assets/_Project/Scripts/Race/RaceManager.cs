@@ -78,6 +78,9 @@ namespace Shitboxer.Race
         [Tooltip("Ordered checkpoints laid evenly along the loop; a lap only counts when a car clears them in order (anti-cut / anti-mis-projection gate).")]
         [Min(4)]
         [SerializeField] private int checkpointCount = 16;
+        [Tooltip("Global bot-commitment scalar — a hook for a future per-circuit difficulty ramp. 1 = shipped balance; each bot multiplies it into its own rubber-band, which BotBrain then clamps subtle so it never reads as cheating. Leave at 1 for now.")]
+        [Range(0.5f, 1.5f)]
+        [SerializeField] private float difficultyScalar = 1f;
 
         private readonly List<RaceCarStatus> _statuses = new List<RaceCarStatus>();
         private readonly List<RaceCarStatus> _leaderboard = new List<RaceCarStatus>();
@@ -97,6 +100,9 @@ namespace Shitboxer.Race
 
         /// <summary>All registered cars sorted by current position (1 first). Re-sorted every physics step.</summary>
         public IReadOnlyList<RaceCarStatus> Leaderboard => _leaderboard;
+
+        /// <summary>Global bot-commitment scalar (default 1). Bots fold it into their rubber-band; BotBrain clamps the result subtle. A future per-circuit ramp can raise it to lift the whole field.</summary>
+        public float DifficultyScalar => difficultyScalar;
 
         public bool WinnerFinished { get; private set; }
 

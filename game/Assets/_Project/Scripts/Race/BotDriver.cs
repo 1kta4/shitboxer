@@ -16,6 +16,12 @@ namespace Shitboxer.Race
         private const float ProgressAnchorWindowM = 6f;
         private const float NeighborSenseRadiusM = 30f; // must cover the brain's follow/draft ranges
 
+        // Rubber-band: keep the pack tense instead of stringing out. We compare our own track
+        // distance to the field's mean; trailing the pack buys a small commitment boost, running
+        // away eases us off. Tapered by gap here, then clamped subtle inside BotBrain.
+        private const float RubberbandFullGapM = 45f; // gap (m) to the pack mean at which the nudge saturates
+        private const float RubberbandSpan = 0.10f;   // max +/- fraction before BotBrain's own clamp
+
         [SerializeField] private TrackPath trackPath;
         [SerializeField] private BotSkill skill = BotSkill.Default;
         [Tooltip("Grip fraction an all-out (high-aggression) bot saps from a car it rams. Timid bots sap 40% of this. 0 disables bot attacks.")]
@@ -23,6 +29,7 @@ namespace Shitboxer.Race
 
         private VehicleController _controller;
         private BotBrain _brain;
+        private RaceManager _race; // cached at Start for rubber-band gap lookups; null = solo run, stays neutral
         private float _flippedTimer;
         private float _noProgressTimer;
         private float _lastProgress;
@@ -55,6 +62,10 @@ namespace Shitboxer.Race
 
         private void Start()
         {
+            // Same-assembly lookup only (Race must not reference Meta). Prefer a manager on a parent
+            // (nested race rigs), else the single scene manager. Null is fine — rubber-band stays neutral.
+            _race = GetComponentInParent<RaceManager>();
+            if (!_race) _race = FindFirstObjectByType<RaceManager>();
             ApplyAttackProfile();
         }
 
@@ -99,7 +110,43 @@ namespace Shitboxer.Race
                 NeighborCount = GatherNeighbors(transform.position),
             };
 
-            _controller.Input = _brain.Step(Time.fixedDeltaTime, sensors);
+            _controller.Input = _brain.Step(Time.fixedDeltaTime, sensors, ComputeRubberband());
+        }
+
+        /// <summary>
+        /// Turns our standing in the field into a commitment factor for BotBrain. Reference is the
+        /// mean track distance of the cars still racing (the pack centre, player included): fall behind
+        /// it and we push a little harder, run away from it and we ease off, tapered by the gap and
+        /// scaled by the manager's global difficulty. Returns 1 (neutral) with no manager or too small
+        /// a field; BotBrain re-clamps the result so it can never read as cheating.
+        /// </summary>
+        private float ComputeRubberband()
+        {
+            if (!_race) return 1f;
+            var board = _race.Leaderboard;
+            if (board == null || board.Count < 2) return 1f;
+
+            float sum = 0f;
+            int n = 0;
+            float mine = 0f;
+            bool found = false;
+            for (int i = 0; i < board.Count; i++)
+            {
+                RaceCarStatus s = board[i];
+                if (s == null || s.State != CarRaceState.Racing || !s.Car) continue;
+                sum += s.TotalDistanceM;
+                n++;
+                if (s.Car == _controller)
+                {
+                    mine = s.TotalDistanceM;
+                    found = true;
+                }
+            }
+            if (!found || n < 2) return 1f;
+
+            float gap = mine - sum / n; // + = ahead of the pack (ease off), - = behind it (boost)
+            float t = Mathf.Clamp(gap / RubberbandFullGapM, -1f, 1f);
+            return (1f - t * RubberbandSpan) * _race.DifficultyScalar;
         }
 
         /// <summary>

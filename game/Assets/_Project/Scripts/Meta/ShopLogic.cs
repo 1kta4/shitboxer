@@ -15,7 +15,7 @@ namespace Shitboxer.Meta
         public const int BaseRerollCost = 5;
         public const int RerollCostStep = 1;
 
-        private readonly Random _rng;
+        private Random _rng;
         private readonly List<PartDef> _offers = new List<PartDef>();
 
         /// <summary>The parts currently on the shelf (bought ones are removed in place).</summary>
@@ -27,11 +27,30 @@ namespace Shitboxer.Meta
         public ShopLogic() : this(Environment.TickCount) { }
         public ShopLogic(int seed) => _rng = new Random(seed);
 
+        /// <summary>
+        /// Reseeds the draw RNG so a visit can be made byte-for-byte reproducible from a run seed.
+        /// RunDirector calls this (via the seeded BeginVisit overload) with a per-visit seed
+        /// derived from the run seed plus the circuit/race indices, so a resumed run reproduces
+        /// the same stock and reroll chain. Existing callers are unaffected.
+        /// </summary>
+        public void Reseed(int seed) => _rng = new Random(seed);
+
         /// <summary>Opens a shop visit: resets the reroll cost and rolls fresh stock.</summary>
         public void BeginVisit(IReadOnlyList<PartDef> pool, RunState run)
         {
             RerollCost = BaseRerollCost;
             Roll(pool, run);
+        }
+
+        /// <summary>
+        /// Deterministic BeginVisit: reseeds the RNG from <paramref name="seed"/> first, then rolls
+        /// exactly as the seedless overload — same rarity-weighted, without-replacement draw. Later
+        /// rerolls continue off this seeded stream, so the whole visit reproduces from the seed.
+        /// </summary>
+        public void BeginVisit(IReadOnlyList<PartDef> pool, RunState run, int seed)
+        {
+            Reseed(seed);
+            BeginVisit(pool, run);
         }
 
         /// <summary>Pays the escalating reroll cost and rerolls the shelf. False if unaffordable.</summary>

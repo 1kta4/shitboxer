@@ -65,7 +65,18 @@ namespace Shitboxer.Meta
             Instance = this;
             DontDestroyOnLoad(gameObject);
 
-            Run.Money = startingMoney;
+            // Resume an interrupted run if a save exists (parts resolved by Id via the pool);
+            // otherwise begin fresh with the starting cash and a freshly-rolled deterministic seed.
+            if (partPool != null && RunSave.TryLoad(partPool, out RunState resumed))
+            {
+                Run = resumed;
+            }
+            else
+            {
+                Run.Money = startingMoney;
+                Run.Seed = RollSeed();
+            }
+
             _garage = GetComponent<GarageScreen>();
             if (!_garage) _garage = gameObject.AddComponent<GarageScreen>();
             _garage.Configure(this);
@@ -197,6 +208,7 @@ namespace Shitboxer.Meta
                 {
                     Phase = RunPhase.RunOver;
                     Time.timeScale = 0f;
+                    ClearSave(); // the run is dead — don't resume it next launch
                     return;
                 }
                 // RaceIndex unchanged: the same race is retried after the garage.
@@ -215,6 +227,7 @@ namespace Shitboxer.Meta
                         LastRaceSummary = $"P{me.Position} — survived. +${totalPay}. SEASON CLEARED!";
                         Phase = RunPhase.RunComplete;
                         Time.timeScale = 0f;
+                        ClearSave(); // season won — the finished run doesn't resume
                         return;
                     }
                     Run.CircuitIndex += 1;
@@ -235,14 +248,27 @@ namespace Shitboxer.Meta
         {
             Phase = RunPhase.Garage;
             Time.timeScale = 0f;
-            Shop.BeginVisit(partPool ? partPool.Parts : null, Run);
+            // Seed the shop deterministically from the run so a resumed/shared run reproduces the
+            // exact same stock and rerolls, then persist the post-race state.
+            Shop.BeginVisit(partPool ? partPool.Parts : null, Run, VisitSeed());
+            Save();
         }
 
         /// <summary>Garage Buy button.</summary>
-        public bool BuyOffer(PartDef part) => Shop.TryBuy(part, Run);
+        public bool BuyOffer(PartDef part)
+        {
+            bool bought = Shop.TryBuy(part, Run);
+            if (bought) Save();
+            return bought;
+        }
 
         /// <summary>Garage Reroll button — escalating cost handled by ShopLogic.</summary>
-        public bool RerollShop() => Shop.TryReroll(partPool ? partPool.Parts : null, Run);
+        public bool RerollShop()
+        {
+            bool rerolled = Shop.TryReroll(partPool ? partPool.Parts : null, Run);
+            if (rerolled) Save();
+            return rerolled;
+        }
 
         /// <summary>Garage NEXT RACE button: unpause and reload the race scene for a clean grid.</summary>
         public void StartNextRace()
@@ -256,11 +282,52 @@ namespace Shitboxer.Meta
         /// <summary>Run-over / run-complete screens: reset everything and go again.</summary>
         public void StartNewRun()
         {
-            Run = new RunState { Money = startingMoney };
+            Run = new RunState { Money = startingMoney, Seed = RollSeed() };
             LastRaceSummary = "";
             Phase = RunPhase.Racing;
             Time.timeScale = 1f;
+            Save(); // overwrite any previous save with the fresh, freshly-seeded run
             ReloadRaceScene();
+        }
+
+        /// <summary>Rolls a fresh run seed for a brand-new run (non-negative).</summary>
+        private static int RollSeed() => new System.Random().Next();
+
+        /// <summary>
+        /// Per-garage-visit shop seed: mixes the run seed with the circuit and race indices so each
+        /// visit is deterministic AND distinct (a plain sum would collide, e.g. circuit 1/race 0 vs
+        /// circuit 0/race 1). A resumed or shared run reproduces the exact same stock and rerolls.
+        /// </summary>
+        private int VisitSeed()
+        {
+            unchecked
+            {
+                int h = 17;
+                h = h * 31 + Run.Seed;
+                h = h * 31 + Run.CircuitIndex;
+                h = h * 31 + Run.RaceIndex;
+                return h;
+            }
+        }
+
+        /// <summary>Persists the live run to disk; failures are logged, never fatal to the loop.</summary>
+        private void Save()
+        {
+            try { RunSave.Save(Run); }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[RunDirector] Run save failed: {e.Message}", this);
+            }
+        }
+
+        /// <summary>Deletes the save so a finished/dead run doesn't resume next launch.</summary>
+        private void ClearSave()
+        {
+            try { RunSave.Delete(); }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[RunDirector] Run save clear failed: {e.Message}", this);
+            }
         }
 
         private void ReloadRaceScene()

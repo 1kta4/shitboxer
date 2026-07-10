@@ -28,6 +28,11 @@ namespace Shitboxer.Vehicle
 
         public float SpeedKmh => Body ? Body.linearVelocity.magnitude * 3.6f : 0f;
 
+        /// <summary>Persistent 0..1 structural integrity of this car for the current race (1 = fresh), for a
+        /// HUD / repair layer to read later. Read-only here — lasting damage is applied through the combat
+        /// layer, and RebuildSim (a fresh car each race) resets it to 1. Falls back to 1 before the sim exists.</summary>
+        public float Durability => Sim != null ? Sim.Durability : 1f;
+
         private readonly GroundContact[] _contacts = new GroundContact[VehicleSim.WheelCount];
         private readonly float[] _visualSpin = new float[VehicleSim.WheelCount];
 

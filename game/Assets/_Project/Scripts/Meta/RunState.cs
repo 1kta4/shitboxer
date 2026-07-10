@@ -14,6 +14,14 @@ namespace Shitboxer.Meta
         public int Money;
         public int Lives = 3;
 
+        /// <summary>
+        /// Deterministic run seed, set once when a run starts (RunDirector rolls it for a fresh
+        /// run and persists it in the save). RunDirector derives a per-garage-visit shop seed
+        /// from Seed + CircuitIndex + RaceIndex, so a resumed or shared run reproduces the exact
+        /// same shop stock and reroll chain. 0 on a state that was never explicitly seeded.
+        /// </summary>
+        public int Seed;
+
         /// <summary>0-based index of the current/upcoming race within the circuit.</summary>
         public int RaceIndex;
         public int RacesPerCircuit = 3;

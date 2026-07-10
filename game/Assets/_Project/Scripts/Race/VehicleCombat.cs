@@ -52,6 +52,12 @@ namespace Shitboxer.Race
         [Tooltip("Smallest fraction of an attack part's sap you deal when you're being rammed rather than the aggressor.")]
         [Range(0f, 1f)][SerializeField] private float attackVictimFloor = 0.35f;
 
+        [Header("Persistent damage (Wreckfest-style wear that lasts the whole race)")]
+        [Tooltip("Durability fraction a full-severity hit strips from a car taking the FULL share (a pure victim, or a wall hit). Scaled down by severity and by the aggressor/victim role, and reset to full when the sim is rebuilt (a fresh car each race).")]
+        [Range(0f, 0.25f)][SerializeField] private float damagePerFullHit = 0.08f;
+        [Tooltip("Impulse severity (0..1) a contact must exceed to leave any lasting damage. Below it a hit still rattles grip but only scrapes/taps — no permanent wear.")]
+        [Range(0f, 1f)][SerializeField] private float damageSeverityThreshold = 0.4f;
+
         private VehicleController _controller;
         private int _vehicleMask;
         private readonly Collider[] _auraHits = new Collider[16];
@@ -138,13 +144,29 @@ namespace Shitboxer.Race
                 OnImpact?.Invoke(new ImpactEvent(severity01, LastImpactDirection, contactPoint, aggressorness > 0.5f));
             }
 
+            // Aggressor/victim split shared by the self-rattle and the persistent wear below: the aggressor
+            // shrugs both off (aggressorRattleMult < 1), the victim takes the heavier share; walls stay
+            // role-neutral (full). Cheap and side-effect-free, so it is safe to compute unconditionally.
+            float selfRoleMult = isCarHit ? Mathf.Lerp(victimRattleMult, aggressorRattleMult, aggressorness) : 1f;
+
             // Universal feel: any hard hit rattles our own grip, scaled by severity AND by role — the
             // aggressor shrugs it off, the victim takes the heavier dip. Clamped so it can never over-sap.
             if (severity01 > 0f && _controller.Sim != null)
             {
-                float roleMult = isCarHit ? Mathf.Lerp(victimRattleMult, aggressorRattleMult, aggressorness) : 1f;
-                float sap = Mathf.Clamp(rattleMaxGripSap * severity01 * roleMult, 0f, 0.9f);
+                float sap = Mathf.Clamp(rattleMaxGripSap * severity01 * selfRoleMult, 0f, 0.9f);
                 _controller.Sim.ApplyGripSap(sap, rattleRecoverPerS);
+            }
+
+            // Persistent Wreckfest-style wear: only HARD shunts leave damage that lasts the whole race —
+            // lighter contact rattles grip (above) but does not permanently wear the car. This car damages
+            // only its OWN sim, scaled by how far past the gate the hit landed and by the same role split,
+            // so across a car-to-car collision the rammed car wears heavily while the aggressor (whose own
+            // callback runs the same code with aggressorRattleMult) takes a genuinely smaller share. A wall
+            // hit takes the full share. ApplyDamage is finite, clamps to a floor, and is reset on RebuildSim.
+            if (severity01 > damageSeverityThreshold && _controller.Sim != null)
+            {
+                float hardness = Mathf.InverseLerp(damageSeverityThreshold, 1f, severity01); // 0..1 past the gate
+                _controller.Sim.ApplyDamage(damagePerFullHit * hardness * selfRoleMult);
             }
 
             // Aggressor reward: a brief, finite forward surge so a good ram carries momentum through the

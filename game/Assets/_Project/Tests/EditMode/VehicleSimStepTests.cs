@@ -306,6 +306,100 @@ namespace Shitboxer.Tests
             }
         }
 
+        [Test]
+        public void ApplyDamage_LowersDurabilityMult_ReducesForces_ClampsAtFloor_ResetsOnRebuild()
+        {
+            var fresh = NewSim();
+            Assert.That(fresh.Durability, Is.EqualTo(1f).Within(1e-6f), "fresh car should start at full durability");
+            Assert.That(fresh.DurabilityMult, Is.EqualTo(1f).Within(1e-6f), "fresh car should have a full-performance DurabilityMult");
+
+            // Battered car: wear it hard, but a single hit must not reach the floor here (that is tested below).
+            var battered = NewSim();
+            battered.ApplyDamage(0.4f);
+            Assert.Less(battered.Durability, fresh.Durability, "ApplyDamage did not lower Durability");
+            Assert.Less(battered.DurabilityMult, fresh.DurabilityMult, "ApplyDamage did not lower DurabilityMult");
+
+            // GRIP path: a hard-braking, sliding tyre produces a grip-limited longitudinal force (mu * load),
+            // and mu folds in DurabilityMult — so the battered car must produce less braking force. Grip does
+            // not depend on the drivetrain here, so this is a clean deterministic probe of the grip fold-in.
+            var braking = new VehicleInput { Brake = 1f };
+            Vector3 brakeVel = Vector3.forward * 15f;
+            float freshBrakeForce = StepAndMeasureHorizontalForce(NewSimWith(0f), braking, brakeVel, 60, 10);
+            float batteredBrakeForce = StepAndMeasureHorizontalForce(NewSimWith(0.4f), braking, brakeVel, 60, 10);
+            Assert.Greater(freshBrakeForce, 1f, "braking scenario produced no tyre force (test is degenerate)");
+            Assert.Less(batteredBrakeForce, freshBrakeForce, "a battered car should produce less grip (braking) force");
+
+            // DRIVE path: cruising at speed under full throttle settles below redline and below the grip
+            // limit, so the rear tyre force tracks the delivered engine torque — which folds in DurabilityMult
+            // (power). The battered car therefore produces less drive force.
+            var driving = new VehicleInput { Throttle = 1f };
+            Vector3 driveVel = Vector3.forward * 40f;
+            float freshDriveForce = StepAndMeasureHorizontalForce(NewSimWith(0f), driving, driveVel, 200, 30);
+            float batteredDriveForce = StepAndMeasureHorizontalForce(NewSimWith(0.4f), driving, driveVel, 200, 30);
+            Assert.Greater(freshDriveForce, 1f, "drive scenario produced no tyre force (test is degenerate)");
+            Assert.Less(batteredDriveForce, freshDriveForce, "a battered car should produce less drive force");
+
+            // Floor: hammering it far past the floor cannot drop Durability (or its mult) without bound.
+            for (int i = 0; i < 50; i++) battered.ApplyDamage(1f);
+            float flooredDurability = battered.Durability;
+            float flooredMult = battered.DurabilityMult;
+            Assert.Greater(flooredDurability, 0f, "the Durability floor must keep a wreck driveable, not zero it");
+            Assert.That(flooredDurability, Is.EqualTo(VehicleSim.MinDurability).Within(1e-6f), "Durability did not clamp to its floor");
+            battered.ApplyDamage(1f);
+            Assert.That(battered.Durability, Is.EqualTo(flooredDurability).Within(1e-6f), "Durability fell below its floor");
+            Assert.That(battered.DurabilityMult, Is.EqualTo(flooredMult).Within(1e-6f), "DurabilityMult fell below its floor");
+
+            // Non-positive / NaN damage is a no-op.
+            battered.ApplyDamage(0f);
+            battered.ApplyDamage(-0.3f);
+            battered.ApplyDamage(float.NaN);
+            Assert.That(battered.Durability, Is.EqualTo(flooredDurability).Within(1e-6f), "non-positive/NaN damage changed Durability");
+
+            // A rebuilt sim (a fresh car each race) is back to full durability.
+            var rebuilt = NewSim();
+            Assert.That(rebuilt.Durability, Is.EqualTo(1f).Within(1e-6f), "a rebuilt sim should reset to full durability");
+            Assert.That(rebuilt.DurabilityMult, Is.EqualTo(1f).Within(1e-6f), "a rebuilt sim should reset DurabilityMult to full");
+        }
+
+        // A fresh sim pre-worn by the given damage amount (0 = untouched).
+        private static VehicleSim NewSimWith(float damage)
+        {
+            var sim = NewSim();
+            if (damage > 0f) sim.ApplyDamage(damage);
+            return sim;
+        }
+
+        // Steps the sim on flat, grounded contacts at a fixed chassis velocity and returns the summed
+        // horizontal (drive/grip) wheel force, averaged over the final avgLast steps. Suspension load is
+        // vertical (along world up) so it drops out of the horizontal component, isolating the tyre forces
+        // that DurabilityMult scales.
+        private static float StepAndMeasureHorizontalForce(VehicleSim sim, in VehicleInput input, Vector3 vel,
+            int steps, int avgLast)
+        {
+            var contacts = new GroundContact[VehicleSim.WheelCount];
+            float sum = 0f;
+            int counted = 0;
+            for (int step = 0; step < steps; step++)
+            {
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    contacts[i] = FlatContact(sim, i, 0.65f, vel);
+                var forces = sim.Step(Dt, input, contacts, vel, Vector3.forward, Vector3.up, Vector3.zero);
+                AssertStepFinite(sim, forces);
+                if (step >= steps - avgLast)
+                {
+                    float horizontal = 0f;
+                    for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    {
+                        Vector3 f = forces[i].Force;
+                        horizontal += new Vector3(f.x, 0f, f.z).magnitude;
+                    }
+                    sum += horizontal;
+                    counted++;
+                }
+            }
+            return counted > 0 ? sum / counted : 0f;
+        }
+
         // Steps the sim fully airborne (no input, no velocity) and returns the CoM force after the given
         // number of steps. With every wheel ungrounded and zero speed the only CoM contribution is the
         // extra-gravity assist, so this isolates the blind-sink guard from tyre/aero forces.

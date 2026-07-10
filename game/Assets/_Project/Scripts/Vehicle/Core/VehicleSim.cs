@@ -121,6 +121,48 @@ namespace Shitboxer.Vehicle
             PowerEffectMult = Mathf.MoveTowards(PowerEffectMult, 1f, _powerRecoverPerS * dt);
         }
 
+        // ------------------------------------------------------------------ persistent damage / durability
+
+        /// <summary>Floor Durability can never drop below — even a total wreck still drives, just badly.</summary>
+        public const float MinDurability = 0.4f;
+
+        /// <summary>
+        /// Fraction of peak grip/power stripped once fully battered (Durability == MinDurability). Kept
+        /// below a full 1:1 so a wreck is hobbled, not undriveable — at the floor a car still keeps
+        /// (1 - MaxWearPerformanceLoss * (1 - MinDurability)) of its output.
+        /// </summary>
+        private const float MaxWearPerformanceLoss = 0.5f;
+
+        /// <summary>
+        /// PERSISTENT 0..1 structural integrity, 1 = a fresh car. Unlike the transient grip/power saps this
+        /// does NOT recover during a race — a battered car stays battered — and it resets to 1 only when the
+        /// sim is rebuilt (a fresh car each race, i.e. a new VehicleSim). Lowered on hard shunts via
+        /// <see cref="ApplyDamage"/>. Lives in the plain-C# core so a headless server accumulates wear
+        /// identically — the host only injects the impact events that drive it.
+        /// </summary>
+        public float Durability { get; private set; } = 1f;
+
+        /// <summary>
+        /// Multiplier (≤1) that persistent wear places on BOTH peak tyre grip and engine drive torque:
+        /// 1 at full Durability, easing down to (1 - MaxWearPerformanceLoss * (1 - MinDurability)) at the
+        /// floor. Folded in alongside <see cref="GripEffectMult"/>/<see cref="PowerEffectMult"/> so lasting
+        /// wear stacks multiplicatively with the transient combat saps.
+        /// </summary>
+        public float DurabilityMult => 1f - (1f - Durability) * MaxWearPerformanceLoss;
+
+        /// <summary>
+        /// Permanently wear the car by <paramref name="amount"/> of durability, clamped so Durability never
+        /// drops below <see cref="MinDurability"/>. No-op for non-positive or non-finite amounts. Unlike
+        /// ApplyGripSap/ApplyPowerSap this does NOT decay back toward nominal — the loss holds for the rest
+        /// of the race and is cleared only by rebuilding the sim. Callers scale <paramref name="amount"/> by
+        /// impact severity so heavy shunts progressively batter the car down (Wreckfest-style consequences).
+        /// </summary>
+        public void ApplyDamage(float amount)
+        {
+            if (!(amount > 0f)) return; // rejects zero, negatives and NaN
+            Durability = Mathf.Max(MinDurability, Durability - amount);
+        }
+
         /// <summary>
         /// Advance the sim by dt. Returns forces to apply to the chassis rigidbody this step.
         /// The returned array is reused between calls — consume it immediately.
@@ -311,7 +353,8 @@ namespace Shitboxer.Vehicle
             float engineTorque;
             if (throttle > 0.01f)
             {
-                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle * PowerEffectMult;
+                // Transient power sap AND persistent wear both scale the delivered engine torque.
+                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle * PowerEffectMult * DurabilityMult;
                 // Rev limiter: no more torque at the wall.
                 if (EngineRpm >= Spec.Engine.RedlineRpm - 10f) engineTorque = 0f;
             }
@@ -452,7 +495,7 @@ namespace Shitboxer.Vehicle
             float rho = Mathf.Sqrt(sLong * sLong + sLat * sLat);
 
             float load = SuspensionForce[i];
-            float mu = TyreMu(tyre, rho, load) * GripEffectMult; // combat grip sap folds straight into the friction circle
+            float mu = TyreMu(tyre, rho, load) * GripEffectMult * DurabilityMult; // combat grip sap AND persistent wear fold straight into the friction circle
             if (!IsFrontWheel(i) && input.Handbrake > 0.1f)
                 mu *= Spec.HandbrakeGripFactor;
 

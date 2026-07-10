@@ -168,6 +168,15 @@ namespace Shitboxer.Tests
         }
 
         [Test]
+        public void Seed_DefaultsToZero_AndIsSettable()
+        {
+            var run = new RunState();
+            Assert.AreEqual(0, run.Seed); // an unseeded state reads 0; a fresh run rolls a real one
+            run.Seed = 4242;
+            Assert.AreEqual(4242, run.Seed);
+        }
+
+        [Test]
         public void DifficultyMult_StartsAtOneAndRampsUp()
         {
             var run = new RunState();

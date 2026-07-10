@@ -68,6 +68,13 @@ namespace Shitboxer.Race
         private const float SettleBeforeReverseS = 0.4f;
         private const float TractionSlipLimit = 0.2f;
 
+        // --- Rubber-band (bounded, engine-loop-independent): the host hands us a commitment factor
+        // derived from our gap to the field. A trailing bot commits a touch harder, a runaway leader
+        // eases off — but always clamped to this subtle band so the assist never reads as cheating.
+        // 1 = neutral (the default) reproduces the base plan exactly.
+        private const float RubberbandMin = 0.90f; // furthest a leader may ease off (-10%)
+        private const float RubberbandMax = 1.10f; // hardest a trailing bot may push (+10%)
+
         // --- Opponent awareness (all engine-loop-independent; fed by BotSensors.Neighbors) ---
         private const float LaneHalfWidthM = 2.6f;         // lateral band that counts as "in my path"
         private const float CorridorHalfWidthM = 14f;      // keep the pursuit target this far off-centre at most (walls sit ~20 m out)
@@ -95,7 +102,20 @@ namespace Shitboxer.Race
             _skill = skill;
         }
 
-        public VehicleInput Step(float dt, in BotSensors sensors)
+        /// <summary>
+        /// Clamps a raw commitment/rubber-band factor to the subtle bounded band. Kept pure and
+        /// static so the catch-up boost / leader ease-off is unit-testable without a scene, and so
+        /// no gap value the host feeds in — however large — can ever push a bot past +/-10%.
+        /// 1 = neutral.
+        /// </summary>
+        public static float ClampRubberband(float factor) => Mathf.Clamp(factor, RubberbandMin, RubberbandMax);
+
+        /// <summary>
+        /// Drives one step. <paramref name="rubberband"/> is the host's commitment factor
+        /// (gap-to-field * difficulty); it is clamped internally to the subtle band and scales the
+        /// free-flowing speed plan, so 1 (the default) reproduces the base behaviour exactly.
+        /// </summary>
+        public VehicleInput Step(float dt, in BotSensors sensors, float rubberband = 1f)
         {
             Vector3 fwd = sensors.Forward;
             fwd.y = 0f;
@@ -115,8 +135,10 @@ namespace Shitboxer.Race
             float ourAlongSpeed = Vector3.Dot(vel, trackDir);
 
             // Free-flowing speed plan (before rivals / off-line penalties). Also tells the opponent
-            // logic whether we're quick enough to want a pass.
-            float freeTargetSpeed = PlanTargetSpeed(progress, speed);
+            // logic whether we're quick enough to want a pass. The bounded rubber-band nudges the whole
+            // plan up/down so a trailing bot commits a little harder and a runaway leader eases off; it
+            // rides on top of, and never overrides, the corner-safety and following caps below.
+            float freeTargetSpeed = PlanTargetSpeed(progress, speed) * ClampRubberband(rubberband);
 
             // Opponent awareness: a speed cap so we settle in behind a slower car instead of rear-ending it,
             // plus a lateral tactic (overtake to the clearer side, or a light cover of a drafting follower).
