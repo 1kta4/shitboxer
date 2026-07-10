@@ -201,6 +201,37 @@ namespace Shitboxer.Tests
             Assert.Greater(third, second); // later circuits are strictly harder
         }
 
+        [Test]
+        public void StakeLevel_DefaultsToZero_AndRaisesDifficultyMult()
+        {
+            var run = new RunState { CircuitIndex = 0 };
+            Assert.AreEqual(0, run.StakeLevel);           // base license by default
+            float baseMult = run.DifficultyMult;
+            Assert.AreEqual(1f, baseMult, 1e-4f);          // stake 0 on circuit 0 == shipped baseline
+
+            run.StakeLevel = 1;
+            float stake1 = run.DifficultyMult;
+            run.StakeLevel = 2;
+            float stake2 = run.DifficultyMult;
+
+            Assert.Greater(stake1, baseMult);              // a higher stake is strictly harder
+            Assert.Greater(stake2, stake1);                // and each further stake harder still
+        }
+
+        [Test]
+        public void StakeLevel_RaisesDifficultyAtEveryCircuit()
+        {
+            // The stake bump compounds with the season ramp at every circuit, never lowering it, so
+            // RunDirector's DifficultyMult-driven bot/cutoff scaling picks the stake up automatically.
+            for (int circuit = 0; circuit < 3; circuit++)
+            {
+                var baseRun = new RunState { CircuitIndex = circuit, StakeLevel = 0 };
+                var stakeRun = new RunState { CircuitIndex = circuit, StakeLevel = 2 };
+                Assert.Greater(stakeRun.DifficultyMult, baseRun.DifficultyMult,
+                    $"stake 2 must be harder than stake 0 on circuit {circuit}");
+            }
+        }
+
         // ---- Part conditions: Cashout refund + Fragile break (doc 03 modifiers) ---------------
 
         private static PartDef NewPart(PartCondition condition, int price)

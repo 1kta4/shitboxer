@@ -191,6 +191,8 @@ namespace Shitboxer.Race
                 // Every racer can be hit and can carry attack parts — guarantee the resolver
                 // even for scenes/prefabs built before the combat layer existed.
                 VehicleCombat.GetOrAdd(car.gameObject);
+                // Every racer can also slipstream the car ahead — guarantee the draft sensor the same way.
+                DraftSensor.GetOrAdd(car.gameObject);
                 float progress = line.ProjectPosition(car.transform.position);
                 _statuses.Add(new RaceCarStatus
                 {

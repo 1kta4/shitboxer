@@ -38,6 +38,26 @@ namespace Shitboxer.Meta
         public int MaxEquipSlots = 6;
 
         /// <summary>
+        /// License-stake level (0 = base license, i.e. exactly today's balance). Higher stakes are
+        /// UNLOCKED across runs by clearing the season one stake below them (recorded in MetaProgress),
+        /// and they scale BOTH difficulty and reward: StakeLevel folds into <see cref="DifficultyMult"/>
+        /// via <see cref="StakeMult"/> (so the season ramp AND RunDirector's bot/cutoff scaling pick it
+        /// up automatically), and RunDirector applies the same <see cref="StakeMult"/> as a modest payout
+        /// bump on a clean finish. Defaults to 0 so an un-staked run plays and pays exactly as shipped.
+        /// </summary>
+        public int StakeLevel;
+
+        /// <summary>Per-stake difficulty/reward gain. Stake 0 is a no-op (factor 1.0), gentle above.</summary>
+        public const float StakeGainPerLevel = 0.15f;
+
+        /// <summary>
+        /// Difficulty/reward scalar contributed purely by the license stake: 1.0 at stake 0 (shipped
+        /// balance), climbing gently above. Multiplies the per-circuit ramp in <see cref="DifficultyMult"/>
+        /// and doubles as RunDirector's clean-finish reward multiplier.
+        /// </summary>
+        public float StakeMult => 1f + StakeGainPerLevel * Math.Max(0, StakeLevel);
+
+        /// <summary>
         /// Persistent 0..1 structural integrity of the run's car (1 = pristine). Unlike the sim's
         /// per-race Durability this carries ACROSS races within a run: RunDirector re-applies it onto
         /// each freshly-rebuilt sim, captures the sim's ending value back after every race, and resets
@@ -60,9 +80,13 @@ namespace Shitboxer.Meta
         /// Per-circuit difficulty scalar and tuning hook: 1.0 on the first circuit, ramping
         /// gently at first then steeper as the season wears on (convex in CircuitIndex).
         /// RunDirector — or a headless server — can multiply payouts / survival expectations by
-        /// this without hard-coding a per-circuit table. Wave-1 default: 1.0, 1.35, 1.70, ...
+        /// this without hard-coding a per-circuit table. Wave-1 default (stake 0): 1.0, 1.35, 1.70, ...
+        /// The license stake multiplies the whole ramp (<see cref="StakeMult"/>): stake 0 leaves the
+        /// sequence untouched, higher stakes lift every circuit uniformly so the existing ramp — and
+        /// RunDirector's bot/cutoff scaling that reads this — picks the stake up with no extra wiring.
         /// </summary>
-        public float DifficultyMult => 1f + 0.3f * CircuitIndex + 0.05f * CircuitIndex * CircuitIndex;
+        public float DifficultyMult =>
+            (1f + 0.3f * CircuitIndex + 0.05f * CircuitIndex * CircuitIndex) * StakeMult;
 
         /// <summary>The run is only won after clearing the FINAL race of the FINAL circuit.</summary>
         public bool RunComplete => IsFinalCircuit && RaceIndex >= RacesPerCircuit;

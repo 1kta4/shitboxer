@@ -548,6 +548,82 @@ namespace Shitboxer.Tests
                 "low-grip tyre force did not drop in proportion to SurfaceGripMult");
         }
 
+        [Test]
+        public void DraftDragMult_BelowOne_ReducesAeroDrag_DefaultReproducesTodaysDrag_AndTowsCarFaster()
+        {
+            // Dead straight at speed, the aero CoM force's forward (z) component is PURELY the drag term
+            // (-DragCoeff * DraftDragMult * |v| * v_z): downforce and the extra-gravity assist are vertical,
+            // and the yaw/lateral/flat-ride assists are all zero going perfectly straight. So forces[WheelCount]
+            // isolates aero drag, and DraftDragMult must scale it (only) — leaving downforce alone.
+            const float speed = 40f;
+            Vector3 vel = Vector3.forward * speed;
+
+            var baseline = NewSim();
+            float baseDragZ = AeroForwardForce(baseline, vel, draftMult: 1f);
+
+            // Default DraftDragMult (== 1, no ApplyDraft call) reproduces today's drag EXACTLY (the analytic term).
+            float expected = -baseline.Spec.DragCoeff * speed * speed;
+            Assert.That(baseDragZ, Is.EqualTo(expected).Within(Mathf.Abs(expected) * 0.001f + 1e-3f),
+                "the default DraftDragMult of 1 did not reproduce today's aero drag");
+
+            // A tow (DraftDragMult < 1) applied to the DRAG term only must shrink the drag force at the same speed.
+            float draftDragZ = AeroForwardForce(NewSim(), vel, draftMult: 0.6f);
+            Assert.Less(Mathf.Abs(draftDragZ), Mathf.Abs(baseDragZ),
+                "a slipstream (DraftDragMult < 1) did not reduce the aero drag force");
+
+            // End-to-end payoff: less drag every step means a drafting car reaches/holds a higher speed under
+            // throttle than an identical car in clean air.
+            float cleanAirSpeed = RunForwardSpeed(NewSim(), draft: false, steps: 400);
+            float draftingSpeed = RunForwardSpeed(NewSim(), draft: true, steps: 400);
+            Assert.Greater(draftingSpeed, cleanAirSpeed,
+                "a drafting car should reach/hold a higher speed than one in clean air");
+        }
+
+        // Steps a few times at a fixed pure-forward velocity (re-asserting a tow each step when draftMult < 1),
+        // then returns the forward (z) component of the aero CoM force — which going dead straight is purely the
+        // drag term. draftMult >= 1 leaves the sim in clean air, exercising today's unchanged drag.
+        private static float AeroForwardForce(VehicleSim sim, Vector3 vel, float draftMult)
+        {
+            var input = default(VehicleInput);
+            var contacts = new GroundContact[VehicleSim.WheelCount];
+            ForceCommand[] forces = null;
+            for (int step = 0; step < 3; step++) // let steering/decay settle; the draft is re-asserted each step
+            {
+                if (draftMult < 1f) sim.ApplyDraft(draftMult);
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    contacts[i] = FlatContact(sim, i, 0.65f, vel);
+                forces = sim.Step(Dt, input, contacts, vel, Vector3.forward, Vector3.up, Vector3.zero);
+                AssertStepFinite(sim, forces);
+            }
+            return forces[VehicleSim.WheelCount].Force.z;
+        }
+
+        // Integrates forward speed under full throttle on flat ground (re-asserting a tow each step when
+        // drafting) and returns the speed reached after the given number of steps. At any given speed both
+        // cars make the same drive force, so the drafting car's lower drag gives it more net forward force
+        // every step -> it pulls ahead and holds a higher speed. Only the vertical DOF is held fixed (flat
+        // ground), matching how the ride-height tests integrate a single DOF from the sim's forces.
+        private static float RunForwardSpeed(VehicleSim sim, bool draft, int steps)
+        {
+            var input = new VehicleInput { Throttle = 1f };
+            float vz = 10f; // a rolling start, already fast enough for aero drag to matter
+            var contacts = new GroundContact[VehicleSim.WheelCount];
+            for (int step = 0; step < steps; step++)
+            {
+                if (draft) sim.ApplyDraft(0.6f);
+                Vector3 vel = new Vector3(0f, 0f, vz);
+                for (int i = 0; i < VehicleSim.WheelCount; i++)
+                    contacts[i] = FlatContact(sim, i, 0.65f, vel);
+                var forces = sim.Step(Dt, input, contacts, vel, Vector3.forward, Vector3.up, Vector3.zero);
+                AssertStepFinite(sim, forces);
+
+                float fz = 0f;
+                foreach (var f in forces) fz += f.Force.z;
+                vz += fz / sim.Spec.MassKg * Dt;
+            }
+            return vz;
+        }
+
         // FlatContact with an explicit ground-grip multiplier (grass/dirt < 1); everything else identical.
         private static GroundContact SurfaceContact(VehicleSim sim, int i, float chassisHeight, Vector3 pointVel,
             float surfaceGrip)

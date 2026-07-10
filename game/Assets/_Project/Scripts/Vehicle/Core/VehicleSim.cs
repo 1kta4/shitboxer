@@ -135,6 +135,43 @@ namespace Shitboxer.Vehicle
         {
             GripEffectMult = Mathf.MoveTowards(GripEffectMult, 1f, _gripRecoverPerS * dt);
             PowerEffectMult = Mathf.MoveTowards(PowerEffectMult, 1f, _powerRecoverPerS * dt);
+            // Slipstream fades once the car pulls out of the tow (the host re-asserts it each step while drafting).
+            DraftDragMult = Mathf.MoveTowards(DraftDragMult, 1f, DraftRecoverPerS * dt);
+        }
+
+        // ------------------------------------------------------------------ slipstream / draft
+
+        /// <summary>
+        /// Deepest a tow can cut aero drag to: 0.6 keeps ~40% of drag — a strong but bounded slipstream so
+        /// a drafting car can't accelerate without limit. The host's DraftSensor supplies the actual factor.
+        /// </summary>
+        public const float MinDraftDragMult = 0.6f;
+
+        /// <summary>
+        /// Multiplier on the aero DRAG term this step, 1 = full drag (clean air), lower = a slipstream. A car
+        /// tucked close behind another sits in its wake, so the host's DraftSensor pushes this below 1 via
+        /// <see cref="ApplyDraft"/>; it eases back to 1 on its own once the car pulls out — exactly like the
+        /// transient grip/power saps. Downforce is deliberately NOT reduced (drafting cuts drag, not grip).
+        /// Lives in the plain-C# core so a headless server eases it identically — the host only injects the
+        /// proximity that triggers a draft.
+        /// </summary>
+        public float DraftDragMult { get; private set; } = 1f;
+
+        /// <summary>How fast the drag cut recovers toward 1 once the host stops re-asserting a draft, per second.</summary>
+        private const float DraftRecoverPerS = 2f;
+
+        /// <summary>
+        /// Put the car in another's slipstream this step, easing its aero drag toward <paramref name="mult"/>
+        /// (clamped to [<see cref="MinDraftDragMult"/>, 1]). Like the grip/power saps it only ever DEEPENS the
+        /// tow (keeps the lower of the two) and recovers toward 1 on its own, so the host re-asserts it every
+        /// step while drafting and it fades once the car pulls out. A value >= 1 (or non-finite) is a no-op —
+        /// "no draft" is signalled by simply not calling this, letting DraftDragMult recover.
+        /// </summary>
+        public void ApplyDraft(float mult)
+        {
+            if (!(mult < 1f)) return; // rejects >= 1 and NaN
+            float floor = Mathf.Clamp(mult, MinDraftDragMult, 1f);
+            if (floor < DraftDragMult) DraftDragMult = floor;
         }
 
         // ------------------------------------------------------------------ persistent damage / durability
@@ -238,7 +275,8 @@ namespace Shitboxer.Vehicle
             // Aero: quadratic drag opposing velocity, plus downforce along -up. Speed is capped for
             // the quadratic terms only so a pathological velocity can't overflow them to Infinity.
             float v = Mathf.Min(chassisVelocity.magnitude, 200f);
-            Vector3 comForce = -Spec.DragCoeff * v * chassisVelocity - Spec.DownforceCoeff * v * v * chassisUp;
+            // DraftDragMult (1 = clean air, lower = a slipstream) scales the DRAG term only; downforce is untouched.
+            Vector3 comForce = -Spec.DragCoeff * DraftDragMult * v * chassisVelocity - Spec.DownforceCoeff * v * v * chassisUp;
 
             comForce += StepAssists(dt, input, chassisVelocity, chassisForward, chassisUp, chassisAngularVelocity);
 

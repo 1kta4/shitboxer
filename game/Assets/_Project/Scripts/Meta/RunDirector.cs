@@ -44,6 +44,13 @@ namespace Shitboxer.Meta
         /// <summary>Shop rules instance; reroll cost resets each garage visit.</summary>
         public ShopLogic Shop { get; } = new ShopLogic();
 
+        /// <summary>
+        /// Persistent cross-run profile (lifetime stats + license-stake unlocks). Loaded once on Awake
+        /// and updated/saved on every run end; survives run death/victory, unlike the per-run RunSave.
+        /// Never null after Awake — a corrupt/absent profile loads as a fresh default.
+        /// </summary>
+        public MetaProgress Meta { get; private set; } = new MetaProgress();
+
         public RunPhase Phase { get; private set; } = RunPhase.Racing;
 
         /// <summary>One-line player verdict of the last resolved race, for the garage header.</summary>
@@ -66,6 +73,10 @@ namespace Shitboxer.Meta
             }
             Instance = this;
             DontDestroyOnLoad(gameObject);
+
+            // Load the persistent cross-run profile once (lifetime stats + stake unlocks). It outlives
+            // any single run, so run-end bookkeeping and a future stake-select UI both read/write it.
+            Meta = MetaProgress.Load();
 
             // Resume an interrupted run if a save exists (parts resolved by Id via the pool);
             // otherwise begin fresh with the starting cash and a freshly-rolled deterministic seed.
@@ -247,6 +258,13 @@ namespace Shitboxer.Meta
                 foreach (PartDef part in Run.EquippedParts)
                     if (part && part.Category == PartCategory.Economy)
                         economyBonus += payoutTable.EconomyBonusFor(part.MoneyPerPositionHeld, me.Position);
+
+                // Higher license stakes pay a modest bump on a clean finish, scaling the earned
+                // position cash by RunState.StakeMult. Guarded so stake 0 (the shipped default, and
+                // the only reachable value until a stake-select UI lands) skips this entirely and the
+                // payout stays byte-for-byte as shipped.
+                if (Run.StakeLevel > 0)
+                    payout = Mathf.CeilToInt(payout * Run.StakeMult);
             }
             Run.Money += payout + economyBonus;
             int totalPay = payout + economyBonus;
@@ -268,6 +286,7 @@ namespace Shitboxer.Meta
                     Phase = RunPhase.RunOver;
                     Time.timeScale = 0f;
                     ClearSave(); // the run is dead — don't resume it next launch
+                    RecordRunEndToMeta(seasonCleared: false);
                     return;
                 }
                 // RaceIndex unchanged: the same race is retried after the garage.
@@ -292,6 +311,7 @@ namespace Shitboxer.Meta
                         Phase = RunPhase.RunComplete;
                         Time.timeScale = 0f;
                         ClearSave(); // season won — the finished run doesn't resume
+                        RecordRunEndToMeta(seasonCleared: true);
                         return;
                     }
                     Run.CircuitIndex += 1;
@@ -408,15 +428,51 @@ namespace Shitboxer.Meta
             ReloadRaceScene();
         }
 
-        /// <summary>Run-over / run-complete screens: reset everything and go again.</summary>
-        public void StartNewRun()
+        /// <summary>
+        /// Run-over / run-complete screens: reset everything and go again at the SAME license stake the
+        /// just-ended run was played at (read before the run is replaced). Preserved parameterless entry
+        /// point for existing callers (GarageScreen); it defers to <see cref="StartNewRun(int)"/>.
+        /// </summary>
+        public void StartNewRun() => StartNewRun(Run != null ? Run.StakeLevel : 0);
+
+        /// <summary>
+        /// Starts a brand-new run at the given 0-based license stake. Higher stakes ramp difficulty and
+        /// reward through RunState.StakeLevel; a stake is unlocked by clearing the season below it
+        /// (MetaProgress). The requested stake is clamped to what the profile has actually unlocked, so a
+        /// caller can never force a locked stake. Selection UI is a follow-up — this is the entry point
+        /// it will call.
+        /// </summary>
+        public void StartNewRun(int stakeLevel)
         {
-            Run = new RunState { Money = startingMoney, Seed = RollSeed() };
+            int stake = ClampToUnlockedStake(stakeLevel);
+            Run = new RunState { Money = startingMoney, Seed = RollSeed(), StakeLevel = stake };
             LastRaceSummary = "";
             Phase = RunPhase.Racing;
             Time.timeScale = 1f;
             Save(); // overwrite any previous save with the fresh, freshly-seeded run
             ReloadRaceScene();
+        }
+
+        /// <summary>Clamps a requested stake to the range the persistent profile has unlocked (>= 0).</summary>
+        private int ClampToUnlockedStake(int stakeLevel)
+        {
+            if (stakeLevel <= 0) return 0;
+            if (Meta == null) return 0;
+            return Meta.IsStakeUnlocked(stakeLevel) ? stakeLevel : Meta.HighestUnlockedStake;
+        }
+
+        /// <summary>
+        /// Folds the just-ended run into the persistent MetaProgress profile and saves it: always counts
+        /// the run and tracks the best circuit reached + lifetime money; on a season clear it also counts
+        /// the season and unlocks the NEXT license stake (the cross-run escalation hook). MetaProgress.Save
+        /// swallows its own IO errors, so this can never break the run-end flow.
+        /// </summary>
+        private void RecordRunEndToMeta(bool seasonCleared)
+        {
+            if (Meta == null) Meta = new MetaProgress();
+            Meta.RegisterRunEnd(Run.CircuitIndex, Run.Money);
+            if (seasonCleared) Meta.RegisterSeasonCleared(Run.StakeLevel);
+            MetaProgress.Save(Meta);
         }
 
         /// <summary>Rolls a fresh run seed for a brand-new run (non-negative).</summary>
