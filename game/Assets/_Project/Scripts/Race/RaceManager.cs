@@ -33,7 +33,16 @@ namespace Shitboxer.Race
         /// <summary>True if the car finished inside the survival cutoff window.</summary>
         public bool PassedCutoff { get; internal set; }
 
+        /// <summary>Seconds of the car's most recently completed (validated) lap; negative until the first lap validates.</summary>
+        public float LastLapTimeS { get; internal set; } = -1f;
+
+        /// <summary>Fastest validated lap so far (seconds); negative until the first lap validates.</summary>
+        public float BestLapTimeS { get; internal set; } = -1f;
+
         internal float LastProgressM;
+
+        /// <summary>Race clock at which the current lap's timing began — 0 (the green flag) for lap 1, then the clock captured at each validated lap. Last/Best lap are derived from it.</summary>
+        internal float LapStartTimeS;
 
         /// <summary>Checkpoint the car must reach next to keep its lap valid (index into the ordered ring).</summary>
         internal int NextCheckpoint;
@@ -43,6 +52,21 @@ namespace Shitboxer.Race
 
         /// <summary>Laps whose full checkpoint ring was cleared in order — the gate the finish counts, not raw distance.</summary>
         internal int ValidatedLaps;
+    }
+
+    /// <summary>
+    /// Pure lap-timing math shared by the referee and its unit tests — no engine, scene or clock state,
+    /// so a headless server steps it identically. All times are race-clock seconds. Purely a readout/record
+    /// concern: it has no effect on driving, checkpoint/lap validation, or the economy.
+    /// </summary>
+    public static class LapTiming
+    {
+        /// <summary>Elapsed seconds of a lap: the race clock now minus when the lap's timing began. Clamped non-negative (zero during the pre-green countdown).</summary>
+        public static float Elapsed(float nowS, float lapStartS) => Mathf.Max(0f, nowS - lapStartS);
+
+        /// <summary>The new fastest lap given the prior best (negative = none yet) and a just-completed lap: keeps the minimum, and the first valid lap always becomes the best.</summary>
+        public static float Fold(float bestSoFarS, float lapTimeS) =>
+            bestSoFarS < 0f || lapTimeS < bestSoFarS ? lapTimeS : bestSoFarS;
     }
 
     /// <summary>
@@ -117,6 +141,14 @@ namespace Shitboxer.Race
 
         public float RaceTimeS => _raceTime;
         public float TrackLengthM => trackPath ? trackPath.TotalLength : 0f;
+
+        /// <summary>
+        /// Elapsed seconds of <paramref name="status"/>'s CURRENT (in-progress) lap: the race clock now
+        /// minus when this lap's timing began. Zero during the countdown and clamped non-negative; a
+        /// finished car's value stops advancing with the clock. Additive readout — no effect on the race.
+        /// </summary>
+        public float CurrentLapTimeS(RaceCarStatus status) =>
+            status == null ? 0f : LapTiming.Elapsed(_raceTime, status.LapStartTimeS);
 
         /// <summary>All registered cars, in registration order.</summary>
         public IReadOnlyList<RaceCarStatus> Cars => _statuses;
@@ -348,6 +380,14 @@ namespace Shitboxer.Race
 
         private void ValidateLap(RaceCarStatus status)
         {
+            // Lap-time capture (additive — leaves the crediting below and CreditCheckpoints untouched):
+            // the just-completed lap ran from its recorded start to now. Fold it into last/best and
+            // re-start timing for the next lap. Lap 1 times from the green flag (LapStartTimeS defaults to 0).
+            float lapTime = LapTiming.Elapsed(_raceTime, status.LapStartTimeS);
+            status.LastLapTimeS = lapTime;
+            status.BestLapTimeS = LapTiming.Fold(status.BestLapTimeS, lapTime);
+            status.LapStartTimeS = _raceTime;
+
             status.ValidatedLaps++;
             if (status.ValidatedLaps >= totalLaps)
                 OnCarCrossedFinish(status);

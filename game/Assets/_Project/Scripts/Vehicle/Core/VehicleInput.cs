@@ -14,5 +14,11 @@ namespace Shitboxer.Vehicle
 
         /// <summary>0..1.</summary>
         public float Handbrake;
+
+        /// <summary>Momentary overtake-boost request (the KERS-style DraftBoost deploy button). The sim
+        /// never reads this — boost is applied through <see cref="VehicleSim.BoostMult"/>, which the
+        /// DraftBoost host sets — so leaving it false (the default) keeps driving feel byte-for-byte
+        /// unchanged. Present so a headless server can fill it from a packet like the other fields.</summary>
+        public bool Boost;
     }
 }

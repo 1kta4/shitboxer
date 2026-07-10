@@ -307,6 +307,11 @@ namespace Shitboxer.Meta
                 return;
             }
 
+            // Wave-12: fold the player's fastest lap of this race into the persistent per-track records.
+            // Runs before any early-return branch below so it captures the last race of a run too. Purely
+            // additive history — no gameplay/economy effect — and a no-op when no lap validated.
+            RecordPlayerBestLap(me);
+
             bool eliminated = me.State == CarRaceState.Eliminated;
             // The boss cushion tightens with the season: the required top-N shrinks by one slot per
             // circuit (never below 1) so later bosses demand a sharper finish. RunState is untouched —
@@ -569,7 +574,46 @@ namespace Shitboxer.Meta
             if (Meta == null) Meta = new MetaProgress();
             Meta.RegisterRunEnd(Run.CircuitIndex, Run.Money);
             if (seasonCleared) Meta.RegisterSeasonCleared(Run.StakeLevel);
+
+            // Wave-12: append a compact summary of the just-ended run to the rolling history log. The
+            // timestamp is read from the HOST clock here (never inside pure logic) and passed in; the
+            // entry is purely additive history with no effect on any future run's difficulty or reward.
+            Meta.RecordRun(new RunHistoryEntry
+            {
+                circuitsCleared = Run.CircuitIndex,
+                finalMoney = Run.Money,
+                stakeLevel = Run.StakeLevel,
+                timestamp = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            });
+
             MetaProgress.Save(Meta);
+        }
+
+        /// <summary>
+        /// Folds the player's fastest lap of the just-finished race into the persistent per-track lap
+        /// records (wave-12), keyed by a stable track id, and persists the profile only when it is a NEW
+        /// record. Purely additive history — lap records carry no gameplay or economy weight — so this
+        /// never touches a run's feel or balance. A race in which the player validated no lap
+        /// (BestLapTimeS &lt; 0) is a no-op inside <see cref="MetaProgress.RecordBestLap"/>.
+        /// </summary>
+        private void RecordPlayerBestLap(RaceCarStatus me)
+        {
+            if (Meta == null) Meta = new MetaProgress();
+            if (me == null) return;
+            if (Meta.RecordBestLap(CurrentTrackId(), me.BestLapTimeS))
+                MetaProgress.Save(Meta); // a new record — flush now so lap records survive a mid-run quit
+        }
+
+        /// <summary>
+        /// Stable identifier for the track the current race runs on — the active scene's name (every race
+        /// in a run reloads the same greybox loop, so its name IS the track's identity, and a future
+        /// multi-track build distinguishes tracks by scene automatically). Used only to key the additive
+        /// lap records; falls back to a constant so a nameless scene still records.
+        /// </summary>
+        private static string CurrentTrackId()
+        {
+            string scene = SceneManager.GetActiveScene().name;
+            return string.IsNullOrEmpty(scene) ? "track" : scene;
         }
 
         /// <summary>Rolls a fresh run seed for a brand-new run (non-negative).</summary>

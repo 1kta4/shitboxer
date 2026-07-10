@@ -177,7 +177,11 @@ namespace Shitboxer.Vehicle
             if (_sensor == null) _sensor = GetComponent<DraftSensor>();
             bool drafting = _sensor && _sensor.IsDrafting;
 
-            bool activate = ActivateRequested || (AutoActivate && drafting && _model.Charge01 >= 1f);
+            // The overtake button plumbs in through this car's VehicleInput.Boost — a momentary deploy
+            // request, exactly like an external ActivateRequested poke. Reading Input here is fine (this is
+            // the host layer); ResolveActivate keeps the whole decision in one pure, headless-testable spot.
+            bool boostInput = _controller != null && _controller.Input.Boost;
+            bool activate = ResolveActivate(Enabled, ActivateRequested, boostInput, AutoActivate, drafting, _model.Charge01);
             ActivateRequested = false; // momentary: consumed this step
 
             SyncTunables();
@@ -192,6 +196,21 @@ namespace Shitboxer.Vehicle
             _model.IdleDrainPerSecond = idleDrainPerSecond;
             _model.MaxBoostMult = maxBoostMult;
             _model.MinActivateCharge01 = minActivateCharge01;
+        }
+
+        /// <summary>
+        /// Pure, host-decoupled deploy-signal resolver (the unit-test seam for the boost wiring): folds the
+        /// momentary <paramref name="activateRequested"/> flag, the per-step overtake button
+        /// <paramref name="boostInput"/> (this car's <see cref="VehicleInput.Boost"/>), and the auto-deploy
+        /// rule (reservoir topped out while drafting) into the single deploy signal handed to the model.
+        /// Returns false whenever <paramref name="enabled"/> is false, so a disabled DraftBoost can never
+        /// ask the model to deploy and thus never touches <see cref="VehicleSim.BoostMult"/>.
+        /// </summary>
+        public static bool ResolveActivate(bool enabled, bool activateRequested, bool boostInput,
+            bool autoActivate, bool drafting, float charge01)
+        {
+            if (!enabled) return false;
+            return activateRequested || boostInput || (autoActivate && drafting && charge01 >= 1f);
         }
 
         /// <summary>

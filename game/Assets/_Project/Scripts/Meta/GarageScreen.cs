@@ -140,6 +140,7 @@ namespace Shitboxer.Meta
             GUILayout.BeginHorizontal(GUI.skin.box);
             GUILayout.BeginVertical();
             GUILayout.Label($"{part.DisplayName}  [{part.Category}]  ${part.Price}");
+            DrawEditionTag(part.Edition);
             if (!string.IsNullOrEmpty(part.Description))
                 GUILayout.Label(part.Description);
 
@@ -168,6 +169,7 @@ namespace Shitboxer.Meta
 
             GUILayout.BeginHorizontal(GUI.skin.box);
             GUILayout.Label($"{part.DisplayName}  [{part.Category}]{(equipped ? "  — EQUIPPED" : "")}");
+            DrawEditionTag(part.Edition);
             GUILayout.FlexibleSpace();
             if (equipped)
             {
@@ -269,6 +271,8 @@ namespace Shitboxer.Meta
             GUILayout.Label($"Final money: ${run.Money}");
             GUILayout.Label($"Lives remaining: {run.Lives}");
 
+            DrawRecordsSection();
+
             GUILayout.Space(6);
             GUILayout.Label($"-- OWNED PARTS ({run.OwnedParts.Count}) --");
 
@@ -302,8 +306,125 @@ namespace Shitboxer.Meta
                 {
                     if (!part || part.Category != category) continue;
                     string tag = run.IsEquipped(part) ? "  — EQUIPPED" : "";
-                    GUILayout.Label($"    {part.DisplayName}{tag}");
+                    string edition = EditionTag(part.Edition);
+                    string editionSuffix = edition.Length > 0 ? "  " + edition : "";
+                    GUILayout.Label($"    {part.DisplayName}{editionSuffix}{tag}");
                 }
+            }
+        }
+
+        // ---- Editions + records display helpers -------------------------------------------------
+        // The formatting helpers below (EditionTag / FormatLapTime / RunHistoryLine) are pure and
+        // engine-loop-free (no Time/Input/scene reads) so they can be unit-tested in GarageDisplayTests
+        // without a live scene; everything else here is OnGUI-only drawing. Display only — no read or
+        // write of driving physics or the run economy, so today's numbers are untouched.
+
+        /// <summary>How many best-lap records / recent runs the end screen lists at most.</summary>
+        private const int MaxRecordsShown = 5;
+
+        /// <summary>
+        /// Short bracketed edition tag with its stat-effect magnitude, e.g. "[FOIL x1.25]". Returns ""
+        /// for <see cref="PartEdition.None"/> so an un-editioned part shows nothing extra and looks
+        /// exactly as it does today. The magnitude is <see cref="PartEditionInfo.StatMult"/> — the same
+        /// factor SpecModApplier scales the part's effect by. Pure/static, so it is unit-testable.
+        /// </summary>
+        public static string EditionTag(PartEdition edition)
+        {
+            if (edition == PartEdition.None) return "";
+            return $"[{edition.ToString().ToUpperInvariant()} x{PartEditionInfo.StatMult(edition):0.##}]";
+        }
+
+        /// <summary>
+        /// Formats a lap time in seconds as "M:SS.mm", or "--" for a non-positive / missing time
+        /// (<see cref="MetaProgress.NoLapRecord"/> is 0). Mirrors RaceHud's mm:ss readout style.
+        /// Pure/static — unit-testable without a scene.
+        /// </summary>
+        public static string FormatLapTime(float seconds)
+        {
+            if (seconds <= 0f) return "--";
+            int minutes = (int)(seconds / 60f);
+            return $"{minutes}:{seconds - minutes * 60f:00.00}";
+        }
+
+        /// <summary>
+        /// One compact line summarising a finished run for the end-screen history list, e.g.
+        /// "License 1 - 2 circuits - $37". The stake is shown 1-based as a human "License N". Pure/static.
+        /// </summary>
+        public static string RunHistoryLine(RunHistoryEntry entry)
+        {
+            string circuits = entry.circuitsCleared == 1 ? "1 circuit" : $"{entry.circuitsCleared} circuits";
+            return $"License {entry.stakeLevel + 1} - {circuits} - ${entry.finalMoney}";
+        }
+
+        /// <summary>Tint for a non-None edition tag; falls through to the current GUI colour otherwise.</summary>
+        private static Color EditionColor(PartEdition edition)
+        {
+            switch (edition)
+            {
+                case PartEdition.Foil: return new Color(0.60f, 0.85f, 1f);       // icy blue
+                case PartEdition.Holo: return new Color(0.70f, 1f, 0.70f);       // green
+                case PartEdition.Polychrome: return new Color(1f, 0.70f, 1f);    // magenta
+                default: return GUI.color;
+            }
+        }
+
+        /// <summary>
+        /// Draws a compact, edition-tinted tag label (e.g. "[FOIL x1.25]") for a non-None edition, or
+        /// nothing at all for <see cref="PartEdition.None"/> — so an un-editioned part looks unchanged.
+        /// </summary>
+        private static void DrawEditionTag(PartEdition edition)
+        {
+            string tag = EditionTag(edition);
+            if (tag.Length == 0) return;
+            Color prev = GUI.color;
+            GUI.color = EditionColor(edition);
+            GUILayout.Label(tag);
+            GUI.color = prev;
+        }
+
+        /// <summary>
+        /// End-screen RECORDS block: the persistent per-track best laps and the last few finished runs
+        /// from the cross-run <see cref="MetaProgress"/> profile (read-only). Guarded so a fresh profile
+        /// with no history draws a dash / "(none)" note rather than an empty gap. Purely a display of
+        /// stored history — reads no gameplay or economy state and mutates nothing.
+        /// </summary>
+        private void DrawRecordsSection()
+        {
+            MetaProgress meta = director.Meta;
+            GUILayout.Space(6);
+            GUILayout.Label("== RECORDS ==");
+            if (meta == null)
+            {
+                GUILayout.Label("-");
+                return;
+            }
+
+            GUILayout.Label("-- BEST LAPS --");
+            List<LapRecord> laps = meta.lapRecords;
+            if (laps == null || laps.Count == 0)
+            {
+                GUILayout.Label("    (no lap records yet)");
+            }
+            else
+            {
+                int shown = Mathf.Min(laps.Count, MaxRecordsShown);
+                for (int i = 0; i < shown; i++)
+                    GUILayout.Label($"    {laps[i].trackId}: {FormatLapTime(laps[i].lapSeconds)}");
+            }
+
+            GUILayout.Space(4);
+            GUILayout.Label("-- RECENT RUNS --");
+            List<RunHistoryEntry> history = meta.runHistory;
+            if (history == null || history.Count == 0)
+            {
+                GUILayout.Label("    (no finished runs yet)");
+            }
+            else
+            {
+                // runHistory is oldest-first; list the newest few, newest at the top.
+                int shown = Mathf.Min(history.Count, MaxRecordsShown);
+                for (int i = 0; i < shown; i++)
+                    GUILayout.Label($"    {RunHistoryLine(history[history.Count - 1 - i])}");
             }
         }
     }

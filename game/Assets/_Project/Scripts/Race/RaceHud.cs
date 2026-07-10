@@ -40,6 +40,9 @@ namespace Shitboxer.Race
             // ---- RACE ----------------------------------------------------------------
             GUILayout.Label($"POS {me.Position}/{raceManager.Cars.Count}     LAP {me.Lap}/{raceManager.TotalLaps}");
             GUILayout.Label($"TIME {FormatTime(Mathf.Max(0f, raceManager.RaceTimeS))}");
+            // Lap timing (wave-12): FormatTime renders "-:--.-" for the sentinel -1, so both read as
+            // placeholders until the player completes their first lap. Additive readout only.
+            GUILayout.Label($"LAST {FormatTime(me.LastLapTimeS)}    BEST {FormatTime(me.BestLapTimeS)}");
 
             if (me.State == CarRaceState.Racing && raceManager.WinnerFinished)
             {

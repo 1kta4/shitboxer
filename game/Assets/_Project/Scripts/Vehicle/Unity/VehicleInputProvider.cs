@@ -48,6 +48,14 @@ namespace Shitboxer.Vehicle
         [Range(1f, 3f)]
         [SerializeField] private float brakeExponent = 1f;
 
+        [Header("Boost")]
+        [Tooltip("Momentary boost / overtake control -> VehicleInput.Boost -> DraftBoost deploy. Code-only " +
+                 "keyboard binding for Phase 1 (Left Shift by default; the gamepad South button also boosts) " +
+                 "— a proper .inputactions entry is a later editor step. It only bites once a designer arms " +
+                 "the KERS-style DraftBoost; with the boost off (the default) it is read but changes nothing. " +
+                 "Set to None to disable the keyboard boost key.")]
+        [SerializeField] private Key boostKey = Key.LeftShift;
+
         private VehicleController _controller;
         private float _steer;
 
@@ -67,6 +75,7 @@ namespace Shitboxer.Vehicle
             var pad = Gamepad.current;
 
             float steerTarget = 0f, throttle = 0f, brake = 0f, handbrake = 0f;
+            bool boost = false;
 
             if (kb != null)
             {
@@ -77,6 +86,7 @@ namespace Shitboxer.Vehicle
                 if (kb.sKey.isPressed || kb.downArrowKey.isPressed) brake = 1f;
                 if (kb.spaceKey.isPressed) handbrake = 1f;
                 if (kb.rKey.wasPressedThisFrame) ResetCar();
+                if (boostKey != Key.None && kb[boostKey].isPressed) boost = true;
             }
 
             bool analogSteer = false;
@@ -92,6 +102,7 @@ namespace Shitboxer.Vehicle
 
                 if (pad.buttonEast.isPressed) handbrake = 1f;
                 if (pad.buttonNorth.wasPressedThisFrame) ResetCar();
+                if (pad.buttonSouth.isPressed) boost = true; // free button (East=handbrake, North=reset)
             }
 
             // _steer is kept in linear space so the keyboard ramp is uniform; the response curve
@@ -108,6 +119,7 @@ namespace Shitboxer.Vehicle
                 Throttle = Mathf.Clamp01(throttle),
                 Brake = Mathf.Clamp01(brake),
                 Handbrake = Mathf.Clamp01(handbrake),
+                Boost = boost,
             };
         }
 
