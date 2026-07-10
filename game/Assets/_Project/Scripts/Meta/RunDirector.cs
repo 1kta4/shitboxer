@@ -23,7 +23,9 @@ namespace Shitboxer.Meta
     /// Pause approach: the race scene stays loaded underneath the garage — between races we
     /// just set Time.timeScale = 0; NEXT RACE restores it and reloads the scene for a clean
     /// grid. Boss rule: the circuit's final race requires a top-BossTopN finish; failing it
-    /// (or any elimination) costs a life and the same race is retried.
+    /// (or any elimination) costs a life and the same race is retried. Winning a boss race
+    /// promotes the run to the next circuit (fresh race ladder); the run is only complete once
+    /// the FINAL circuit's boss falls.
     /// </summary>
     public class RunDirector : MonoBehaviour
     {
@@ -201,13 +203,28 @@ namespace Shitboxer.Meta
             }
             else
             {
-                LastRaceSummary = $"P{me.Position} — survived. +${totalPay}.";
                 Run.RaceIndex += 1;
-                if (Run.RunComplete)
+
+                // Cleared the circuit's boss race? On the final circuit that wins the whole
+                // season; otherwise promote to the next (harder) circuit with a fresh race ladder
+                // instead of ending the run.
+                if (Run.RaceIndex >= Run.RacesPerCircuit)
                 {
-                    Phase = RunPhase.RunComplete;
-                    Time.timeScale = 0f;
-                    return;
+                    if (Run.RunComplete)
+                    {
+                        LastRaceSummary = $"P{me.Position} — survived. +${totalPay}. SEASON CLEARED!";
+                        Phase = RunPhase.RunComplete;
+                        Time.timeScale = 0f;
+                        return;
+                    }
+                    Run.CircuitIndex += 1;
+                    Run.RaceIndex = 0;
+                    LastRaceSummary =
+                        $"P{me.Position} — boss down. +${totalPay}. Circuit {Run.CircuitIndex + 1}/{Run.TotalCircuits} begins.";
+                }
+                else
+                {
+                    LastRaceSummary = $"P{me.Position} — survived. +${totalPay}.";
                 }
             }
 

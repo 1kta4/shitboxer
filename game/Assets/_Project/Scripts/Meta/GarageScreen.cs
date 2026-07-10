@@ -42,7 +42,7 @@ namespace Shitboxer.Meta
                     DrawEndScreen("RUN OVER — out of lives.");
                     break;
                 case RunPhase.RunComplete:
-                    DrawEndScreen("CIRCUIT CLEARED — run complete!");
+                    DrawEndScreen("SEASON CLEARED — run complete!");
                     break;
             }
         }
@@ -51,8 +51,9 @@ namespace Shitboxer.Meta
         private void DrawRacingStatus()
         {
             RunState run = director.Run;
-            GUILayout.BeginArea(new Rect(Screen.width - 250, 12, 238, 64), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(Screen.width - 250, 12, 238, 82), GUI.skin.box);
             GUILayout.Label($"$ {run.Money}    LIVES {run.Lives}");
+            GUILayout.Label($"CIRCUIT {run.CircuitIndex + 1}/{run.TotalCircuits}");
             GUILayout.Label(run.IsBossRace
                 ? $"BOSS RACE {run.RaceIndex + 1}/{run.RacesPerCircuit} — top {run.BossTopN} required"
                 : $"RACE {run.RaceIndex + 1}/{run.RacesPerCircuit}");
@@ -69,6 +70,7 @@ namespace Shitboxer.Meta
             GUILayout.Label("== GARAGE ==");
             if (!string.IsNullOrEmpty(director.LastRaceSummary))
                 GUILayout.Label(director.LastRaceSummary);
+            GUILayout.Label($"CIRCUIT {run.CircuitIndex + 1}/{run.TotalCircuits}");
             GUILayout.Label(run.IsBossRace
                 ? $"$ {run.Money}    LIVES {run.Lives}    NEXT: BOSS race {run.RaceIndex + 1}/{run.RacesPerCircuit} (top {run.BossTopN} required)"
                 : $"$ {run.Money}    LIVES {run.Lives}    NEXT: race {run.RaceIndex + 1}/{run.RacesPerCircuit}");

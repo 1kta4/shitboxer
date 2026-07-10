@@ -18,6 +18,12 @@ namespace Shitboxer.Meta
         public int RaceIndex;
         public int RacesPerCircuit = 3;
 
+        /// <summary>0-based index of the current circuit within the season.</summary>
+        public int CircuitIndex;
+
+        /// <summary>How many circuits make up a full season. "Start small" default per the plan.</summary>
+        public int TotalCircuits = 3;
+
         /// <summary>The circuit's last race is the Boss/Feature race: must finish top-N to advance.</summary>
         public int BossTopN = 3;
 
@@ -30,7 +36,20 @@ namespace Shitboxer.Meta
         public List<PartDef> EquippedParts = new List<PartDef>();
 
         public bool IsBossRace => RaceIndex >= RacesPerCircuit - 1;
-        public bool RunComplete => RaceIndex >= RacesPerCircuit;
+
+        /// <summary>True once the run reaches the season's last circuit.</summary>
+        public bool IsFinalCircuit => CircuitIndex >= TotalCircuits - 1;
+
+        /// <summary>
+        /// Per-circuit difficulty scalar and tuning hook: 1.0 on the first circuit, ramping
+        /// gently at first then steeper as the season wears on (convex in CircuitIndex).
+        /// RunDirector — or a headless server — can multiply payouts / survival expectations by
+        /// this without hard-coding a per-circuit table. Wave-1 default: 1.0, 1.35, 1.70, ...
+        /// </summary>
+        public float DifficultyMult => 1f + 0.3f * CircuitIndex + 0.05f * CircuitIndex * CircuitIndex;
+
+        /// <summary>The run is only won after clearing the FINAL race of the FINAL circuit.</summary>
+        public bool RunComplete => IsFinalCircuit && RaceIndex >= RacesPerCircuit;
         public bool HasFreeSlot => EquippedParts.Count < MaxEquipSlots;
 
         public bool Owns(PartDef part) => OwnedParts.Contains(part);

@@ -17,6 +17,18 @@ namespace Shitboxer.Tests
             return p;
         }
 
+        /// <summary>An additive stat part (Op=Add): Multiplier read as a +fraction, e.g. 0.2 = +20%.</summary>
+        private static PartDef AddPart(SpecModTarget target, float amount)
+        {
+            var p = ScriptableObject.CreateInstance<PartDef>();
+            p.Category = PartCategory.Stat;
+            p.SpecMods = new List<SpecMod>
+            {
+                new SpecMod { Target = target, Multiplier = amount, Op = SpecModOp.Add },
+            };
+            return p;
+        }
+
         [Test]
         public void Apply_MultipliesPower()
         {
@@ -46,6 +58,39 @@ namespace Shitboxer.Tests
                 StatPart(SpecModTarget.GripFront, 1.2f),
             });
             Assert.That(result.FrontTyre.PeakMu, Is.EqualTo(baseGrip * 1.1f * 1.2f).Within(1e-3f));
+        }
+
+        [Test]
+        public void Apply_AdditiveBeforeMultiplicative_BeatsReverse()
+        {
+            var baseSpec = new VehicleSpec();
+            float baseGrip = baseSpec.FrontTyre.PeakMu;
+            PartDef add = AddPart(SpecModTarget.GripFront, 0.2f);   // +20%, additive
+            PartDef mul = StatPart(SpecModTarget.GripFront, 1.2f);  // x1.20, multiplicative
+
+            // Equip order is the resolve order: (1 + 0.2) x 1.2 = 1.44 vs (1 x 1.2) + 0.2 = 1.40.
+            VehicleSpec addFirst = SpecModApplier.Apply(baseSpec, new[] { add, mul });
+            VehicleSpec mulFirst = SpecModApplier.Apply(baseSpec, new[] { mul, add });
+
+            Assert.That(addFirst.FrontTyre.PeakMu, Is.GreaterThan(mulFirst.FrontTyre.PeakMu));
+            Assert.That(addFirst.FrontTyre.PeakMu, Is.EqualTo(baseGrip * 1.44f).Within(1e-3f));
+            Assert.That(mulFirst.FrontTyre.PeakMu, Is.EqualTo(baseGrip * 1.40f).Within(1e-3f));
+        }
+
+        [Test]
+        public void Apply_MultiplyOnly_IsOrderIndependent()
+        {
+            var baseSpec = new VehicleSpec();
+            float baseGrip = baseSpec.FrontTyre.PeakMu;
+            PartDef a = StatPart(SpecModTarget.GripFront, 1.1f);
+            PartDef b = StatPart(SpecModTarget.GripFront, 1.2f);
+
+            // Pure-Multiply loadouts commute, so both orders bake to base x 1.1 x 1.2 (old behaviour).
+            VehicleSpec ab = SpecModApplier.Apply(baseSpec, new[] { a, b });
+            VehicleSpec ba = SpecModApplier.Apply(baseSpec, new[] { b, a });
+
+            Assert.That(ab.FrontTyre.PeakMu, Is.EqualTo(baseGrip * 1.1f * 1.2f).Within(1e-3f));
+            Assert.That(ba.FrontTyre.PeakMu, Is.EqualTo(ab.FrontTyre.PeakMu).Within(1e-4f));
         }
 
         [Test]

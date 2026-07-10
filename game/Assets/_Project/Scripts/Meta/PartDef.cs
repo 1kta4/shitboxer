@@ -22,13 +22,40 @@ namespace Shitboxer.Meta
         Downforce,  // DownforceCoeff
     }
 
-    /// <summary>One multiplicative tweak a stat part applies to the player's spec.</summary>
+    /// <summary>
+    /// How a SpecMod folds into its target's running factor (see SpecModApplier). Multiply (0)
+    /// is the default so existing single-op assets deserialize to today's behaviour, and a pile
+    /// of pure-Multiply mods still commutes. Add is the non-commuting op that makes slot order
+    /// matter: an Add mod slotted BEFORE a Multiply mod on the same target beats the reverse
+    /// (Balatro's +Mult-before-xMult, doc 03).
+    /// </summary>
+    public enum SpecModOp
+    {
+        Multiply,  // running factor *= Multiplier  (1.1 = +10%)
+        Add,       // running factor += Multiplier as a +fraction  (0.10 = +10%)
+    }
+
+    /// <summary>One tweak a stat part applies to the player's spec (multiplicative by default).</summary>
     [Serializable]
     public struct SpecMod
     {
         public SpecModTarget Target;
-        [Tooltip("Multiplier on the target value: 1.1 = +10%, 0.9 = -10%.")]
+        [Tooltip("Op=Multiply: factor on the target, 1.1 = +10%, 0.9 = -10%. Op=Add: a +fraction added to the running factor, 0.10 = +10%, -0.04 = -4%.")]
         public float Multiplier;
+        [Tooltip("Multiply (default) scales the target's running factor; Add adds to it — so slot order matters when both ops hit one target.")]
+        public SpecModOp Op;
+    }
+
+    /// <summary>
+    /// Shop draw-weight tier (doc 03's Balatro DNA). Common (0) is the default so every existing
+    /// PartDef asset stays Common; ShopLogic.Roll biases the shelf toward Common and makes Rare
+    /// scarce.
+    /// </summary>
+    public enum Rarity
+    {
+        Common,
+        Uncommon,
+        Rare,
     }
 
     /// <summary>
@@ -46,6 +73,8 @@ namespace Shitboxer.Meta
         [TextArea]
         public string Description;
         public PartCategory Category;
+        [Tooltip("Shop draw-weight tier — Common shows up often, Rare rarely (ShopLogic.Roll).")]
+        public Rarity Rarity = Rarity.Common;
         [Min(0)] public int Price = 5;
 
         [Header("Stat parts")]

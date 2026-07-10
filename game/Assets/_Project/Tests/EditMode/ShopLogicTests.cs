@@ -15,6 +15,14 @@ namespace Shitboxer.Tests
             return p;
         }
 
+        private static PartDef Part(int price, Rarity rarity)
+        {
+            var p = ScriptableObject.CreateInstance<PartDef>();
+            p.Price = price;
+            p.Rarity = rarity;
+            return p;
+        }
+
         private static List<PartDef> Pool(int n)
         {
             var list = new List<PartDef>(n);
@@ -100,6 +108,40 @@ namespace Shitboxer.Tests
             shop.BeginVisit(Pool(20), run);
             var seen = new HashSet<PartDef>(shop.Offers);
             Assert.AreEqual(shop.Offers.Count, seen.Count);
+        }
+
+        [Test]
+        public void Roll_RarityWeighted_StaysDistinctUnowned_WithinOfferCount_AndDeterministic()
+        {
+            // Shared instances so two seeded shops can be compared by reference for determinism.
+            var pool = new List<PartDef>
+            {
+                Part(5, Rarity.Common), Part(5, Rarity.Common), Part(5, Rarity.Common),
+                Part(7, Rarity.Uncommon), Part(7, Rarity.Uncommon),
+                Part(12, Rarity.Rare), Part(12, Rarity.Rare),
+            };
+
+            var runA = new RunState { Money = 100 };
+            var runB = new RunState { Money = 100 };
+            runA.OwnedParts.Add(pool[5]); // own a Rare — must never be offered
+            runB.OwnedParts.Add(pool[5]);
+
+            var shopA = new ShopLogic(seed: 99);
+            var shopB = new ShopLogic(seed: 99);
+            shopA.BeginVisit(pool, runA);
+            shopB.BeginVisit(pool, runB);
+
+            // Never exceeds OfferCount, and 6 unowned candidates comfortably fill the shelf.
+            Assert.LessOrEqual(shopA.Offers.Count, ShopLogic.OfferCount);
+            Assert.AreEqual(ShopLogic.OfferCount, shopA.Offers.Count);
+
+            // Distinct offers, none of them owned.
+            Assert.AreEqual(shopA.Offers.Count, new HashSet<PartDef>(shopA.Offers).Count);
+            foreach (PartDef owned in runA.OwnedParts)
+                CollectionAssert.DoesNotContain(shopA.Offers, owned);
+
+            // Seeded determinism preserved: same seed + pool -> identical shelf, same order.
+            CollectionAssert.AreEqual(shopA.Offers, shopB.Offers);
         }
     }
 }

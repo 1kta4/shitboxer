@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Shitboxer.Vehicle
 {
     /// <summary>
-    /// Host adapter between VehicleSim and a PhysX rigidbody: raycasts the ground,
+    /// Host adapter between VehicleSim and a PhysX rigidbody: sphere-casts the ground,
     /// feeds contacts into the sim, applies the returned forces, and poses wheel visuals.
     /// Keep this thin — all car behaviour belongs in VehicleSim so a headless server can
     /// run the identical maths.
@@ -16,6 +16,10 @@ namespace Shitboxer.Vehicle
         [SerializeField] private LayerMask groundMask = ~0;
         [Tooltip("Optional wheel visual transforms: FL, FR, RL, RR.")]
         [SerializeField] private Transform[] wheelVisuals = new Transform[4];
+        [Tooltip("Radius (m) of the wheel ground probe, a fraction of the tyre width. A fat sphere sweep " +
+                 "catches curbs and edges a single centre ray would skip or 'pop' over, and smooths jumps. " +
+                 "0 degenerates to the old single downward ray.")]
+        [SerializeField] private float contactProbeRadius = 0.06f;
 
         public VehicleInput Input;               // written by an input provider or AI each frame
         public VehicleSim Sim { get; private set; }
@@ -123,17 +127,26 @@ namespace Shitboxer.Vehicle
             }
         }
 
-        // Rays start this far ABOVE the attach point. Raycasts can't hit a collider from
-        // inside it, so a chassis that ever sinks slightly below the surface would otherwise
-        // go blind (no suspension force, no recovery). Starting high keeps the ground visible
-        // and lets the springs eject the car; the lift is subtracted from the hit distance so
-        // the sim's suspension maths is unchanged.
+        // Casts start this far ABOVE the attach point. A downward sweep can't register a collider
+        // it begins inside of, so a chassis that ever sinks slightly below the surface would
+        // otherwise go blind (no suspension force, no recovery). Starting high keeps the ground
+        // visible and lets the springs eject the car; the lift is subtracted from the hit distance
+        // so the sim's suspension maths is unchanged.
         private const float RayStartLiftM = 0.4f;
 
         private void GatherContacts()
         {
             var spec = specAsset.Spec;
             float rayLength = spec.SuspensionRestLengthM + spec.SuspensionTravelM + spec.WheelRadiusM;
+
+            // Sweep a small sphere (not a hair-thin ray) down the suspension line so a wheel catches
+            // curbs/edges a single centre ray would skip or pop over. A spherecast reports the distance
+            // its CENTRE travels, so the leading face reaches one radius further; probe over
+            // rayLength+lift MINUS the radius to plant that face exactly where the old ray tip stopped,
+            // keeping grounded reach (and HitDistance on flat ground) identical. radius 0 collapses the
+            // whole thing back to the original single downward raycast.
+            float probeRadius = Mathf.Max(0f, contactProbeRadius);
+            float castDistance = Mathf.Max(0f, rayLength + RayStartLiftM - probeRadius);
 
             for (int i = 0; i < VehicleSim.WheelCount; i++)
             {
@@ -142,16 +155,31 @@ namespace Shitboxer.Vehicle
                 Quaternion steerRot = Quaternion.AngleAxis(steer, transform.up);
 
                 Vector3 rayOrigin = attach + transform.up * RayStartLiftM;
-                bool hit = Physics.Raycast(rayOrigin, -transform.up, out RaycastHit hitInfo,
-                    rayLength + RayStartLiftM, groundMask, QueryTriggerInteraction.Ignore);
+                RaycastHit hitInfo;
+                bool hit = probeRadius > 0f
+                    ? Physics.SphereCast(rayOrigin, probeRadius, -transform.up, out hitInfo,
+                        castDistance, groundMask, QueryTriggerInteraction.Ignore)
+                    : Physics.Raycast(rayOrigin, -transform.up, out hitInfo,
+                        castDistance, groundMask, QueryTriggerInteraction.Ignore);
+
+                // If the sphere begins already overlapping a collider (chassis sunk so the sweep starts
+                // inside the ground) SphereCast reports distance 0 with a degenerate zero normal. Treat
+                // that like the ray's inside-a-collider case: stay grounded but fall back to an up-normal
+                // and a point below the attach so the springs still get a clean eject, never a NaN basis.
+                bool degenerate = hit && hitInfo.normal.sqrMagnitude < 1e-6f;
+                Vector3 hitPoint = (hit && !degenerate) ? hitInfo.point : attach - transform.up * rayLength;
+                Vector3 hitNormal = (hit && !degenerate) ? hitInfo.normal : transform.up;
 
                 _contacts[i] = new GroundContact
                 {
                     Grounded = hit,
-                    HitDistance = hit ? hitInfo.distance - RayStartLiftM : rayLength,
-                    HitPoint = hit ? hitInfo.point : attach - transform.up * rayLength,
-                    SurfaceNormal = hit ? hitInfo.normal : transform.up,
-                    PointVelocity = Body.GetPointVelocity(hit ? hitInfo.point : attach),
+                    // Centre-travel distance -> attach->ground clearance: add the sphere radius back (the
+                    // surface sits one radius beyond the sphere centre along the cast), then subtract the
+                    // start lift exactly as the single ray did. Reduces to hitInfo.distance - lift at radius 0.
+                    HitDistance = hit ? hitInfo.distance + probeRadius - RayStartLiftM : rayLength,
+                    HitPoint = hitPoint,
+                    SurfaceNormal = hitNormal,
+                    PointVelocity = Body.GetPointVelocity(hit ? hitPoint : attach),
                     SuspensionUp = transform.up,
                     WheelForward = steerRot * transform.forward,
                     WheelRight = steerRot * transform.right,

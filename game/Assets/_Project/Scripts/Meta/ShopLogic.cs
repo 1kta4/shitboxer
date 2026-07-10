@@ -58,7 +58,12 @@ namespace Shitboxer.Meta
             return true;
         }
 
-        /// <summary>Uniform draw of up to OfferCount distinct parts the player doesn't own yet.</summary>
+        /// <summary>
+        /// Rarity-weighted draw of up to OfferCount distinct parts the player doesn't own yet:
+        /// Common is common, Rare is rare (doc 03's Balatro shelf). Weighted picks are made
+        /// without replacement so offers stay distinct, and the whole draw runs off the seeded
+        /// RNG so a given seed is reproducible.
+        /// </summary>
         private void Roll(IReadOnlyList<PartDef> pool, RunState run)
         {
             _offers.Clear();
@@ -72,9 +77,31 @@ namespace Shitboxer.Meta
             int count = Math.Min(OfferCount, candidates.Count);
             for (int i = 0; i < count; i++)
             {
-                int pick = _rng.Next(candidates.Count);
+                int totalWeight = 0;
+                foreach (PartDef part in candidates)
+                    totalWeight += RarityWeight(part.Rarity);
+
+                int roll = _rng.Next(totalWeight);
+                int pick = candidates.Count - 1; // last standing if rounding leaves a sliver
+                for (int c = 0; c < candidates.Count; c++)
+                {
+                    roll -= RarityWeight(candidates[c].Rarity);
+                    if (roll < 0) { pick = c; break; }
+                }
+
                 _offers.Add(candidates[pick]);
                 candidates.RemoveAt(pick);
+            }
+        }
+
+        /// <summary>Relative shelf frequency per tier — Common shows up most, Rare least.</summary>
+        private static int RarityWeight(Rarity rarity)
+        {
+            switch (rarity)
+            {
+                case Rarity.Uncommon: return 30;
+                case Rarity.Rare:     return 8;
+                default:              return 100; // Common
             }
         }
     }
