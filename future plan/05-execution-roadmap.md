@@ -88,6 +88,12 @@ win vs hang back to farm money" and planning shop buys between races. This is th
 Make the 1-circuit loop feel like a real (tiny) game.
 
 - Replace grey box with **placeholder** cars + one themed track (doc 06).
+- **Build the real UI in UI Toolkit** (UXML/USS/UI Builder — decided 2026-07-16, doc 02). This is the
+  phase where the throwaway IMGUI harness (`GarageScreen`, `RaceHud`) gets **deleted and replaced**,
+  not ported. Scope: main-menu/pause shell, the garage shop (part cards with rarity/edition/condition
+  treatment, stat-delta preview, equip/slot-order), the race HUD, and the run-summary screen. Note UI
+  Toolkit has **no Timeline/Animation-Clip integration** — UI juice comes from USS transitions or
+  code. This is what turns "testable" into **shareable**.
 - Run-summary screen, basic meta hook (unlock a second chassis), sound, **crunchy collision/damage
   FX**, screen shake, boost FX — the juice that sells a contact racer.
 - First outside playtest (hand the build to a few friends).
