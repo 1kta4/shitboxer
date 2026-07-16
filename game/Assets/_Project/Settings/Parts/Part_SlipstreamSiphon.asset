@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_SlipstreamSiphon
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: slipstream_siphon
+  DisplayName: Slipstream Siphon
+  Description: "Taps the low-pressure pocket behind the car ahead and turns clean
+    air into cash. No on-track effect and no finishing-position payout \u2014 its
+    whole value is the draft payoff, earned while you sit in a rival's slipstream."
+  Category: 1
+  Rarity: 1
+  Price: 6
+  Condition: 0
+  Edition: 0
+  SpecMods: []
+  MoneyPerPositionHeld: 0
+  DraftLeech: 1
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0
