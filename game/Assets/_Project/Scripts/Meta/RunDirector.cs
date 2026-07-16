@@ -174,6 +174,7 @@ namespace Shitboxer.Meta
             ApplyAttackProfile();
             ApplyRuleset();     // opt-in boss ruleset BEFORE ApplyDifficulty so the per-circuit tighten reads its base
             ApplyDifficulty();
+            ApplyPayoutPreview(); // AFTER ApplyRuleset — the preview reads the ruleset for the boss reward
 
             // Persistent wear carries ACROSS races within a run: a freshly-rebuilt sim resets to full
             // durability (and ApplyEquippedParts may have just rebuilt it via SetSpec), so re-apply the
@@ -302,6 +303,25 @@ namespace Shitboxer.Meta
         }
 
         /// <summary>
+        /// Hands the race HUD a closure over this director's own payout math, so the cash figure the player
+        /// weighs mid-race is produced by the same code that later pays them (see
+        /// <see cref="CleanFinishPayoutFor"/>). Pushed rather than imported because Shitboxer.Race cannot
+        /// reference Shitboxer.Meta — Meta already depends on Race, so a back-reference would be circular.
+        ///
+        /// The boss designation is captured ONCE here rather than per-frame: it can't change mid-race, and
+        /// this runs after ApplyRuleset so the ruleset the boss reward reads is already in place. Silently
+        /// does nothing when the scene has no HUD — the preview is a readout, never a requirement.
+        /// </summary>
+        private void ApplyPayoutPreview()
+        {
+            var hud = FindFirstObjectByType<RaceHud>();
+            if (hud == null) return;
+
+            bool bossRace = IsDesignatedBoss(bossRacesEnabled, Run.IsBossRace);
+            hud.SetPayoutPreview(position => CleanFinishPayoutFor(position, bossRace));
+        }
+
+        /// <summary>
         /// True when boss races are enabled AND the given race is the circuit's boss (its final race). Pure
         /// and static so the designation is unit-testable without a live scene. Defaults false — with boss
         /// races off, no race is ever designated a boss and the run plays exactly as shipped.
@@ -344,6 +364,71 @@ namespace Shitboxer.Meta
             if (ruleset.Has(RaceModifier.DoublePayout)) payout *= 2;
             return payout + bossRewardBonus;
         }
+
+        /// <summary>
+        /// The position-dependent cash a CLEAN finish at <paramref name="position"/> banks right now: the
+        /// inverted base+podium payout, scaled by the license stake, then boss-rewarded, plus the capped
+        /// sponsor money from equipped economy parts.
+        ///
+        /// The ORDER is load-bearing and reproduces the shipped sequence exactly: sponsor money is added
+        /// LAST, so it is never scaled by <see cref="RunState.StakeMult"/> and never doubled by a boss
+        /// ruleset's <see cref="RaceModifier.DoublePayout"/>. Moving it earlier would silently inflate the
+        /// economy — see the order test in RunFlowTests.
+        ///
+        /// Deliberately EXCLUDES the draft-leech payoff: that scales with drafting TIME, not position, so it
+        /// isn't a function of where you finish and rides alongside this in ResolveRace.
+        ///
+        /// Single source of truth. Both the live race resolution and RaceHud's mid-race payout preview call
+        /// this, so the number the player is shown while deciding whether to hang back cannot drift from the
+        /// number they are actually paid.
+        /// </summary>
+        public static int CleanFinishPayout(
+            int position,
+            PayoutTable table,
+            IReadOnlyList<PartDef> equippedParts,
+            float stakeMult,
+            bool bossRace,
+            in RaceRuleset ruleset,
+            int bossRewardBonus)
+        {
+            if (table == null) return 0;
+
+            int pay = table.PayoutFor(position, false);
+
+            // Stake 0 — the shipped default and the only reachable value until a stake-select UI lands —
+            // yields StakeMult exactly 1.0, so this is skipped and the payout stays byte-for-byte as shipped.
+            if (stakeMult > 1f)
+                pay = Mathf.CeilToInt(pay * stakeMult);
+
+            if (bossRace)
+                pay = ApplyBossReward(pay, ruleset, bossRewardBonus);
+
+            // LAST, and deliberately so: sponsor money is neither stake-scaled nor DoublePayout-doubled.
+            int sponsor = 0;
+            if (equippedParts != null)
+                for (int i = 0; i < equippedParts.Count; i++)
+                {
+                    PartDef part = equippedParts[i];
+                    if (part && part.Category == PartCategory.Economy)
+                        sponsor += table.EconomyBonusFor(part.MoneyPerPositionHeld, position);
+                }
+
+            return pay + sponsor;
+        }
+
+        /// <summary>
+        /// Instance wrapper over <see cref="CleanFinishPayout"/> bound to this director's live run, table and
+        /// ruleset. This is what both ResolveRace and the HUD preview call.
+        /// </summary>
+        public int CleanFinishPayoutFor(int position, bool bossRace) =>
+            CleanFinishPayout(
+                position,
+                payoutTable,
+                Run?.EquippedParts,
+                Run != null ? Run.StakeMult : 1f,
+                bossRace,
+                _raceManager != null ? _raceManager.Ruleset : default,
+                bossRewardBonus);
 
         /// <summary>
         /// Whether a clean boss finish grants the interlude free-repair: yes on a boss race UNLESS the
@@ -439,36 +524,22 @@ namespace Shitboxer.Meta
             // payout and retrying richer is no longer a play. Only a clean finish collects the
             // position cash plus (capped) sponsor money.
             int payout;
-            int economyBonus = 0;
             if (failed)
             {
                 payout = payoutTable.EliminationConsolation;
             }
             else
             {
-                payout = payoutTable.PayoutFor(me.Position, false);
-                foreach (PartDef part in Run.EquippedParts)
-                    if (part && part.Category == PartCategory.Economy)
-                        economyBonus += payoutTable.EconomyBonusFor(part.MoneyPerPositionHeld, me.Position);
+                // Position cash + stake scaling + boss reward + capped sponsor money, in that exact order
+                // (see CleanFinishPayoutFor). Shared verbatim with RaceHud's mid-race preview so the figure
+                // the player weighs their hang-back decision against is the figure they're actually paid.
+                payout = CleanFinishPayoutFor(me.Position, bossRace);
 
-                // Higher license stakes pay a modest bump on a clean finish, scaling the earned
-                // position cash by RunState.StakeMult. Guarded so stake 0 (the shipped default, and
-                // the only reachable value until a stake-select UI lands) skips this entirely and the
-                // payout stays byte-for-byte as shipped.
-                if (Run.StakeLevel > 0)
-                    payout = Mathf.CeilToInt(payout * Run.StakeMult);
-
-                // Boss-race rewards on a clean boss finish (opt-in): honour the ruleset's DoublePayout
-                // modifier and add the flat boss-clear bonus, then grant the interlude free-repair unless
-                // the ruleset withholds it via NoRepairAfter (RaceRuleset.Boss does, so its damage rides
-                // into the garage). All gated on bossRace, so a disabled run never reaches this and the
-                // economy stays byte-for-byte as shipped.
-                if (bossRace)
-                {
-                    payout = ApplyBossReward(payout, _raceManager.Ruleset, bossRewardBonus);
-                    if (GrantsFreeRepair(bossRace, _raceManager.Ruleset))
-                        Run.CarDurability = 1f;
-                }
+                // The interlude free-repair is a SIDE EFFECT of a clean boss finish, not part of the payout,
+                // so it stays here rather than in the shared (pure-ish) payout helper. Withheld when the
+                // ruleset says NoRepairAfter (RaceRuleset.Boss does, so its damage rides into the garage).
+                if (bossRace && GrantsFreeRepair(bossRace, _raceManager.Ruleset))
+                    Run.CarDurability = 1f;
             }
             // Draft-Leech payoff (opt-in): pay money proportional to the time the player spent drafting this
             // race, but ONLY if the run owns a part flagged DraftLeech. With no such part owned the gate is
@@ -483,8 +554,8 @@ namespace Shitboxer.Meta
                 leechBonus = DraftLeechPayout(draftSeconds, draftLeechRate, draftLeechCapPerRace);
             }
 
-            Run.Money += payout + economyBonus + leechBonus;
-            int totalPay = payout + economyBonus + leechBonus;
+            Run.Money += payout + leechBonus;
+            int totalPay = payout + leechBonus;
 
             if (failed)
             {

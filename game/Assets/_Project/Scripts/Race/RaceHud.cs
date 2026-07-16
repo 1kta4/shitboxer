@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Shitboxer.Vehicle;
 using UnityEngine;
 
@@ -5,7 +6,10 @@ namespace Shitboxer.Race
 {
     /// <summary>
     /// Throwaway IMGUI race readout (same style as VehicleDebugHud): position, lap, race
-    /// clock, the live cutoff countdown once the winner finishes, PASS/ELIMINATED verdicts,
+    /// clock, the survival cutoff (projected from pace while racing, then an exact countdown once the
+    /// winner finishes), a live payout preview showing what the current position banks versus what
+    /// winning pays — together these are the two halves of the run's push-to-win vs hang-back-to-farm
+    /// tension, and neither was visible mid-race before wave 16 — PASS/ELIMINATED verdicts,
     /// GRIP/POWER spec bars, an always-on durability bar + on-hit CRUNCH flash for the wave-4
     /// damage model, live combat saps, a live SLIPSTREAM cue while drafting, the in-progress
     /// lap's pace vs the player's best, and a small standings list for eyeballing the bots.
@@ -14,17 +18,42 @@ namespace Shitboxer.Race
     /// </summary>
     public class RaceHud : MonoBehaviour
     {
+        /// <summary>
+        /// Minimum distance, in LAPS, before the cutoff pace projection is shown. The grid spreads the
+        /// field over ~27 m, and that offset is a fixed handicap in TotalDistanceM — early on it dwarfs any
+        /// real pace difference and would render an alarming, wrong "AT RISK" in the opening corners. After
+        /// a full lap the offset is a few percent of distance covered and pace dominates. Costs the readout
+        /// the first lap of a 3-lap race; it beats lying for the first lap.
+        /// </summary>
+        private const float PaceEstimateMinLaps = 1f;
+
         [SerializeField] private RaceManager raceManager;
         [SerializeField] private VehicleController playerCar;
 
         private VehicleCombat _playerCombat;
         private DraftSensor _playerDraft;
+        private System.Func<int, int> _payoutPreview;
 
         public void Configure(RaceManager manager, VehicleController player)
         {
             raceManager = manager;
             playerCar = player;
         }
+
+        /// <summary>
+        /// Injects the position→cash preview that the run layer owns: given a 1-based finish position, what a
+        /// clean finish there banks right now.
+        ///
+        /// Pushed in rather than imported because Shitboxer.Race CANNOT reference Shitboxer.Meta — Meta
+        /// already depends on Race, so a back-reference would be circular (same constraint StatSummary
+        /// documents). The tempting alternative, re-implementing the payout formula here, is exactly what
+        /// must not happen: a preview that drifts from the real payout would lie to the player at the precise
+        /// moment they're weighing push-to-win against hang-back-to-farm. So the run layer hands over a
+        /// closure across its OWN resolution math (RunDirector.CleanFinishPayoutFor) instead.
+        ///
+        /// Null — nobody pushed one, e.g. a bare race scene with no run — simply hides the readout.
+        /// </summary>
+        public void SetPayoutPreview(System.Func<int, int> preview) => _payoutPreview = preview;
 
         private void OnGUI()
         {
@@ -38,8 +67,10 @@ namespace Shitboxer.Race
             // Height tracks the standings list so the box always fits its content (no clipping).
             // Base bumped for the always-on durability bar + the permanent CUR pace line and the
             // transient SLIPSTREAM cue so none of them can push the standings out of the clipped area.
+            // Wave-16 adds two more always-on-while-racing lines (the cutoff/pace projection and the
+            // payout preview), so the base grows by another 36f to keep the standings inside the area.
             int rows = raceManager.Leaderboard.Count;
-            float areaHeight = 292f + rows * 18f;
+            float areaHeight = 328f + rows * 18f;
             GUILayout.BeginArea(new Rect(12, 12, 280, areaHeight), GUI.skin.box);
 
             // ---- RACE ----------------------------------------------------------------
@@ -50,11 +81,8 @@ namespace Shitboxer.Race
             GUILayout.Label($"LAST {FormatTime(me.LastLapTimeS)}    BEST {FormatTime(me.BestLapTimeS)}");
             DrawLapPace(me);
 
-            if (me.State == CarRaceState.Racing && raceManager.WinnerFinished)
-            {
-                float remaining = Mathf.Max(0f, raceManager.CutoffDeadlineS - raceManager.RaceTimeS);
-                GUILayout.Label($"CUTOFF IN {remaining:0.0}s");
-            }
+            DrawCutoff(me);
+            DrawPayoutPreview(me);
 
             switch (me.State)
             {
@@ -216,6 +244,96 @@ namespace Shitboxer.Race
             if (bestLapS < 0f || currentLapS < 0f) return string.Empty;
             float delta = currentLapS - bestLapS;
             return delta.ToString("+0.0;-0.0");
+        }
+
+        /// <summary>
+        /// The survival gate, shown for the WHOLE race rather than only its last seconds.
+        ///
+        /// Once the winner is in, the deadline is a known wall-clock instant, so count it down exactly.
+        /// Before that there is no deadline to show — CutoffDeadlineS is DEFINED as the winner's finish time
+        /// × (1 + fraction) and returns a -1 sentinel until someone finishes. That is why this readout used
+        /// to be hidden for ~95% of a race, which made Phase 2's whole "can I stay inside the cutoff?" tension
+        /// structurally invisible. So project it from pace instead.
+        /// </summary>
+        private void DrawCutoff(RaceCarStatus me)
+        {
+            if (me.State != CarRaceState.Racing) return;
+
+            if (raceManager.WinnerFinished)
+            {
+                float remaining = Mathf.Max(0f, raceManager.CutoffDeadlineS - raceManager.RaceTimeS);
+                GUILayout.Label($"CUTOFF IN {remaining:0.0}s");
+                return;
+            }
+
+            IReadOnlyList<RaceCarStatus> board = raceManager.Leaderboard;
+            if (board == null || board.Count == 0) return;
+
+            // Pre-winner the board is sorted by distance, so entry 0 is whoever is leading on the road.
+            float excess = ProjectedPaceExcess01(
+                board[0].TotalDistanceM, me.TotalDistanceM, raceManager.TrackLengthM * PaceEstimateMinLaps);
+
+            string text = FormatCutoffPace(excess, raceManager.CutoffFraction);
+            if (text.Length > 0) GUILayout.Label(text);
+        }
+
+        /// <summary>
+        /// How far the player is projected to finish BEHIND the winner, as a fraction of the winner's time
+        /// (0.08 = projected to finish 8% slower — inside a 15% cutoff). -1 means "not meaningful yet, omit".
+        ///
+        /// Why this needs no clock: project each car's finish by holding its average pace, and both
+        /// projections extrapolate the SAME elapsed time over the SAME loop length. The finish-time ratio is
+        /// (T·D/playerDist) / (T·D/leaderDist) — T and D cancel exactly, leaving leaderDist/playerDist. So a
+        /// pure distance ratio IS the projected time ratio, with no clock term to get wrong.
+        ///
+        /// Gated on <paramref name="minDistanceM"/> because the ~27 m grid spread is a fixed handicap in
+        /// TotalDistanceM: over the opening metres it swamps genuine pace and would scream AT RISK at a car
+        /// that is merely starting at the back. Returns 0 when the player IS the leader (identical distances).
+        /// Pure — no engine, scene or clock state — so it is unit-testable and a headless readout matches.
+        /// </summary>
+        public static float ProjectedPaceExcess01(float leaderDistanceM, float playerDistanceM, float minDistanceM)
+        {
+            if (minDistanceM < 1f) minDistanceM = 1f;
+            if (playerDistanceM < minDistanceM || leaderDistanceM < minDistanceM) return -1f;
+            return (leaderDistanceM / playerDistanceM) - 1f;
+        }
+
+        /// <summary>
+        /// Renders the projected cutoff standing: the player's projected deficit against the gate they must
+        /// stay inside, plus a blunt SAFE / AT RISK verdict. Empty string for the -1 "not yet meaningful"
+        /// sentinel so the caller draws nothing. Pure and unit-testable.
+        /// </summary>
+        public static string FormatCutoffPace(float paceExcess01, float cutoffFraction)
+        {
+            if (paceExcess01 < 0f) return string.Empty;
+            string verdict = paceExcess01 <= cutoffFraction ? "SAFE" : "AT RISK";
+            return $"PACE +{paceExcess01 * 100f:0}%  /  CUT +{cutoffFraction * 100f:0}%   {verdict}";
+        }
+
+        /// <summary>
+        /// The money half of the run's signature tension, live on the HUD. Money is INVERTED — a worse finish
+        /// pays more (doc 03) — but until now the race screen showed no cash at all, so the player could not
+        /// see the trade they are supposed to be agonising over. Showing the cutoff (above) without this would
+        /// be worse than showing neither: it would surface only the risk of dropping back and none of the
+        /// reward. The two ship together on purpose.
+        /// </summary>
+        private void DrawPayoutPreview(RaceCarStatus me)
+        {
+            if (_payoutPreview == null || me.State != CarRaceState.Racing) return;
+            GUILayout.Label(FormatPayoutPreview(me.Position, _payoutPreview(me.Position), _payoutPreview(1)));
+        }
+
+        /// <summary>
+        /// Payout preview text: what the current position banks, and — the point of the whole line — what
+        /// winning would pay instead, so the inversion is legible at a glance ("BANKING $10 at P6 (WIN PAYS
+        /// $7)"). Leading, the comparison is redundant, so it collapses to the plain figure. Pure and
+        /// unit-testable; takes the already-resolved figures rather than computing them, since Race cannot
+        /// reach the payout table (see <see cref="SetPayoutPreview"/>).
+        /// </summary>
+        public static string FormatPayoutPreview(int position, int payoutHere, int payoutIfWon)
+        {
+            if (position <= 1) return $"BANKING ${payoutHere} — LEADING";
+            return $"BANKING ${payoutHere} at P{position}   (WIN PAYS ${payoutIfWon})";
         }
 
         private static void DrawStatBar(string label, float value, Color fill)

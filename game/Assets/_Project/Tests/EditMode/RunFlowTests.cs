@@ -33,6 +33,100 @@ namespace Shitboxer.Tests
             Assert.AreEqual(expected.Modifiers, actual.Modifiers, $"{ctx}: modifiers");
         }
 
+        // --- Clean-finish payout: the shared preview/resolution formula (wave 16) --------------------
+        //
+        // RaceHud's mid-race payout preview and the real race resolution both call CleanFinishPayout, so
+        // these pin the ORDER that keeps them honest. The order is balance-critical: sponsor money is added
+        // last and must never be stake-scaled or DoublePayout-doubled.
+
+        private static PartDef EconomyPart(int perPositionRate)
+        {
+            var p = ScriptableObject.CreateInstance<PartDef>();
+            p.Category = PartCategory.Economy;
+            p.MoneyPerPositionHeld = perPositionRate;
+            return p;
+        }
+
+        private static readonly PayoutTable Table = new PayoutTable();
+
+        [Test]
+        public void CleanFinishPayout_IsInverted_LastPaysMoreThanFirst()
+        {
+            // The design's whole premise (doc 03). If this ever flips, the run has no tension left.
+            int first = RunDirector.CleanFinishPayout(1, Table, null, 1f, false, default, 0);
+            int last = RunDirector.CleanFinishPayout(8, Table, null, 1f, false, default, 0);
+            Assert.Greater(last, first, "a worse finish must bank more — the economy is inverted");
+        }
+
+        [Test]
+        public void CleanFinishPayout_ShippedDefaults_AreBasePlusPodium()
+        {
+            // Stake 0, no boss, no parts: exactly PayoutTable's own figure, nothing layered on.
+            for (int pos = 1; pos <= 8; pos++)
+                Assert.AreEqual(
+                    Table.PayoutFor(pos, false),
+                    RunDirector.CleanFinishPayout(pos, Table, null, 1f, false, default, 0),
+                    $"P{pos} at shipped defaults must be byte-for-byte the table's payout");
+        }
+
+        [Test]
+        public void CleanFinishPayout_SponsorMoney_IsNotScaledByStake()
+        {
+            // THE order test. Stake scales the position cash only; sponsor money rides on top untouched.
+            // Folding sponsor in before the multiply would silently inflate every staked run's economy.
+            var parts = new List<PartDef> { EconomyPart(4) };
+            const float stakeMult = 1.15f;
+
+            int expectedPay = Mathf.CeilToInt(Table.PayoutFor(6, false) * stakeMult);
+            int expectedSponsor = Table.EconomyBonusFor(4, 6);
+
+            Assert.AreEqual(
+                expectedPay + expectedSponsor,
+                RunDirector.CleanFinishPayout(6, Table, parts, stakeMult, false, default, 0));
+        }
+
+        [Test]
+        public void CleanFinishPayout_SponsorMoney_IsNotDoubledByBossDoublePayout()
+        {
+            // Same order contract against the boss reward: DoublePayout doubles the position cash and the
+            // flat bonus rides after it (ApplyBossReward), but sponsor money is added afterwards, undoubled.
+            var parts = new List<PartDef> { EconomyPart(4) };
+            RaceRuleset boss = RaceRuleset.Boss;
+
+            int expectedPay = RunDirector.ApplyBossReward(Table.PayoutFor(6, false), boss, 8);
+            int expectedSponsor = Table.EconomyBonusFor(4, 6);
+
+            Assert.AreEqual(
+                expectedPay + expectedSponsor,
+                RunDirector.CleanFinishPayout(6, Table, parts, 1f, true, boss, 8));
+        }
+
+        [Test]
+        public void CleanFinishPayout_SponsorMoney_IsCappedSoLastPlaceDoesNotCompound()
+        {
+            // The anti-sandbag cap: past EconomyBonusPositionCap, dropping further back adds no sponsor cash.
+            var parts = new List<PartDef> { EconomyPart(4) };
+            int atCap = RunDirector.CleanFinishPayout(Table.EconomyBonusPositionCap, Table, parts, 1f, false, default, 0);
+            int beyondCap = RunDirector.CleanFinishPayout(8, Table, parts, 1f, false, default, 0);
+
+            Assert.AreEqual(
+                Table.EconomyBonusFor(4, Table.EconomyBonusPositionCap),
+                Table.EconomyBonusFor(4, 8),
+                "sponsor money must not keep growing past the cap");
+            // The base payout still differs by position, so compare only the sponsor component's contribution.
+            Assert.AreEqual(
+                Table.PayoutFor(8, false) - Table.PayoutFor(Table.EconomyBonusPositionCap, false),
+                beyondCap - atCap,
+                "beyond the cap, only the base payout may move");
+        }
+
+        [Test]
+        public void CleanFinishPayout_NullTable_IsZeroNotAThrow()
+        {
+            // The HUD preview calls this every OnGUI frame; an unconfigured director must not spam exceptions.
+            Assert.AreEqual(0, RunDirector.CleanFinishPayout(3, null, null, 1f, false, default, 0));
+        }
+
         // --- Season shape (roadmap: "start with 1 circuit, not 8") ----------------------------------
 
         [Test]
