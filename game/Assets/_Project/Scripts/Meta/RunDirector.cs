@@ -42,6 +42,11 @@ namespace Shitboxer.Meta
         [Tooltip("Damage-curve exponent for the repair price (see RunState.RepairCostFor). 1 (default) prices repairs LINEARLY in wear — byte-for-byte today's cost; >1 makes deep damage disproportionately dear; <1 front-loads light damage. Endpoints are unchanged either way.")]
         [SerializeField] private float repairDamageExponent = 1f;
 
+        [Header("Season shape")]
+        [Tooltip("How many circuits make up a full season. 1 (default) is the roadmap's Phase-3 gate: a single-circuit run, short enough that the \"one more run\" test is cheap to repeat. Raise it as real circuits/tracks land. Clamped to >= 1. Season length is CONFIG, not run progress — RunSave never persists it — so this field is re-stamped onto every run the director adopts (fresh, resumed, or restarted), letting a change here take effect on a run already in flight.")]
+        [Min(1)]
+        [SerializeField] private int totalCircuits = 1;
+
         [Header("Boss races (opt-in — default OFF reproduces today's sequence exactly)")]
         [Tooltip("When ON, each circuit's final race runs under RaceRuleset.Boss and a clean boss finish pays the boss bonus (and any DoublePayout) and honours NoRepairAfter. OFF (default) makes NO SetRuleset call and no boss reward — the race sequence, rulesets, rewards and repairs are byte-for-byte as shipped.")]
         [SerializeField] private bool bossRacesEnabled = false;
@@ -123,6 +128,10 @@ namespace Shitboxer.Meta
                 Run.Money = startingMoney;
                 Run.Seed = RollSeed();
             }
+
+            // Season shape is config, not saved progress — stamp it on whichever run we just adopted so a
+            // resumed run picks up the current inspector value rather than the default it was rebuilt with.
+            ApplySeasonShape(Run, totalCircuits);
 
             _garage = GetComponent<GarageScreen>();
             if (!_garage) _garage = gameObject.AddComponent<GarageScreen>();
@@ -308,6 +317,22 @@ namespace Shitboxer.Meta
         /// </summary>
         public static RaceRuleset RulesetForRace(bool bossRacesEnabled, bool runIsBossRace) =>
             IsDesignatedBoss(bossRacesEnabled, runIsBossRace) ? RaceRuleset.Boss : RaceRuleset.Standard;
+
+        /// <summary>
+        /// Stamps the configured season length onto a run, clamped to at least one circuit. Season shape is
+        /// configuration rather than run progress — RunSave documents it as a run-start constant it will not
+        /// persist — so the director applies this to every RunState it adopts: freshly constructed, restarted,
+        /// or resumed from disk. That keeps the inspector the single source of truth and lets a retune take
+        /// effect on a run already in flight, instead of the value being frozen into whatever default the
+        /// RunState happened to be built with. Pure and static so it's unit-testable without a live scene
+        /// (same convention as <see cref="IsDesignatedBoss"/> / <see cref="RulesetForRace"/>). Null-tolerant.
+        /// </summary>
+        public static RunState ApplySeasonShape(RunState run, int totalCircuits)
+        {
+            if (run == null) return null;
+            run.TotalCircuits = Mathf.Max(1, totalCircuits);
+            return run;
+        }
 
         /// <summary>
         /// Boss-clear payout: doubles the position cash iff the ruleset carries
@@ -643,7 +668,9 @@ namespace Shitboxer.Meta
         public void StartNewRun(int stakeLevel)
         {
             int stake = ClampToUnlockedStake(stakeLevel);
-            Run = new RunState { Money = startingMoney, Seed = RollSeed(), StakeLevel = stake };
+            Run = ApplySeasonShape(
+                new RunState { Money = startingMoney, Seed = RollSeed(), StakeLevel = stake },
+                totalCircuits);
             LastRaceSummary = "";
             Phase = RunPhase.Racing;
             Time.timeScale = 1f;
@@ -754,14 +781,7 @@ namespace Shitboxer.Meta
 
         private void ReloadRaceScene()
         {
-#if UNITY_EDITOR
-            // RaceTest.unity is not in Build Settings; load it by path while in play mode.
-            UnityEditor.SceneManagement.EditorSceneManager.LoadSceneInPlayMode(
-                SceneManager.GetActiveScene().path,
-                new LoadSceneParameters(LoadSceneMode.Single));
-#else
             SceneManager.LoadScene(SceneManager.GetActiveScene().name);
-#endif
         }
     }
 }

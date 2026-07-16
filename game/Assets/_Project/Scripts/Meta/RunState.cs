@@ -31,8 +31,16 @@ namespace Shitboxer.Meta
         /// <summary>0-based index of the current circuit within the season.</summary>
         public int CircuitIndex;
 
-        /// <summary>How many circuits make up a full season. "Start small" default per the plan.</summary>
-        public int TotalCircuits = 3;
+        /// <summary>
+        /// How many circuits make up a full season. Defaults to ONE, per the roadmap's explicit
+        /// "start with 1 circuit, not 8" — Phase 3's exit gate is a single-circuit run that's fun to
+        /// optimize, and a short run is what makes the "one more run" test cheap enough to repeat.
+        /// Raise it as circuits/tracks actually land. A run-start constant that RunSave deliberately
+        /// does not persist; RunDirector re-stamps it from its inspector field on every run it adopts
+        /// (see RunDirector.ApplySeasonShape), so this default only applies to a RunState built
+        /// outside the director.
+        /// </summary>
+        public int TotalCircuits = 1;
 
         /// <summary>The circuit's last race is the Boss/Feature race: must finish top-N to advance.</summary>
         public int BossTopN = 3;

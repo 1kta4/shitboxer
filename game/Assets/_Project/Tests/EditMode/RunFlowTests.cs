@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using Shitboxer.Meta;
 using Shitboxer.Race;
@@ -7,8 +8,11 @@ using UnityEngine;
 namespace Shitboxer.Tests
 {
     /// <summary>
-    /// Covers RunDirector's opt-in boss-race wiring and the repair/economy-depth knobs, all defaulting to
-    /// today's exact behaviour. The load-bearing contract: with boss races DISABLED no race is designated a
+    /// Covers RunDirector's season shape, its opt-in boss-race wiring, and the repair/economy-depth knobs.
+    /// Season shape pins the roadmap's "start with 1 circuit, not 8" default and the re-stamp-on-adopt
+    /// contract that keeps a resumed run tracking the CURRENT configured season rather than whatever
+    /// default RunSave rebuilt it with. The boss/repair knobs all default to today's exact behaviour.
+    /// The load-bearing contract there: with boss races DISABLED no race is designated a
     /// boss, the ruleset stays Standard and no boss reward/free-repair fires; with them ENABLED the circuit's
     /// final race takes RaceRuleset.Boss and a clean finish earns the boss bonus while NoRepairAfter withholds
     /// the interlude repair. Repair pricing at the shipped exponent 1 reproduces the original inline formula
@@ -27,6 +31,75 @@ namespace Shitboxer.Tests
             Assert.AreEqual(expected.CutoffFraction, actual.CutoffFraction, $"{ctx}: cutoff");
             Assert.AreEqual(expected.IsBoss, actual.IsBoss, $"{ctx}: boss flag");
             Assert.AreEqual(expected.Modifiers, actual.Modifiers, $"{ctx}: modifiers");
+        }
+
+        // --- Season shape (roadmap: "start with 1 circuit, not 8") ----------------------------------
+
+        [Test]
+        public void DefaultSeason_IsOneCircuit_PerTheRoadmap()
+        {
+            // The roadmap's Phase-3 gate is explicitly a ONE-circuit run — short enough that the
+            // "one more run" test is cheap to repeat. Pin the default so it can't drift back up
+            // without someone deliberately editing this assertion.
+            Assert.AreEqual(1, new RunState().TotalCircuits);
+        }
+
+        [Test]
+        public void ApplySeasonShape_StampsConfiguredCircuitCount()
+        {
+            var run = new RunState { TotalCircuits = 1 };
+            RunDirector.ApplySeasonShape(run, 8);
+            Assert.AreEqual(8, run.TotalCircuits, "the director's inspector value should win");
+        }
+
+        [Test]
+        public void ApplySeasonShape_ClampsToAtLeastOneCircuit()
+        {
+            // A zero/negative season would make IsFinalCircuit true before racing and end the run
+            // instantly, so the clamp is load-bearing rather than cosmetic.
+            Assert.AreEqual(1, RunDirector.ApplySeasonShape(new RunState(), 0).TotalCircuits);
+            Assert.AreEqual(1, RunDirector.ApplySeasonShape(new RunState(), -5).TotalCircuits);
+        }
+
+        [Test]
+        public void ApplySeasonShape_IsNullTolerant()
+        {
+            Assert.IsNull(RunDirector.ApplySeasonShape(null, 3));
+        }
+
+        [Test]
+        public void ApplySeasonShape_ReStampsAfterSaveResume_SinceRunSaveDropsTuningFields()
+        {
+            // RunSave deliberately does not persist TotalCircuits (it's a run-start constant), so a
+            // resumed run is rebuilt with RunState's default and would silently ignore a retune. The
+            // director re-stamps on adopt; this pins that contract end-to-end through the real DTO.
+            var pool = ScriptableObject.CreateInstance<PartPool>();
+            pool.Parts = new List<PartDef>();
+
+            var original = new RunState { TotalCircuits = 5, Money = 9, Lives = 2 };
+            RunState resumed = RunSave.From(original).ToRunState(pool);
+
+            Assert.AreEqual(1, resumed.TotalCircuits, "the DTO drops season length — it rebuilds at the default");
+            Assert.AreEqual(9, resumed.Money, "run PROGRESS must still survive the round-trip");
+
+            RunDirector.ApplySeasonShape(resumed, 5);
+            Assert.AreEqual(5, resumed.TotalCircuits, "the director must restore the configured season on resume");
+        }
+
+        [Test]
+        public void OneCircuitSeason_CompletesAfterItsFinalRace()
+        {
+            // The shipped default end-to-end: circuit 0 is immediately the final circuit, and the run
+            // completes only once all RacesPerCircuit races of it are cleared.
+            var run = RunDirector.ApplySeasonShape(new RunState { RacesPerCircuit = 3 }, 1);
+            Assert.IsTrue(run.IsFinalCircuit, "a 1-circuit season is on its final circuit from the start");
+
+            for (int race = 0; race < run.RacesPerCircuit; race++)
+            {
+                Assert.IsFalse(run.RunComplete, $"race {race} of a 1-circuit season must not end the run");
+                run.RaceIndex++;
+            }
+            Assert.IsTrue(run.RunComplete, "clearing the last race of the only circuit completes the season");
         }
 
         // --- Boss designation + ruleset selection (default OFF == today) ----------------------------

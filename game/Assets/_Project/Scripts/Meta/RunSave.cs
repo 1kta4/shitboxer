@@ -13,6 +13,9 @@ namespace Shitboxer.Meta
     /// each race resolution / garage and reads it back on Awake to resume an interrupted run.
     /// Tuning fields (RacesPerCircuit, TotalCircuits, BossTopN, MaxEquipSlots) are intentionally
     /// NOT stored — they are run-start constants, so a rebuilt RunState keeps today's defaults.
+    /// TotalCircuits goes one step further: RunDirector re-stamps it from its own inspector field on
+    /// every run it adopts (RunDirector.ApplySeasonShape), so a resumed run tracks the CURRENT season
+    /// length rather than whichever default it was rebuilt with.
     /// </summary>
     [Serializable]
     public class RunSave
