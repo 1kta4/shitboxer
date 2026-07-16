@@ -188,6 +188,10 @@ namespace Shitboxer.Meta
             ApplyDifficulty();
             ApplyPayoutPreview(); // AFTER ApplyRuleset — the preview reads the ruleset for the boss reward
 
+            // Deal this race's grid. BindToScene runs off sceneLoaded, which Unity fires BEFORE Start, so
+            // RaceManager picks the seed up in time to shuffle ahead of its own position snapshot.
+            _raceManager.SetGridSeed(GridSeed());
+
             // Persistent wear carries ACROSS races within a run: a freshly-rebuilt sim resets to full
             // durability (and ApplyEquippedParts may have just rebuilt it via SetSpec), so re-apply the
             // run's carried value here — after the other Apply* calls — so a battered car stays battered
@@ -865,11 +869,25 @@ namespace Shitboxer.Meta
         /// visit is deterministic AND distinct (a plain sum would collide, e.g. circuit 1/race 0 vs
         /// circuit 0/race 1). A resumed or shared run reproduces the exact same stock and rerolls.
         /// </summary>
-        private int VisitSeed()
+        private int VisitSeed() => MixSeed(17);
+
+        /// <summary>
+        /// Per-race starting-grid seed. Same mix as <see cref="VisitSeed"/> but off a different base, so
+        /// each race gets its own deterministic grid AND the grid can't correlate with that race's shop
+        /// stock — one stream driving both would tie "what I'm offered" to "where I start" for no reason.
+        /// </summary>
+        private int GridSeed() => MixSeed(29);
+
+        /// <summary>
+        /// Deterministic hash of the run seed with the circuit/race indices, off a caller-supplied base so
+        /// separate systems get separate streams. Multiplicative rather than additive: a plain sum collides
+        /// (circuit 1/race 0 vs circuit 0/race 1 would draw identically).
+        /// </summary>
+        private int MixSeed(int seedBase)
         {
             unchecked
             {
-                int h = 17;
+                int h = seedBase;
                 h = h * 31 + Run.Seed;
                 h = h * 31 + Run.CircuitIndex;
                 h = h * 31 + Run.RaceIndex;

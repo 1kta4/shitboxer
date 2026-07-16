@@ -112,11 +112,17 @@ namespace Shitboxer.Race
         [Range(0.5f, 1.5f)]
         [SerializeField] private float difficultyScalar = 1f;
 
+        [Tooltip("ON (default): cars are dealt to the scene's grid slots by a seeded shuffle, so the player doesn't start on pole every single race — which would make winning the default and gut the push-to-win-vs-hang-back-to-farm decision. Turn OFF to pin the scene's authored grid (player on pole) when you want a repeatable slot for debugging. Only ever applies when the run layer pushes a seed via SetGridSeed; a bare race scene is unaffected either way.")]
+        [SerializeField] private bool shuffleGrid = true;
+
         private readonly List<RaceCarStatus> _statuses = new List<RaceCarStatus>();
         private readonly List<RaceCarStatus> _leaderboard = new List<RaceCarStatus>();
         private float _raceTime;
         private bool _greenFlag;
         private bool _running;
+
+        /// <summary>Grid seed pushed by the run layer; null means nobody set one — leave the grid alone.</summary>
+        private int? _gridSeed;
         // Boss / special-race state applied by SetRuleset. Default false / None reproduces the standard
         // race exactly, so a race left on the standard ruleset behaves byte-for-byte as before it existed.
         private bool _isBoss;
@@ -200,6 +206,17 @@ namespace Shitboxer.Race
         public void SetCutoffFraction(float value) => cutoffFraction = Mathf.Clamp(value, 0.01f, 1f);
 
         /// <summary>
+        /// Seeds the starting-grid shuffle for this race. The run layer pushes it (Shitboxer.Race can't
+        /// reference Shitboxer.Meta — Meta already depends on Race, so a back-reference would be circular),
+        /// exactly as it pushes the ruleset and difficulty. Must be called before <see cref="Start"/>, which
+        /// RunDirector.BindToScene satisfies: it runs off sceneLoaded, and Unity fires that before Start.
+        ///
+        /// Never set — a bare race scene with no run driving it — leaves the grid exactly as the scene
+        /// authored it, so opening RaceTest.unity on its own still behaves as before.
+        /// </summary>
+        public void SetGridSeed(int seed) => _gridSeed = seed;
+
+        /// <summary>
         /// Applies a <see cref="RaceRuleset"/> — the data-driven description of how this race runs (laps,
         /// survival cutoff, boss flag, special modifiers) — the mechanism behind boss and event races.
         /// Folds the lap count and cutoff into the same backing fields <see cref="Configure"/> and the
@@ -250,6 +267,11 @@ namespace Shitboxer.Race
                 return;
             }
 
+            // MUST run before the snapshot below: that loop reads each car's transform to seed
+            // TotalDistanceM, so a grid assigned afterwards would be recorded at the OLD positions and
+            // every car's lap distance would start wrong.
+            ShuffleGrid();
+
             RacingLine line = trackPath.Line;
 
             foreach (VehicleController car in cars)
@@ -280,6 +302,50 @@ namespace Shitboxer.Race
             _raceTime = -countdownS;
             _running = true;
             SetDriversEnabled(false);
+        }
+
+        /// <summary>
+        /// Deals the cars to the grid by a seeded shuffle (see <see cref="StartingGrid"/> for why the
+        /// player must not simply keep pole).
+        ///
+        /// The scene's authored car placements ARE the grid slots — this reads them back off the cars and
+        /// redistributes them, so it needs no knowledge of the track geometry and can't drift out of sync
+        /// with whatever the builder laid out.
+        ///
+        /// No-ops unless the run layer pushed a seed AND the toggle is on, so a bare race scene keeps its
+        /// authored grid.
+        /// </summary>
+        private void ShuffleGrid()
+        {
+            if (!shuffleGrid || _gridSeed == null) return;
+
+            var racers = new List<VehicleController>(cars.Count);
+            foreach (VehicleController car in cars)
+                if (car && car.Body) racers.Add(car);
+            if (racers.Count < 2) return;
+
+            // Snapshot the slots BEFORE moving anything — otherwise a car that's already been moved would
+            // be read back as its own new slot and the "permutation" would collapse cars onto each other.
+            var slotPos = new Vector3[racers.Count];
+            var slotRot = new Quaternion[racers.Count];
+            for (int i = 0; i < racers.Count; i++)
+            {
+                slotPos[i] = racers[i].Body.position;
+                slotRot[i] = racers[i].Body.rotation;
+            }
+
+            int[] order = StartingGrid.Permutation(racers.Count, _gridSeed.Value);
+            for (int i = 0; i < racers.Count; i++)
+            {
+                Rigidbody body = racers[i].Body;
+                body.position = slotPos[order[i]];
+                body.rotation = slotRot[order[i]];
+                // Zero the carried motion, matching the reset pattern used by BotDriver/VehicleController.
+                // Cars are stationary on the grid anyway; this just guarantees a teleport can't smuggle
+                // velocity from the old slot into the new one.
+                body.linearVelocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+            }
         }
 
         private void FixedUpdate()
