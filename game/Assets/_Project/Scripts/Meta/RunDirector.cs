@@ -702,10 +702,25 @@ namespace Shitboxer.Meta
         /// </summary>
         public bool BuyCrate()
         {
-            bool bought = Shop.TryBuyCrate(partPool ? partPool.Parts : null, Run, cratePrice, crateDrawCount);
+            int draws = crateDrawCount + TeamUpgrades.ExtraCrateDraws(Run);
+            bool bought = Shop.TryBuyCrate(partPool ? partPool.Parts : null, Run, cratePrice, draws);
             if (bought) Save();
             return bought;
         }
+
+        /// <summary>
+        /// Garage Buy-upgrade button: a permanent, run-long team upgrade (doc 03's vouchers). Saves on
+        /// success — the upgrade is owned from this moment and must survive a quit.
+        /// </summary>
+        public bool BuyUpgrade(TeamUpgrade upgrade)
+        {
+            bool bought = Shop.TryBuyUpgrade(upgrade, Run);
+            if (bought) Save();
+            return bought;
+        }
+
+        /// <summary>How many parts a crate draws for this run: the authored base plus any Bulk Buyer.</summary>
+        public int CrateDrawCount => crateDrawCount + TeamUpgrades.ExtraCrateDraws(Run);
 
         /// <summary>Garage crate-pick button: take one drawn part, the rest are discarded.</summary>
         public bool TakeFromCrate(PartDef part)

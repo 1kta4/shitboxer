@@ -11,9 +11,26 @@ namespace Shitboxer.Meta
     /// </summary>
     public class ShopLogic
     {
+        /// <summary>Base shelf size, before any Overstock upgrade — see <see cref="EffectiveOfferCount"/>.</summary>
         public const int OfferCount = 3;
+
+        /// <summary>Base first-reroll cost, before any Reroll Surplus — see <see cref="EffectiveRerollBase"/>.</summary>
         public const int BaseRerollCost = 5;
         public const int RerollCostStep = 1;
+
+        /// <summary>
+        /// Parts on the shelf for this run: the <see cref="OfferCount"/> base plus any Overstock upgrade.
+        /// A run owning no upgrades gets exactly the shipped 3.
+        /// </summary>
+        public static int EffectiveOfferCount(RunState run) => OfferCount + TeamUpgrades.ExtraShopOffers(run);
+
+        /// <summary>
+        /// This run's first-reroll cost: the <see cref="BaseRerollCost"/> base less any Reroll Surplus
+        /// discount, floored at $1 so rerolling can never become free (a free reroll would let the player
+        /// spin the shelf until it hands them whatever they want, which is the end of the shop as a choice).
+        /// </summary>
+        public static int EffectiveRerollBase(RunState run) =>
+            Math.Max(1, BaseRerollCost - TeamUpgrades.RerollDiscount(run));
 
         /// <summary>
         /// Extra per-reroll escalation layered ON TOP of <see cref="RerollCostStep"/> (Balatro-style
@@ -71,7 +88,7 @@ namespace Shitboxer.Meta
         public void BeginVisit(IReadOnlyList<PartDef> pool, RunState run)
         {
             _rerollsThisVisit = 0;
-            RerollCost = BaseRerollCost;
+            RerollCost = EffectiveRerollBase(run);
             Roll(pool, run);
         }
 
@@ -96,7 +113,7 @@ namespace Shitboxer.Meta
             // with RerollCostIncrement = 0 this is byte-for-byte today's +$1/reroll curve.
             _rerollsThisVisit++;
             RerollCost = ShopEconomy.RerollCost(
-                BaseRerollCost, _rerollsThisVisit, RerollCostStep + RerollCostIncrement);
+                EffectiveRerollBase(run), _rerollsThisVisit, RerollCostStep + RerollCostIncrement);
             Roll(pool, run);
             return true;
         }
@@ -128,7 +145,31 @@ namespace Shitboxer.Meta
         private void Roll(IReadOnlyList<PartDef> pool, RunState run)
         {
             _offers.Clear();
-            DrawParts(pool, run, OfferCount, _offers);
+            DrawParts(pool, run, EffectiveOfferCount(run), _offers);
+        }
+
+        /// <summary>
+        /// Buys a permanent team upgrade (doc 03's vouchers): pay once, own it for the rest of the run.
+        /// Refuses — charging nothing — for a duplicate or when the money isn't there. There is no
+        /// "equip": owning it IS the effect, resolved everywhere through <see cref="TeamUpgrades"/>.
+        ///
+        /// Re-derives <see cref="RerollCost"/> afterwards so Reroll Surplus bites on THIS visit's next
+        /// reroll rather than making the player wait for the next garage. Overstock deliberately doesn't
+        /// re-roll the shelf — the extra slot shows up on the next roll, so buying it can't be used to
+        /// refresh the current stock for free.
+        /// </summary>
+        public bool TryBuyUpgrade(TeamUpgrade upgrade, RunState run)
+        {
+            if (run == null || run.HasUpgrade(upgrade)) return false;
+
+            int price = TeamUpgrades.PriceOf(upgrade);
+            if (run.Money < price) return false;
+
+            run.Money -= price;
+            run.OwnedUpgrades.Add(upgrade);
+            RerollCost = ShopEconomy.RerollCost(
+                EffectiveRerollBase(run), _rerollsThisVisit, RerollCostStep + RerollCostIncrement);
+            return true;
         }
 
         /// <summary>

@@ -112,7 +112,7 @@ namespace Shitboxer.Meta
                 DrawShelf(run, shop, current);
 
             GUILayout.Space(10);
-            GUILayout.Label($"-- OWNED PARTS ({run.EquippedParts.Count}/{run.MaxEquipSlots} slots used) --");
+            GUILayout.Label($"-- OWNED PARTS ({run.EquippedParts.Count}/{run.EffectiveEquipSlots} slots used) --");
             if (run.OwnedParts.Count == 0)
                 GUILayout.Label("(none yet — buy something)");
             foreach (PartDef part in run.OwnedParts)
@@ -138,11 +138,11 @@ namespace Shitboxer.Meta
             // Snapshot: buying mutates the offer list mid-draw.
             var offers = new List<PartDef>(shop.Offers);
             foreach (PartDef part in offers)
-                DrawOffer(part, run, current);
+                DrawOffer(part, run, shop, current);
 
             int cratePrice = director.CratePrice;
             GUI.enabled = run.Money >= cratePrice;
-            if (GUILayout.Button($"BUY PARTS CRATE  (${cratePrice}) — open 3, keep 1"))
+            if (GUILayout.Button($"BUY PARTS CRATE  (${cratePrice}) — open {director.CrateDrawCount}, keep 1"))
                 director.BuyCrate();
             GUI.enabled = true;
 
@@ -150,6 +150,49 @@ namespace Shitboxer.Meta
             if (GUILayout.Button($"REROLL  (${shop.RerollCost})"))
                 director.RerollShop();
             GUI.enabled = true;
+
+            DrawTeamUpgrades(run);
+        }
+
+        /// <summary>
+        /// Permanent team upgrades (doc 03's vouchers). Every un-owned upgrade is listed — with only four
+        /// of them, scarcity would just be noise, and the interesting decision is cost-now vs payoff-later
+        /// rather than which-one-showed-up. Rotating/limiting the offer is a tuning question for when the
+        /// season is longer than one circuit.
+        /// </summary>
+        private void DrawTeamUpgrades(RunState run)
+        {
+            GUILayout.Space(8);
+            GUILayout.Label("-- TEAM UPGRADES (permanent, rest of run) --");
+
+            bool anyLeft = false;
+            foreach (TeamUpgrade upgrade in TeamUpgrades.All)
+            {
+                if (run.HasUpgrade(upgrade)) continue;
+                anyLeft = true;
+
+                TeamUpgradeInfo info = TeamUpgrades.Info(upgrade);
+                GUILayout.BeginHorizontal(GUI.skin.box);
+                GUILayout.BeginVertical();
+                GUILayout.Label($"{info.DisplayName}  ${info.Price}");
+                GUILayout.Label(info.Description);
+                GUILayout.EndVertical();
+                GUI.enabled = run.Money >= info.Price;
+                if (GUILayout.Button("BUY", GUILayout.Width(64), GUILayout.ExpandHeight(true)))
+                    director.BuyUpgrade(upgrade);
+                GUI.enabled = true;
+                GUILayout.EndHorizontal();
+            }
+
+            if (!anyLeft) GUILayout.Label("(all bought)");
+
+            if (run.OwnedUpgrades.Count > 0)
+            {
+                var names = new List<string>(run.OwnedUpgrades.Count);
+                foreach (TeamUpgrade owned in run.OwnedUpgrades)
+                    names.Add(TeamUpgrades.Info(owned).DisplayName);
+                GUILayout.Label($"OWNED: {string.Join(", ", names)}");
+            }
         }
 
         /// <summary>
@@ -200,19 +243,25 @@ namespace Shitboxer.Meta
             DrawStatDelta("POWER", before.Power, after.Power);
         }
 
-        private void DrawOffer(PartDef part, RunState run, VehicleSpec current)
+        private void DrawOffer(PartDef part, RunState run, ShopLogic shop, VehicleSpec current)
         {
             if (!part) return;
+
+            // Price through the SHOP, not part.Price: ShopLogic.TryBuy charges PriceOf(part), which applies
+            // the rarity/family pricing multipliers. Reading the sticker price here would let the label and
+            // the BUY gate disagree with what's actually charged the moment those tables are turned on.
+            int price = shop.PriceOf(part);
+
             GUILayout.BeginHorizontal(GUI.skin.box);
             GUILayout.BeginVertical();
-            GUILayout.Label($"{part.DisplayName}  [{part.Category}]  ${part.Price}");
+            GUILayout.Label($"{part.DisplayName}  [{part.Category}]  ${price}");
             DrawEditionTag(part.Edition);
             if (!string.IsNullOrEmpty(part.Description))
                 GUILayout.Label(part.Description);
 
             DrawStatPreview(part, current);
             GUILayout.EndVertical();
-            GUI.enabled = run.Money >= part.Price;
+            GUI.enabled = run.Money >= price;
             if (GUILayout.Button("BUY", GUILayout.Width(64), GUILayout.ExpandHeight(true)))
                 director.BuyOffer(part);
             GUI.enabled = true;

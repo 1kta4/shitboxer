@@ -50,6 +50,15 @@ namespace Shitboxer.Meta
         /// </summary>
         public List<string> crateContentIds = new List<string>();
 
+        /// <summary>
+        /// Permanent team upgrades owned this run, stored by enum NAME rather than ordinal — the same
+        /// "stable id, never a positional index" rule the part lists follow, so inserting a new
+        /// <see cref="TeamUpgrade"/> member can't silently reinterpret an existing save's upgrades as
+        /// different ones. Unparseable names are discarded on load; absent from an older save's JSON means
+        /// no upgrades, i.e. exactly the pre-upgrade shop.
+        /// </summary>
+        public List<string> teamUpgradeIds = new List<string>();
+
         /// <summary>Default absolute path of the save file.</summary>
         public static string DefaultPath => Path.Combine(Application.persistentDataPath, FileName);
 
@@ -74,6 +83,8 @@ namespace Shitboxer.Meta
                 if (part && !string.IsNullOrEmpty(part.Id)) dto.equippedPartIds.Add(part.Id);
             foreach (PartDef part in run.CrateContents)
                 if (part && !string.IsNullOrEmpty(part.Id)) dto.crateContentIds.Add(part.Id);
+            foreach (TeamUpgrade upgrade in run.OwnedUpgrades)
+                dto.teamUpgradeIds.Add(upgrade.ToString());
             return dto;
         }
 
@@ -97,6 +108,16 @@ namespace Shitboxer.Meta
             run.OwnedParts.Clear();
             run.EquippedParts.Clear();
             run.CrateContents.Clear();
+            run.OwnedUpgrades.Clear();
+
+            // Enum.TryParse by name: a save written before an upgrade was renamed/removed drops that entry
+            // rather than throwing, matching how an unresolvable part Id is quietly discarded.
+            foreach (string id in teamUpgradeIds)
+                if (!string.IsNullOrEmpty(id)
+                    && Enum.TryParse(id, out TeamUpgrade upgrade)
+                    && Enum.IsDefined(typeof(TeamUpgrade), upgrade)
+                    && !run.OwnedUpgrades.Contains(upgrade))
+                    run.OwnedUpgrades.Add(upgrade);
 
             foreach (string id in ownedPartIds)
                 if (id != null && index.TryGetValue(id, out PartDef part) && !run.OwnedParts.Contains(part))

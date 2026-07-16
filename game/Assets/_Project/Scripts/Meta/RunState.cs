@@ -95,6 +95,15 @@ namespace Shitboxer.Meta
         /// <summary>True while a paid-for crate is waiting to be picked from. Blocks the rest of the shop.</summary>
         public bool CrateOpen => CrateContents.Count > 0;
 
+        /// <summary>
+        /// Permanent team upgrades bought this run (doc 03's vouchers). Unlike parts these are never
+        /// equipped or broken — owning one IS the effect, for the rest of the run. Persisted by name in
+        /// RunSave; every effect is computed from this list by <see cref="TeamUpgrades"/>.
+        /// </summary>
+        public List<TeamUpgrade> OwnedUpgrades = new List<TeamUpgrade>();
+
+        public bool HasUpgrade(TeamUpgrade upgrade) => OwnedUpgrades.Contains(upgrade);
+
         public bool IsBossRace => RaceIndex >= RacesPerCircuit - 1;
 
         /// <summary>True once the run reaches the season's last circuit.</summary>
@@ -114,7 +123,15 @@ namespace Shitboxer.Meta
 
         /// <summary>The run is only won after clearing the FINAL race of the FINAL circuit.</summary>
         public bool RunComplete => IsFinalCircuit && RaceIndex >= RacesPerCircuit;
-        public bool HasFreeSlot => EquippedParts.Count < MaxEquipSlots;
+        /// <summary>
+        /// Equip slots actually available: the authored <see cref="MaxEquipSlots"/> base plus anything the
+        /// Toolbox upgrade has added. Layered on top rather than folded into the field because
+        /// MaxEquipSlots is the AUTHORED tuning value — fixtures and a future car/chassis set it directly,
+        /// and turning it into a computed property would take that away.
+        /// </summary>
+        public int EffectiveEquipSlots => MaxEquipSlots + TeamUpgrades.ExtraEquipSlots(this);
+
+        public bool HasFreeSlot => EquippedParts.Count < EffectiveEquipSlots;
 
         public bool Owns(PartDef part) => OwnedParts.Contains(part);
         public bool IsEquipped(PartDef part) => EquippedParts.Contains(part);
