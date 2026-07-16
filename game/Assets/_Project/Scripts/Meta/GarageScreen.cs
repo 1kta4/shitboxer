@@ -103,20 +103,13 @@ namespace Shitboxer.Meta
 
             _scroll = GUILayout.BeginScrollView(_scroll);
 
-            GUILayout.Space(6);
-            GUILayout.Label("-- SHOP --");
-            if (shop.Offers.Count == 0)
-                GUILayout.Label("(sold out — reroll for fresh stock)");
-
-            // Snapshot: buying mutates the offer list mid-draw.
-            var offers = new List<PartDef>(shop.Offers);
-            foreach (PartDef part in offers)
-                DrawOffer(part, run, current);
-
-            GUI.enabled = run.Money >= shop.RerollCost;
-            if (GUILayout.Button($"REROLL  (${shop.RerollCost})"))
-                director.RerollShop();
-            GUI.enabled = true;
+            // An open crate is already paid for, so it takes over the shelf until it's resolved — the pick
+            // IS the transaction, and leaving the shop live underneath would let the player wander off and
+            // forget cash they've already spent.
+            if (run.CrateOpen)
+                DrawCratePick(run, current);
+            else
+                DrawShelf(run, shop, current);
 
             GUILayout.Space(10);
             GUILayout.Label($"-- OWNED PARTS ({run.EquippedParts.Count}/{run.MaxEquipSlots} slots used) --");
@@ -134,6 +127,79 @@ namespace Shitboxer.Meta
             GUILayout.EndArea();
         }
 
+        /// <summary>The normal shelf: three rarity-weighted part offers, a crate, and the escalating reroll.</summary>
+        private void DrawShelf(RunState run, ShopLogic shop, VehicleSpec current)
+        {
+            GUILayout.Space(6);
+            GUILayout.Label("-- SHOP --");
+            if (shop.Offers.Count == 0)
+                GUILayout.Label("(sold out — reroll for fresh stock)");
+
+            // Snapshot: buying mutates the offer list mid-draw.
+            var offers = new List<PartDef>(shop.Offers);
+            foreach (PartDef part in offers)
+                DrawOffer(part, run, current);
+
+            int cratePrice = director.CratePrice;
+            GUI.enabled = run.Money >= cratePrice;
+            if (GUILayout.Button($"BUY PARTS CRATE  (${cratePrice}) — open 3, keep 1"))
+                director.BuyCrate();
+            GUI.enabled = true;
+
+            GUI.enabled = run.Money >= shop.RerollCost;
+            if (GUILayout.Button($"REROLL  (${shop.RerollCost})"))
+                director.RerollShop();
+            GUI.enabled = true;
+        }
+
+        /// <summary>
+        /// The open-crate pick. Everything drawn is free to take — the cost was paid on buy — so the only
+        /// decision is which one, and the rest are discarded. Stat parts still get the BEFORE→AFTER preview,
+        /// since "which one" is exactly the question that preview exists to answer.
+        /// </summary>
+        private void DrawCratePick(RunState run, VehicleSpec current)
+        {
+            GUILayout.Space(6);
+            GUILayout.Label("-- PARTS CRATE — KEEP ONE --");
+            GUILayout.Label("(already paid for; the rest are scrapped)");
+
+            // Snapshot: taking clears the contents mid-draw.
+            var contents = new List<PartDef>(run.CrateContents);
+            foreach (PartDef part in contents)
+                DrawCrateItem(part, run, current);
+        }
+
+        private void DrawCrateItem(PartDef part, RunState run, VehicleSpec current)
+        {
+            if (!part) return;
+            GUILayout.BeginHorizontal(GUI.skin.box);
+            GUILayout.BeginVertical();
+            GUILayout.Label($"{part.DisplayName}  [{part.Category}]");
+            DrawEditionTag(part.Edition);
+            if (!string.IsNullOrEmpty(part.Description))
+                GUILayout.Label(part.Description);
+            DrawStatPreview(part, current);
+            GUILayout.EndVertical();
+            if (GUILayout.Button("KEEP", GUILayout.Width(64), GUILayout.ExpandHeight(true)))
+                director.TakeFromCrate(part);
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Shared BEFORE→AFTER preview of a Stat part's effect on the two headline bars. Applying the single
+        /// part on top of the current spec matches equipping it (mods are multiplicative) and never touches
+        /// run state. Shared by the shelf and the crate pick so the two can't describe the same part
+        /// differently.
+        /// </summary>
+        private static void DrawStatPreview(PartDef part, VehicleSpec current)
+        {
+            if (part.Category != PartCategory.Stat || current == null) return;
+            StatSummary.Stats before = StatSummary.Compute(current);
+            StatSummary.Stats after = StatSummary.Compute(SpecModApplier.Apply(current, new[] { part }));
+            DrawStatDelta("GRIP", before.Grip, after.Grip);
+            DrawStatDelta("POWER", before.Power, after.Power);
+        }
+
         private void DrawOffer(PartDef part, RunState run, VehicleSpec current)
         {
             if (!part) return;
@@ -144,16 +210,7 @@ namespace Shitboxer.Meta
             if (!string.IsNullOrEmpty(part.Description))
                 GUILayout.Label(part.Description);
 
-            // Preview a Stat part's effect: BEFORE -> AFTER on the two headline bars. Applying the
-            // single part on top of the current spec matches equipping it (mods are multiplicative),
-            // and never touches run state.
-            if (part.Category == PartCategory.Stat && current != null)
-            {
-                StatSummary.Stats before = StatSummary.Compute(current);
-                StatSummary.Stats after = StatSummary.Compute(SpecModApplier.Apply(current, new[] { part }));
-                DrawStatDelta("GRIP", before.Grip, after.Grip);
-                DrawStatDelta("POWER", before.Power, after.Power);
-            }
+            DrawStatPreview(part, current);
             GUILayout.EndVertical();
             GUI.enabled = run.Money >= part.Price;
             if (GUILayout.Button("BUY", GUILayout.Width(64), GUILayout.ExpandHeight(true)))

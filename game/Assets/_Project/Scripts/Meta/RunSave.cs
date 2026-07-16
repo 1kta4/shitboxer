@@ -42,6 +42,14 @@ namespace Shitboxer.Meta
         /// <summary>Ids of the currently slotted subset, in slot order (PartDef.Id).</summary>
         public List<string> equippedPartIds = new List<string>();
 
+        /// <summary>
+        /// Ids of a bought-but-unpicked crate's contents (RunState.CrateContents). Persisted because the
+        /// crate is paid for on buy and the run saves immediately, so dropping this would turn a
+        /// quit-mid-crate into lost money. Absent from an older save's JSON, which deserializes to an
+        /// empty list — i.e. no open crate, exactly the pre-crate behaviour.
+        /// </summary>
+        public List<string> crateContentIds = new List<string>();
+
         /// <summary>Default absolute path of the save file.</summary>
         public static string DefaultPath => Path.Combine(Application.persistentDataPath, FileName);
 
@@ -64,6 +72,8 @@ namespace Shitboxer.Meta
                 if (part && !string.IsNullOrEmpty(part.Id)) dto.ownedPartIds.Add(part.Id);
             foreach (PartDef part in run.EquippedParts)
                 if (part && !string.IsNullOrEmpty(part.Id)) dto.equippedPartIds.Add(part.Id);
+            foreach (PartDef part in run.CrateContents)
+                if (part && !string.IsNullOrEmpty(part.Id)) dto.crateContentIds.Add(part.Id);
             return dto;
         }
 
@@ -86,10 +96,19 @@ namespace Shitboxer.Meta
             };
             run.OwnedParts.Clear();
             run.EquippedParts.Clear();
+            run.CrateContents.Clear();
 
             foreach (string id in ownedPartIds)
                 if (id != null && index.TryGetValue(id, out PartDef part) && !run.OwnedParts.Contains(part))
                     run.OwnedParts.Add(part);
+
+            // An open crate's contents are NOT owned yet — they're the pending pick, so they resolve
+            // independently of OwnedParts. Unresolvable ids drop out like everywhere else; if that empties
+            // the list the crate simply reads as closed rather than stranding the player in a pick screen
+            // with nothing to pick.
+            foreach (string id in crateContentIds)
+                if (id != null && index.TryGetValue(id, out PartDef part) && !run.CrateContents.Contains(part))
+                    run.CrateContents.Add(part);
 
             foreach (string id in equippedPartIds)
                 if (id != null && index.TryGetValue(id, out PartDef part)

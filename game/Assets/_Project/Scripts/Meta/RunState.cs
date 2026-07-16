@@ -81,6 +81,20 @@ namespace Shitboxer.Meta
         /// <summary>The subset currently slotted onto the car (max MaxEquipSlots).</summary>
         public List<PartDef> EquippedParts = new List<PartDef>();
 
+        /// <summary>
+        /// Parts drawn by a bought-but-unresolved crate, awaiting the player's pick (doc 03's
+        /// booster-style part crates). Empty whenever no crate is open.
+        ///
+        /// This lives on the RUN, not on ShopLogic, precisely because it must survive a save: the crate is
+        /// paid for at buy time and RunDirector saves immediately on every purchase, so parking the contents
+        /// in transient shop state would let a quit-then-resume restore the spend with nothing drawn — the
+        /// player's money would simply evaporate. RunSave persists these by Id like every other part list.
+        /// </summary>
+        public List<PartDef> CrateContents = new List<PartDef>();
+
+        /// <summary>True while a paid-for crate is waiting to be picked from. Blocks the rest of the shop.</summary>
+        public bool CrateOpen => CrateContents.Count > 0;
+
         public bool IsBossRace => RaceIndex >= RacesPerCircuit - 1;
 
         /// <summary>True once the run reaches the season's last circuit.</summary>

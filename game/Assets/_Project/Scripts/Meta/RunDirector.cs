@@ -42,6 +42,18 @@ namespace Shitboxer.Meta
         [Tooltip("Damage-curve exponent for the repair price (see RunState.RepairCostFor). 1 (default) prices repairs LINEARLY in wear — byte-for-byte today's cost; >1 makes deep damage disproportionately dear; <1 front-loads light damage. Endpoints are unchanged either way.")]
         [SerializeField] private float repairDamageExponent = 1f;
 
+        [Header("Part crates (doc 03's booster-style packs)")]
+        [Tooltip("Cost of a part crate. Priced against the $5 reroll on purpose: a crate is a GUARANTEED pick of N with no part price on top, while a reroll only reshuffles a shelf you must still pay from. Too cheap and it strictly dominates rerolling; too dear and the first garage stays the non-choice it is today. A prime tuning target for the enable+tune pass.")]
+        [Min(0)]
+        [SerializeField] private int cratePrice = 6;
+
+        [Tooltip("How many parts a crate draws for the player to pick ONE from. Drawn on the shipped rarity curve (Common common, Rare rare) and excluding both owned parts and the current shelf. 3 = Balatro's standard pack shape.")]
+        [Min(1)]
+        [SerializeField] private int crateDrawCount = 3;
+
+        /// <summary>Shop-facing crate price, so the garage can render and gate the offer.</summary>
+        public int CratePrice => cratePrice;
+
         [Header("Season shape")]
         [Tooltip("How many circuits make up a full season. 1 (default) is the roadmap's Phase-3 gate: a single-circuit run, short enough that the \"one more run\" test is cheap to repeat. Raise it as real circuits/tracks land. Clamped to >= 1. Season length is CONFIG, not run progress — RunSave never persists it — so this field is re-stamped onto every run the director adopts (fresh, resumed, or restarted), letting a change here take effect on a run already in flight.")]
         [Min(1)]
@@ -681,6 +693,26 @@ namespace Shitboxer.Meta
             bool rerolled = Shop.TryReroll(partPool ? partPool.Parts : null, Run);
             if (rerolled) Save();
             return rerolled;
+        }
+
+        /// <summary>
+        /// Garage Buy-crate button. Saves on success — and that save is exactly why the drawn contents live
+        /// on RunState rather than in the shop: the money is gone the moment this returns true, so the pick
+        /// has to be able to survive a quit (see RunState.CrateContents).
+        /// </summary>
+        public bool BuyCrate()
+        {
+            bool bought = Shop.TryBuyCrate(partPool ? partPool.Parts : null, Run, cratePrice, crateDrawCount);
+            if (bought) Save();
+            return bought;
+        }
+
+        /// <summary>Garage crate-pick button: take one drawn part, the rest are discarded.</summary>
+        public bool TakeFromCrate(PartDef part)
+        {
+            bool took = Shop.TryTakeFromCrate(part, Run);
+            if (took) Save();
+            return took;
         }
 
         /// <summary>

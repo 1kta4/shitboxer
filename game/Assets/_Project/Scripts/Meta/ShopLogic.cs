@@ -108,7 +108,10 @@ namespace Shitboxer.Meta
         public bool TryBuy(PartDef part, RunState run)
         {
             int price = PriceOf(part);
-            if (part == null || !_offers.Contains(part) || run.Money < price) return false;
+            // The Owns guard is the backstop against duplicate ownership: parts are uniques, and a part can
+            // now reach the inventory by two routes (shelf and crate). Without it, any path that leaves a
+            // now-owned part on the shelf would let it be bought a second time.
+            if (part == null || !_offers.Contains(part) || run.Owns(part) || run.Money < price) return false;
             run.Money -= price;
             _offers.Remove(part);
             run.OwnedParts.Add(part);
@@ -125,15 +128,31 @@ namespace Shitboxer.Meta
         private void Roll(IReadOnlyList<PartDef> pool, RunState run)
         {
             _offers.Clear();
-            if (pool == null) return;
+            DrawParts(pool, run, OfferCount, _offers);
+        }
+
+        /// <summary>
+        /// Rarity-weighted, without-replacement draw of up to <paramref name="count"/> distinct parts the
+        /// player doesn't own yet, appended to <paramref name="into"/>. Runs off the seeded RNG so a given
+        /// seed reproduces the draw.
+        ///
+        /// Shared by the shelf (<see cref="Roll"/>) and by crates (<see cref="TryBuyCrate"/>) on purpose:
+        /// a crate that drew from its own copy of this logic could drift from the shelf's rarity curve, and
+        /// then "Rare is rare" would quietly mean two different things depending on where you looked.
+        /// </summary>
+        private void DrawParts(
+            IReadOnlyList<PartDef> pool, RunState run, int count, List<PartDef> into,
+            IReadOnlyList<PartDef> exclude = null)
+        {
+            if (pool == null || into == null || count <= 0) return;
 
             var candidates = new List<PartDef>(pool.Count);
             foreach (PartDef part in pool)
-                if (part != null && !run.Owns(part))
+                if (part != null && !run.Owns(part) && !into.Contains(part) && !ListContains(exclude, part))
                     candidates.Add(part);
 
-            int count = Math.Min(OfferCount, candidates.Count);
-            for (int i = 0; i < count; i++)
+            int draws = Math.Min(count, candidates.Count);
+            for (int i = 0; i < draws; i++)
             {
                 int totalWeight = 0;
                 foreach (PartDef part in candidates)
@@ -147,9 +166,63 @@ namespace Shitboxer.Meta
                     if (roll < 0) { pick = c; break; }
                 }
 
-                _offers.Add(candidates[pick]);
+                into.Add(candidates[pick]);
                 candidates.RemoveAt(pick);
             }
+        }
+
+        /// <summary>
+        /// Buys a booster-style part crate (doc 03): pay <paramref name="price"/>, draw
+        /// <paramref name="drawCount"/> parts into <see cref="RunState.CrateContents"/> for the player to
+        /// pick ONE from (<see cref="TryTakeFromCrate"/>). The draw runs at BUY time, not at visit open, so
+        /// anything bought earlier this visit is correctly excluded.
+        ///
+        /// Refuses — charging nothing — when a crate is already open, when the money isn't there, or when
+        /// the pool has no unowned candidates left. That last guard matters: selling an empty crate would
+        /// take the money and hand back a pick screen with nothing in it.
+        /// </summary>
+        public bool TryBuyCrate(IReadOnlyList<PartDef> pool, RunState run, int price, int drawCount)
+        {
+            if (run == null || run.CrateOpen || run.Money < price) return false;
+
+            // Exclude what's already on the shelf: the same part appearing in both places reads as a bug,
+            // and it would open a duplicate-ownership path (take it from the crate, then buy the shelf copy).
+            var drawn = new List<PartDef>();
+            DrawParts(pool, run, drawCount, drawn, _offers);
+            if (drawn.Count == 0) return false; // nothing left to draw — don't sell an empty box
+
+            run.Money -= price;
+            run.CrateContents.AddRange(drawn);
+            return true;
+        }
+
+        /// <summary>
+        /// Takes one part from the open crate: it joins the run inventory (auto-equipped when a slot is
+        /// free, exactly like <see cref="TryBuy"/>) and the crate closes — the parts not chosen are gone,
+        /// which is what makes the pick a decision. Already paid for at buy time, so this costs nothing.
+        /// </summary>
+        public bool TryTakeFromCrate(PartDef part, RunState run)
+        {
+            if (part == null || run == null || !run.CrateContents.Contains(part)) return false;
+
+            run.CrateContents.Clear();
+            run.OwnedParts.Add(part);
+            run.Equip(part);
+            _offers.Remove(part); // belt-and-braces: the shelf must never re-sell what you just took
+            return true;
+        }
+
+        /// <summary>
+        /// Membership test over an <see cref="IReadOnlyList{T}"/>, which — unlike List/ICollection — carries
+        /// no Contains of its own. Hand-rolled rather than pulling in Linq: this runs inside the draw loop
+        /// and the codebase keeps the shop allocation-free so a headless server can roll stock cheaply.
+        /// </summary>
+        private static bool ListContains(IReadOnlyList<PartDef> list, PartDef part)
+        {
+            if (list == null) return false;
+            for (int i = 0; i < list.Count; i++)
+                if (list[i] == part) return true;
+            return false;
         }
 
         /// <summary>Relative shelf frequency per tier — Common shows up most, Rare least.</summary>
