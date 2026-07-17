@@ -22,18 +22,11 @@ namespace Shitboxer.Meta
         private static readonly PartCategory[] PartCategories =
             { PartCategory.Stat, PartCategory.Economy, PartCategory.Attack };
 
-        // Player's part-free base spec, snapshotted during the race (see TryCaptureBaseSpec) so the
-        // garage can recompute Grip/Power for any equipped set without touching the live car.
-        private VehicleController _playerCar;
-        private VehicleSpec _baseSpec;
-
         public void Configure(RunDirector runDirector) => director = runDirector;
 
         private void OnGUI()
         {
             if (!director) return;
-
-            TryCaptureBaseSpec();
 
             switch (director.Phase)
             {
@@ -81,7 +74,7 @@ namespace Shitboxer.Meta
                 : $"$ {run.Money}    LIVES {run.Lives}    NEXT: race {run.RaceIndex + 1}/{run.RacesPerCircuit}");
 
             // Current headline stats for the equipped set the player will take into the next race.
-            VehicleSpec current = _baseSpec != null ? SpecModApplier.Apply(_baseSpec, run.EquippedParts) : null;
+            VehicleSpec current = director.BaseSpec != null ? SpecModApplier.Apply(director.BaseSpec, run.EquippedParts) : null;
             if (current != null)
             {
                 StatSummary.Stats now = StatSummary.Compute(current);
@@ -290,33 +283,6 @@ namespace Shitboxer.Meta
                 GUI.enabled = true;
             }
             GUILayout.EndHorizontal();
-        }
-
-        /// <summary>
-        /// Snapshots the player's part-free base spec so the garage can preview any equipped set.
-        /// RunDirector bakes equipped stat parts into the live car spec at scene load, so the car
-        /// carries its authored (base) spec exactly when no stat part is equipped — guaranteed at
-        /// least during race 1 of every run. We only read it during the race (the equipped set can't
-        /// be edited then) and deep-clone it so a later SetSpec swap can't mutate our snapshot.
-        /// Read-only w.r.t. run state.
-        /// </summary>
-        private void TryCaptureBaseSpec()
-        {
-            if (director.Phase != RunPhase.Racing || HasEquippedStatPart()) return;
-            if (!_playerCar)
-            {
-                var provider = FindFirstObjectByType<VehicleInputProvider>();
-                _playerCar = provider ? provider.GetComponent<VehicleController>() : null;
-            }
-            if (_playerCar && _playerCar.SpecAsset != null)
-                _baseSpec = SpecModApplier.Clone(_playerCar.SpecAsset.Spec);
-        }
-
-        private bool HasEquippedStatPart()
-        {
-            foreach (PartDef part in director.Run.EquippedParts)
-                if (part && part.Category == PartCategory.Stat) return true;
-            return false;
         }
 
         private static void DrawStatBar(string label, float value, Color fill)

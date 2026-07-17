@@ -174,6 +174,16 @@ namespace Shitboxer.Meta
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode) => BindToScene();
 
         /// <summary>Finds the race actors in the freshly loaded scene and preps the player car.</summary>
+        /// <summary>
+        /// The player's part-free authored spec, cloned at every scene bind BEFORE
+        /// <see cref="ApplyEquippedParts"/> bakes the equipped stat parts over it. The garage reads
+        /// this to preview an arbitrary equipped set without touching the live car. Null only when
+        /// there is no player car / spec to read. Captured in <see cref="BindToScene"/>, where the
+        /// moment is unconditional — unlike the old GarageScreen.TryCaptureBaseSpec, which guessed
+        /// at it from OnGUI and missed it entirely on a resumed run that already had a stat part on.
+        /// </summary>
+        public VehicleSpec BaseSpec { get; private set; }
+
         private void BindToScene()
         {
             if (Instance != this) return; // a doomed duplicate — leave the live run alone
@@ -188,6 +198,16 @@ namespace Shitboxer.Meta
                 Debug.LogError("[RunDirector] Scene needs a RaceManager and a player car with a VehicleInputProvider.", this);
                 return;
             }
+
+            // Snapshot the player's part-free authored spec BEFORE ApplyEquippedParts bakes the
+            // equipped stat parts over it. Unconditional here because the scene is rebuilt every
+            // race, so the car carries its prefab spec at this exact moment every time (SetSpec only
+            // ever writes a runtime asset onto the live component, never the prefab). This retires
+            // GarageScreen.TryCaptureBaseSpec, which had to guess the same moment from inside OnGUI
+            // and so blacked out the garage's stat bars for the rest of any RESUMED run.
+            BaseSpec = _playerCar.SpecAsset != null
+                ? SpecModApplier.Clone(_playerCar.SpecAsset.Spec)
+                : null;
 
             ApplyEquippedParts();
             ApplyAttackProfile();
