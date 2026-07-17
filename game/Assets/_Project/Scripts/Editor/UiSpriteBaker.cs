@@ -23,15 +23,15 @@ namespace Shitboxer.Editor
                 AssetDatabase.CreateFolder(UiDir, "Sprites");
 
             //          name          top (lit)   bottom (shadow)
-            VGradient("screen",     "#1a2130", "#0a0d14"); // the whole garage/end-screen backdrop
-            VGradient("rail-plate", "#242c3a", "#141a24"); // left rail
-            VGradient("offer",      "#232b39", "#1a212c"); // shop offer row
-            VGradient("offer-sel",  "#2f3d55", "#212a3a"); // selected offer
-            VGradient("button",     "#e8eff9", "#94a5bd"); // chrome buttons
-            VGradient("cta",        "#4f8bff", "#0f2478"); // NEXT RACE / NEW RUN
-            VGradient("fill",       "#8fc4ff", "#1b46b4"); // GRIP / POWER stat fill
-            VGradient("track",      "#1a2230", "#080c14"); // recessed stat track
-            VGradient("ghost",      "#2b3548", "#161d28"); // ghost buttons / owned rows / tag
+            VGradient("screen",     "#1a2130", "#0a0d14"); // the whole garage/end-screen backdrop (no bevel)
+            Plate("rail-plate", "#242c3a", "#141a24");             // left rail (beveled 9-slice)
+            Plate("offer",      "#232b39", "#1a212c");             // shop offer row
+            Plate("offer-sel",  "#2f3d55", "#212a3a", glow: true); // selected offer — cobalt glow edge
+            Plate("button",     "#e8eff9", "#94a5bd");             // chrome buttons
+            Plate("cta",        "#4f8bff", "#0f2478", glow: true); // NEXT RACE / NEW RUN — cobalt glow
+            Plate("ghost",      "#2b3548", "#161d28");             // ghost buttons / owned rows / tag
+            VGradient("fill",       "#8fc4ff", "#1b46b4"); // GRIP / POWER stat fill (bar, no bevel)
+            VGradient("track",      "#1a2230", "#080c14"); // recessed stat track (no bevel)
 
             // stat-preview ghost: the mock's repeating-linear-gradient diagonal stripes, baked + tiled.
             Stripes("ghost-stripe",      new Color(0.373f, 0.851f, 0.478f, 0.55f), new Color(0.373f, 0.851f, 0.478f, 0.20f));
@@ -71,6 +71,47 @@ namespace Shitboxer.Editor
             var imp = (TextureImporter)AssetImporter.GetAtPath(path);
             imp.textureType = TextureImporterType.Default;   // plain Texture2D — the type USS background-image wants
             imp.filterMode = FilterMode.Bilinear;
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.wrapMode = TextureWrapMode.Clamp;
+            imp.mipmapEnabled = false;
+            imp.SaveAndReimport();
+        }
+
+        /// <summary>
+        /// A 9-slice plate: the vertical gradient plus a 2px raised BEVEL baked into the border (lit
+        /// top+left, shadowed bottom+right, light-from-upper-left) and, when <paramref name="glow"/>, a
+        /// cobalt glow on the lit edge. USS 9-slices it (-unity-slice-*), so the 2px bevel stays crisp
+        /// while the gradient centre stretches. Point-filtered so the bevel edge is a hard 1px line.
+        /// </summary>
+        private static void Plate(string name, string topHex, string bottomHex, bool glow = false)
+        {
+            ColorUtility.TryParseHtmlString(topHex, out Color top);
+            ColorUtility.TryParseHtmlString(bottomHex, out Color bottom);
+            Color lit = glow ? new Color(0.55f, 0.78f, 1f) : Color.white;
+            float litAmount = glow ? 0.60f : 0.30f;
+
+            const int s = 32, bevel = 2;
+            var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
+            for (int y = 0; y < s; y++)
+                for (int x = 0; x < s; x++)
+                {
+                    Color c = Color.Lerp(bottom, top, y / (float)(s - 1)); // y=0 bottom of the texture
+                    bool onLit = y >= s - bevel || x < bevel;             // top or left edge
+                    bool onShadow = !onLit && (y < bevel || x >= s - bevel); // bottom or right edge
+                    if (onLit) c = Color.Lerp(c, lit, litAmount);
+                    else if (onShadow) c = Color.Lerp(c, Color.black, 0.42f);
+                    tex.SetPixel(x, y, c);
+                }
+            tex.Apply();
+
+            string path = $"{Dir}/{name}.png";
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path);
+
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+            imp.textureType = TextureImporterType.Default;
+            imp.filterMode = FilterMode.Point;              // crisp bevel edge
             imp.textureCompression = TextureImporterCompression.Uncompressed;
             imp.wrapMode = TextureWrapMode.Clamp;
             imp.mipmapEnabled = false;

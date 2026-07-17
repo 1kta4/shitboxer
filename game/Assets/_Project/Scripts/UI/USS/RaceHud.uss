@@ -29,7 +29,12 @@
 .hud-posbox {
     flex-direction: row;
     align-items: center;
-    background-color: rgba(6, 9, 14, 0.5);
+    background-color: rgba(6, 9, 14, 0.6);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/rail-plate.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
     padding: 3px 10px 4px;
     margin-bottom: 5px;
 }

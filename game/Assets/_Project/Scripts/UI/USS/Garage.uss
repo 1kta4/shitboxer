@@ -36,6 +36,10 @@
     color: var(--ink-mute);
     background-color: #1b2230;
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
     border-width: 1px;
     border-color: #33415a;
     padding: 4px 8px;
@@ -59,6 +63,10 @@
     padding: 14px;
     background-color: var(--plate);
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/rail-plate.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
     border-width: 1px;
     border-color: var(--edge);
     border-left-width: 3px;
@@ -173,6 +181,10 @@
     margin-bottom: 4px;
     background-color: var(--panel);
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
     border-width: 1px;
     border-color: #2c3646;
 }
@@ -224,6 +236,10 @@
 .gx-offer {
     background-color: var(--plate-hi);
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
     border-width: 1px;
     border-color: var(--line);
     border-left-width: 3px;
@@ -235,6 +251,10 @@
 .gx-offer.sel {
     background-color: #2f3d55;
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer-sel.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
     border-color: #5f7ba6;
     border-left-color: var(--blue);
 }
@@ -281,6 +301,10 @@
     color: #0d1723;
     background-color: #c4d0e0;
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/button.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
     border-width: 1px;
     border-color: #f2f7ff;
     border-radius: 0;
@@ -315,6 +339,10 @@
     color: #f0f6ff;
     background-color: var(--blue);
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/cta.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
     border-width: 0;
     border-radius: 0;
     padding: 12px 24px;

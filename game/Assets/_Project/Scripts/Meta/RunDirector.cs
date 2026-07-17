@@ -637,6 +637,9 @@ namespace Shitboxer.Meta
             GUI.DrawTexture(panel, Texture2D.whiteTexture);
             GUI.color = new Color(0.31f, 0.545f, 1f);
             GUI.DrawTexture(new Rect(panel.x, panel.y, panel.width, 2f), Texture2D.whiteTexture);
+            GUI.color = new Color(0f, 0f, 0f, 0.45f);   // shadowed bottom + right edges (bevel)
+            GUI.DrawTexture(new Rect(panel.x, panel.yMax - 1f, panel.width, 1f), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(panel.xMax - 1f, panel.y, 1f, panel.height), Texture2D.whiteTexture);
             GUI.color = Color.white;
 
             var title = new GUIStyle(GUI.skin.label)
@@ -666,8 +669,12 @@ namespace Shitboxer.Meta
             Color prev = GUI.color;
             GUI.color = bg;
             GUI.DrawTexture(rect, Texture2D.whiteTexture);
-            GUI.color = new Color(1f, 1f, 1f, 0.12f);
+            GUI.color = new Color(1f, 1f, 1f, 0.15f);   // lit top + left edges
             GUI.DrawTexture(new Rect(rect.x, rect.y, rect.width, 1f), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(rect.x, rect.y, 1f, rect.height), Texture2D.whiteTexture);
+            GUI.color = new Color(0f, 0f, 0f, 0.4f);    // shadowed bottom + right edges
+            GUI.DrawTexture(new Rect(rect.x, rect.yMax - 1f, rect.width, 1f), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(rect.xMax - 1f, rect.y, 1f, rect.height), Texture2D.whiteTexture);
             GUI.color = prev;
 
             var style = new GUIStyle(GUI.skin.label)
