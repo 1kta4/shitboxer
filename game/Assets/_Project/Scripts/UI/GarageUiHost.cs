@@ -67,16 +67,28 @@ namespace Shitboxer.UI
             }
 
             root.Clear();
-            if (phase != RunPhase.Garage)
+            switch (phase)
             {
-                root.style.display = DisplayStyle.None;
-                return;
+                case RunPhase.Garage:
+                    Mount(root, new GarageView(new GarageViewModel(_host)).Root);
+                    break;
+                case RunPhase.RunOver:
+                    Mount(root, new EndScreenView(_host, "RUN OVER").Root);
+                    break;
+                case RunPhase.RunComplete:
+                    Mount(root, new EndScreenView(_host, "SEASON CLEARED").Root);
+                    break;
+                default:
+                    root.style.display = DisplayStyle.None;
+                    break;
             }
+        }
 
+        private static void Mount(VisualElement root, VisualElement view)
+        {
             root.style.display = DisplayStyle.Flex;
-            var view = new GarageView(new GarageViewModel(_host));
-            view.Root.style.flexGrow = 1;
-            root.Add(view.Root);
+            view.style.flexGrow = 1;
+            root.Add(view);
         }
     }
 }

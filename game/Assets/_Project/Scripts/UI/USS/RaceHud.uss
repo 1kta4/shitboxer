@@ -13,7 +13,7 @@
 .hud-curtime, .hud-delta, .hud-time, .hud-dura__name, .hud-dura__val {
     -unity-font-style: bold;
     -unity-text-outline-width: 1px;
-    -unity-text-outline-color: rgba(0, 0, 0, 0.9);
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
 }
 
 .hud-cap { font-size: 11px; color: var(--ink-dim); letter-spacing: 1px; }

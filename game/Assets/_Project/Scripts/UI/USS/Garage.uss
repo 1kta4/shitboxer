@@ -53,6 +53,7 @@
 .gx-rail {
     width: 320px;
     flex-shrink: 0;
+    overflow: hidden;    /* clip any horizontal spill so rail content never covers the shop */
     margin-right: 20px;
     padding: 14px;
     background-color: var(--plate);
@@ -77,6 +78,7 @@
 .readout-row__label { font-size: var(--size-label); color: var(--ink); }
 .readout-row__leader {
     flex-grow: 1;
+    min-width: 0;        /* let the 128-dot leader SHRINK + clip; without this it pushes the value off */
     overflow: hidden;
     color: var(--ink-mute);
     margin-left: 6px;
@@ -294,3 +296,37 @@
     margin: 0;
 }
 .gx-cta:hover { background-color: #5f97ff; }
+
+/* ══ End-of-run result screen (RunOver / RunComplete) ═════════════════════ */
+.end { align-items: center; justify-content: center; }
+.end-panel {
+    width: 440px;
+    max-width: 92%;
+    background-color: var(--plate);
+    border-width: 1px;
+    border-color: var(--edge);
+    border-left-width: 3px;
+    border-left-color: var(--blue);
+    padding: 18px 20px;
+}
+.end-headline {
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-title);
+    color: #eef4fb;
+    margin-bottom: 6px;
+}
+.end-sub { font-size: var(--size-body); color: var(--ink-dim); white-space: normal; margin-bottom: 6px; }
+.end-section { font-size: var(--size-label); color: var(--sec); letter-spacing: 2px; margin-top: 12px; margin-bottom: 4px; }
+.end-line { font-size: var(--size-body); color: var(--ink); margin-bottom: 2px; }
+.end-dim { color: var(--ink-mute); }
+.end-cta {
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-cta);
+    color: #f0f6ff;
+    background-color: var(--blue);
+    border-width: 0;
+    border-radius: 0;
+    padding: 12px;
+    margin-top: 16px;
+}
+.end-cta:hover { background-color: #5f97ff; }

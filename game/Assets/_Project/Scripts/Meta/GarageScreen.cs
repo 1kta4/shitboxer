@@ -26,19 +26,10 @@ namespace Shitboxer.Meta
 
         private void OnGUI()
         {
+            // Every phase is UI Toolkit now (GarageView / RaceHudView / EndScreenView). This throwaway
+            // class draws nothing; it's kept only because RunDirector still adds it, and is deleted once
+            // nothing references it. The `director` read keeps its serialized wiring valid meanwhile.
             if (!director) return;
-
-            switch (director.Phase)
-            {
-                // The in-race status box (right) + the garage are now UI Toolkit (RaceHudView / GarageView).
-                // IMGUI keeps only the end-of-run screens until those move to UI Toolkit too.
-                case RunPhase.RunOver:
-                    DrawEndScreen("RUN OVER — out of lives.");
-                    break;
-                case RunPhase.RunComplete:
-                    DrawEndScreen("SEASON CLEARED!");
-                    break;
-            }
         }
 
         /// <summary>Small always-on box (top right, clear of the RaceHud) during the race.</summary>
