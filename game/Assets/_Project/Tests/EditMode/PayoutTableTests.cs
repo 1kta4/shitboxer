@@ -4,9 +4,15 @@ using Shitboxer.Meta;
 namespace Shitboxer.Tests
 {
     /// <summary>
-    /// Covers the inverted catch-up economy payout curve after the anti-sandbagging reshape:
-    /// the back still out-earns the front, but with diminishing returns that plateau at the
-    /// bottom, a podium bonus that keeps winning worthwhile, and a mid-pack-capped economy hook.
+    /// Covers the inverted catch-up economy payout curve: the back out-earns the front, but with
+    /// diminishing returns that plateau at the very back, a podium bonus that keeps winning
+    /// worthwhile, and a mid-pack-capped economy hook.
+    ///
+    /// Wave 21 widened the curve (P1=$5 … P8=$13, was $7 … $10) because the old one made the
+    /// signature tension worth $3 — less than a reroll. Two assertions here were pinned to those
+    /// numbers and changed WITH the balance, deliberately: the farming premium's bound, and where
+    /// the bottom plateau starts. Every other assertion is shape-based and did not move, which is
+    /// the evidence that only the magnitude changed and not the design.
     /// </summary>
     public class PayoutTableTests : TestBase
     {
@@ -33,11 +39,15 @@ namespace Shitboxer.Tests
         }
 
         [Test]
-        public void Payout_PlateausAtBottom_NoRewardForTankingPastMidpack()
+        public void Payout_PlateausAtTheBack_NoRewardForTankingToLast()
         {
-            // Dropping below mid-pack earns nothing extra — kills the "cruise dead-last" incentive.
+            // Tanking into the last slot earns nothing extra — kills the "cruise dead-last" incentive.
+            // The plateau moved P6 -> P7 when wave 21 widened the curve: the old table was so flat
+            // that three positions paid the same, which killed the signature along with the exploit.
+            // The anti-tank property that actually matters is that the MARGINAL gain decays to zero
+            // at the back, which this pins and Payout_BaseCurve_HasDiminishingReturns pins in general.
             var t = new PayoutTable();
-            Assert.AreEqual(t.PayoutFor(6, false), t.PayoutFor(8, false));
+            Assert.AreEqual(t.PayoutFor(7, false), t.PayoutFor(8, false));
             int topGain = t.PayoutFor(2, false) - t.PayoutFor(1, false);
             int bottomGain = t.PayoutFor(8, false) - t.PayoutFor(7, false);
             Assert.Greater(topGain, bottomGain);
@@ -54,12 +64,21 @@ namespace Shitboxer.Tests
         }
 
         [Test]
-        public void Payout_FarmingPremiumIsBounded()
+        public void Payout_FarmingPremium_IsWorthAboutOnePart()
         {
-            // The residual "cruise low" premium over winning is modest (hazard pay), not runaway.
+            // THE test for the signature tension, and the one wave 21 exists to change.
+            //
+            // It used to assert premium <= 4, which passed at $3 — and $3 is not a decision when a
+            // reroll is $5 and the median part is $7. A payout spread smaller than anything you can
+            // buy with it means "push to win vs hang back to farm" is a slogan, not a choice.
+            //
+            // The floor is the real assertion: the premium must be worth roughly a part, or the
+            // tension doesn't exist. The ceiling still guards the other failure mode — hazard pay,
+            // not a runaway farm. If you retune the curve, these bounds are the contract.
             var t = new PayoutTable();
             int premium = t.PayoutFor(8, false) - t.PayoutFor(1, false);
-            Assert.LessOrEqual(premium, 4);
+            Assert.GreaterOrEqual(premium, 7, "Farming must out-pay winning by ~a median part ($7) or it isn't a decision.");
+            Assert.LessOrEqual(premium, 12, "...but not so much that cruising the back is a free ride.");
         }
 
         [Test]

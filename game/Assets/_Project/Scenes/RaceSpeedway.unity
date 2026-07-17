@@ -1766,7 +1766,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.RunDirector
   partPool: {fileID: 11400000, guid: 7a4b8a372f6aff24fb92ce29d8998490, type: 2}
   payoutTable:
-    PayoutByPosition: 04000000060000000700000008000000090000000a0000000a0000000a000000
+    PayoutByPosition: 020000000400000006000000080000000a0000000c0000000d0000000d000000
     PodiumBonus: 030000000200000001000000
     EliminationConsolation: 2
     EconomyBonusPositionCap: 4
