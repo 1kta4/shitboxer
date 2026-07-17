@@ -858,7 +858,6 @@ namespace Shitboxer.Meta
 
         private void OpenGarage()
         {
-            SetPhase(RunPhase.Garage);
             Time.timeScale = 0f;
 
             // Economy-depth hooks, both no-ops at the shipped defaults: reset the standalone per-visit
@@ -873,6 +872,12 @@ namespace Shitboxer.Meta
             // exact same stock and rerolls, then persist the post-race state.
             Shop.BeginVisit(partPool ? partPool.Parts : null, Run, VisitSeed());
             Save();
+
+            // Fire the phase change LAST — AFTER the shop is stocked and the cash settled — so the
+            // retained-mode garage UI (GarageUiHost builds its ViewModel on PhaseChanged and reads the
+            // shop ONCE) sees a populated shop and post-interest money, not the empty/pre-interest state.
+            // The old IMGUI garage re-read every frame, so this ordering never mattered before.
+            SetPhase(RunPhase.Garage);
         }
 
         /// <summary>Garage Buy button.</summary>

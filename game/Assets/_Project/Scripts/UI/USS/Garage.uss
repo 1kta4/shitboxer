@@ -75,16 +75,17 @@
 
 .gx-readouts { margin-bottom: 4px; }
 .readout-row { flex-direction: row; align-items: center; margin-bottom: 3px; }
-.readout-row__label { font-size: var(--size-label); color: var(--ink); }
+.readout-row__label { flex-shrink: 0; font-size: var(--size-label); color: var(--ink); }
 .readout-row__leader {
     flex-grow: 1;
-    min-width: 0;        /* let the 128-dot leader SHRINK + clip; without this it pushes the value off */
+    flex-basis: 0;       /* take only LEFTOVER space (not the 128-dot content width) so the value fits */
+    min-width: 0;        /* and let it shrink + clip */
     overflow: hidden;
     color: var(--ink-mute);
     margin-left: 6px;
     margin-right: 6px;
 }
-.readout-row__value { font-size: var(--size-val); color: var(--ink); }
+.readout-row__value { flex-shrink: 0; font-size: var(--size-val); color: var(--ink); }
 .readout-row.cash .readout-row__value { color: var(--amber); }
 
 .gx-lives-row { flex-direction: row; align-items: center; margin-top: 4px; }
