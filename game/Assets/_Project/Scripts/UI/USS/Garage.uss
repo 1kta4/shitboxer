@@ -180,7 +180,7 @@
     padding: 6px 8px;
     margin-bottom: 4px;
     background-color: var(--panel);
-    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer.png");
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost.png");
     -unity-slice-left: 2;
     -unity-slice-right: 2;
     -unity-slice-top: 2;
@@ -237,9 +237,9 @@
     background-color: var(--plate-hi);
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer.png");
     -unity-slice-left: 2;
-    -unity-slice-right: 2;
+    -unity-slice-right: 14;
     -unity-slice-top: 2;
-    -unity-slice-bottom: 2;
+    -unity-slice-bottom: 14;
     border-width: 1px;
     border-color: var(--line);
     border-left-width: 3px;
@@ -252,9 +252,9 @@
     background-color: #2f3d55;
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer-sel.png");
     -unity-slice-left: 2;
-    -unity-slice-right: 2;
+    -unity-slice-right: 14;
     -unity-slice-top: 2;
-    -unity-slice-bottom: 2;
+    -unity-slice-bottom: 14;
     border-color: #5f7ba6;
     border-left-color: var(--blue);
 }
@@ -340,9 +340,9 @@
     background-color: var(--blue);
     background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/cta.png");
     -unity-slice-left: 2;
-    -unity-slice-right: 2;
+    -unity-slice-right: 14;
     -unity-slice-top: 2;
-    -unity-slice-bottom: 2;
+    -unity-slice-bottom: 14;
     border-width: 0;
     border-radius: 0;
     padding: 12px 24px;

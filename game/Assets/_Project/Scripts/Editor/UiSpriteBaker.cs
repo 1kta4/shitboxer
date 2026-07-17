@@ -25,10 +25,10 @@ namespace Shitboxer.Editor
             //          name          top (lit)   bottom (shadow)
             VGradient("screen",     "#1a2130", "#0a0d14"); // the whole garage/end-screen backdrop (no bevel)
             Plate("rail-plate", "#242c3a", "#141a24");             // left rail (beveled 9-slice)
-            Plate("offer",      "#232b39", "#1a212c");             // shop offer row
-            Plate("offer-sel",  "#2f3d55", "#212a3a", glow: true); // selected offer — cobalt glow edge
-            Plate("button",     "#e8eff9", "#94a5bd");             // chrome buttons
-            Plate("cta",        "#4f8bff", "#0f2478", glow: true); // NEXT RACE / NEW RUN — cobalt glow
+            Plate("offer",      "#232b39", "#1a212c", cut: 14);             // shop offer row (diagonal notch)
+            Plate("offer-sel",  "#2f3d55", "#212a3a", glow: true, cut: 14); // selected offer — glow + notch
+            Plate("button",     "#e8eff9", "#94a5bd");                      // chrome buttons
+            Plate("cta",        "#4f8bff", "#0f2478", glow: true, cut: 14); // NEXT RACE / NEW RUN — glow + notch
             Plate("ghost",      "#2b3548", "#161d28");             // ghost buttons / owned rows / tag
             VGradient("fill",       "#8fc4ff", "#1b46b4"); // GRIP / POWER stat fill (bar, no bevel)
             VGradient("track",      "#1a2230", "#080c14"); // recessed stat track (no bevel)
@@ -84,14 +84,15 @@ namespace Shitboxer.Editor
         /// cobalt glow on the lit edge. USS 9-slices it (-unity-slice-*), so the 2px bevel stays crisp
         /// while the gradient centre stretches. Point-filtered so the bevel edge is a hard 1px line.
         /// </summary>
-        private static void Plate(string name, string topHex, string bottomHex, bool glow = false)
+        private static void Plate(string name, string topHex, string bottomHex, bool glow = false, int cut = 0)
         {
             ColorUtility.TryParseHtmlString(topHex, out Color top);
             ColorUtility.TryParseHtmlString(bottomHex, out Color bottom);
             Color lit = glow ? new Color(0.55f, 0.78f, 1f) : Color.white;
             float litAmount = glow ? 0.60f : 0.30f;
 
-            const int s = 32, bevel = 2;
+            int s = cut > 0 ? 40 : 32;
+            const int bevel = 2;
             var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
             for (int y = 0; y < s; y++)
                 for (int x = 0; x < s; x++)
@@ -101,6 +102,7 @@ namespace Shitboxer.Editor
                     bool onShadow = !onLit && (y < bevel || x >= s - bevel); // bottom or right edge
                     if (onLit) c = Color.Lerp(c, lit, litAmount);
                     else if (onShadow) c = Color.Lerp(c, Color.black, 0.42f);
+                    if (cut > 0 && x - y > s - cut) c.a = 0f; // diagonal notch on the bottom-right corner
                     tex.SetPixel(x, y, c);
                 }
             tex.Apply();
