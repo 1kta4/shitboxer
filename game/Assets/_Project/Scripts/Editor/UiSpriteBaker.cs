@@ -36,6 +36,7 @@ namespace Shitboxer.Editor
             // stat-preview ghost: the mock's repeating-linear-gradient diagonal stripes, baked + tiled.
             Stripes("ghost-stripe",      new Color(0.373f, 0.851f, 0.478f, 0.55f), new Color(0.373f, 0.851f, 0.478f, 0.20f));
             Stripes("ghost-stripe-loss", new Color(0.878f, 0.220f, 0.306f, 0.55f), new Color(0.878f, 0.220f, 0.306f, 0.20f));
+            Scanlines(); // CRT overlay for the garage / end screens
 
             AssetDatabase.Refresh();
 
@@ -140,6 +141,32 @@ namespace Shitboxer.Editor
             imp.filterMode = FilterMode.Point;      // crisp stripe edges
             imp.textureCompression = TextureImporterCompression.Uncompressed;
             imp.wrapMode = TextureWrapMode.Repeat;  // tiled by background-repeat
+            imp.alphaIsTransparency = true;
+            imp.mipmapEnabled = false;
+            imp.SaveAndReimport();
+        }
+
+        /// <summary>A tileable CRT scanline overlay — a 1px dark line every 4px. Kept faint by the
+        /// overlay's USS opacity; only the menu screens use it (never over the live race).</summary>
+        private static void Scanlines()
+        {
+            const int w = 4, h = 4;
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    tex.SetPixel(x, y, y % 4 == 0 ? Color.black : new Color(0f, 0f, 0f, 0f));
+            tex.Apply();
+
+            string path = $"{Dir}/scanlines.png";
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path);
+
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+            imp.textureType = TextureImporterType.Default;
+            imp.filterMode = FilterMode.Point;
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.wrapMode = TextureWrapMode.Repeat;
             imp.alphaIsTransparency = true;
             imp.mipmapEnabled = false;
             imp.SaveAndReimport();

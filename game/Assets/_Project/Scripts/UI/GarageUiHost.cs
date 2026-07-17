@@ -81,6 +81,12 @@ namespace Shitboxer.UI
             root.style.display = DisplayStyle.Flex;
             view.style.flexGrow = 1;
             root.Add(view);
+
+            // faint CRT scanline overlay on top of the menu content (garage / end screen)
+            var scanlines = new VisualElement();
+            scanlines.AddToClassList("sb-scanlines");
+            scanlines.pickingMode = PickingMode.Ignore;
+            root.Add(scanlines);
         }
     }
 }

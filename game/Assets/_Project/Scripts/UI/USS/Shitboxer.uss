@@ -20,3 +20,15 @@
     font-size: var(--size-body);
     white-space: nowrap;
 }
+
+/* CRT scanline overlay, mounted over the garage / end screens (never the race) */
+.sb-scanlines {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/scanlines.png");
+    background-repeat: repeat;
+    opacity: 0.28;
+}
