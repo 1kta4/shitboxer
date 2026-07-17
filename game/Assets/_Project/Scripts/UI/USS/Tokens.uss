@@ -1,0 +1,57 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   SHITBOXER UI — design tokens (Y2K arcade service menu)
+   Harvested from the y2k-arcade-ui-prototype. Imported first by every screen.
+
+   USS is NOT CSS. Constraints that shaped this file:
+     - var() cannot nest inside another function.  rgb(var(--r),0,0) is INVALID.
+     - No math on variables. No calc().
+     - No ::before / ::after, no clip-path, no mix-blend-mode.
+   So every token below is a whole, final value. Nothing is composed.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+    /* ── Palette ──────────────────────────────────────────────────────────
+       Monochrome cold steel, punctuated twice: cobalt (system) and blood
+       (fault). Only two saturated colours exist in the whole UI. If a third
+       ever appears, the accent has stopped meaning anything. */
+
+    --cab-blue:    #0000A8;  /* service-menu header. CPS-2 / NAOMI cobalt.   */
+    --cab-blue-hi: #2A2AE0;  /* header bevel, lit edge                       */
+    --cab-blue-lo: #000060;  /* header bevel, shadow edge                    */
+
+    --steel:       #A8AEB4;  /* window body. Neo Geo MVS silver-grey.        */
+    --steel-hi:    #D6DADE;  /* bevel: top + left  (light from upper-left)   */
+    --steel-lo:    #585E62;  /* bevel: bottom + right                        */
+    --steel-sunk:  #8E9498;  /* recessed wells (readout strip)               */
+
+    --ink:         #0B0D0F;  /* near-black. Body text on steel.              */
+    --ink-soft:    #3A4044;  /* de-emphasised / disabled text                */
+    --bone:        #E6EAED;  /* stark white. Text on cobalt.                 */
+
+    --blood:       #B00010;  /* deep blood-red. FAULT only. Never decorative.*/
+    --void:        #04060A;  /* deep black. Behind everything.               */
+
+    /* ── Type ─────────────────────────────────────────────────────────────
+       Silkscreen for the body/data, Press Start 2P for the titlebar only.
+       Both OFL (licences ship beside the .ttf in Fonts/). var() cannot nest
+       in url(), so a font swap is a literal edit here, not a token indirection
+       — that is a USS limitation, not an oversight. */
+    --font-sys:     url("project:///Assets/_Project/Scripts/UI/Fonts/Silkscreen-Regular.ttf");
+    --font-display: url("project:///Assets/_Project/Scripts/UI/Fonts/PressStart2P-Regular.ttf");
+
+    /* Type scale. Pixel fonts must land on integer sizes or they shimmer.
+       These are multiples of 8 and 6 — do not introduce a 13px. */
+    --size-header:  16px;
+    --size-body:    12px;
+    --size-data:    12px;
+    --size-fine:     8px;
+
+    /* ── Geometry ─────────────────────────────────────────────────────────
+       Everything is on an 8px grid. The bevel is 2px, always, everywhere —
+       that single unchanging bevel is what reads as "1998 system utility"
+       faster than any colour choice. */
+    --bevel:        2px;
+    --grid:         8px;
+    --grid-2:      16px;
+    --grid-3:      24px;
+}

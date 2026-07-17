@@ -1,0 +1,137 @@
+/* Garage layout + the atoms it uses (stat bar, readout row, offer row).
+   Requires Tokens.uss + Shitboxer.uss first. No rounded corners; 8px grid. */
+
+.garage {
+    align-items: center;
+    justify-content: flex-start;
+    padding: var(--grid-2);
+}
+
+.garage__panel {
+    width: 520px;
+    max-width: 96%;
+}
+
+.garage__circuit {
+    color: var(--bone);
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-body);
+}
+
+.garage__status {
+    margin-top: var(--grid);
+    margin-bottom: var(--grid);
+}
+
+.garage__next {
+    margin-top: 4px;
+    -unity-font-style: bold;
+}
+
+.garage__stats {
+    margin-bottom: var(--grid);
+}
+
+.garage__section {
+    color: var(--ink-soft);
+    margin-top: var(--grid);
+    margin-bottom: 4px;
+    letter-spacing: 2px;
+}
+
+.garage__footer {
+    margin-top: var(--grid-2);
+    align-items: stretch;
+}
+
+.garage__next-race {
+    height: 36px;
+    -unity-font-style: bold;
+}
+
+/* ── Stat bar: [ NAME | track(fill) | VALUE ] ─────────────────────────────── */
+.stat-bar {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.stat-bar__name {
+    width: 64px;
+}
+
+.stat-bar__track {
+    flex-grow: 1;
+    height: 14px;
+    padding: 0;
+    overflow: hidden;
+}
+
+.stat-bar__fill {
+    height: 100%;
+    background-color: var(--cab-blue);
+}
+
+.stat-bar__value {
+    width: 32px;
+    -unity-text-align: middle-right;
+}
+
+/* ── Readout row: LABEL ......... VALUE ───────────────────────────────────── */
+.readout-row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.readout-row__leader {
+    flex-grow: 1;
+    overflow: hidden;
+    color: var(--ink-soft);
+    margin-left: 6px;
+    margin-right: 6px;
+}
+
+.readout-row__value {
+    -unity-text-align: middle-right;
+    -unity-font-style: bold;
+}
+
+/* ── Offer / upgrade row: [ info | action ] ───────────────────────────────── */
+.offer {
+    flex-direction: row;
+    align-items: stretch;
+    background-color: var(--steel-sunk);
+    border-top-width: var(--bevel);
+    border-left-width: var(--bevel);
+    border-right-width: var(--bevel);
+    border-bottom-width: var(--bevel);
+    border-top-color: var(--steel-lo);
+    border-left-color: var(--steel-lo);
+    border-right-color: var(--steel-hi);
+    border-bottom-color: var(--steel-hi);
+    padding: 4px;
+    margin-bottom: 4px;
+}
+
+.offer__info {
+    flex-grow: 1;
+}
+
+.offer__desc {
+    color: var(--ink-soft);
+    white-space: normal;
+}
+
+.offer__delta {
+    font-size: var(--size-fine);
+}
+
+.offer__action {
+    width: 72px;
+    -unity-text-align: middle-center;
+}
+
+/* ── Owned part row ───────────────────────────────────────────────────────── */
+.owned__spacer {
+    flex-grow: 1;
+}
