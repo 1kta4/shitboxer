@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Shitboxer.Race;
 using Shitboxer.Vehicle;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
 namespace Shitboxer.Meta
@@ -154,6 +155,11 @@ namespace Shitboxer.Meta
         private VehicleController _playerCar;
         private GarageScreen _garage;
         private bool _raceResolved;
+
+        // Dev pause menu (ESC): a throwaway harness affordance to bail on a season and start a fresh run
+        // mid-test without racing it out. Replaced, not ported, when the UI Toolkit pause menu lands.
+        private bool _devMenuOpen;
+        private float _preMenuTimeScale = 1f;
 
         /// <summary>Editor wiring (MetaAssetsBuilder) — sets serialized fields only.</summary>
         public void Configure(PartPool pool) => partPool = pool;
@@ -614,9 +620,54 @@ namespace Shitboxer.Meta
 
         private void Update()
         {
+            if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+                ToggleDevMenu();
+
             if (Phase != RunPhase.Racing || _raceResolved) return;
             if (_raceManager == null || !_raceManager.RaceComplete) return;
             ResolveRace();
+        }
+
+        /// <summary>ESC toggles a minimal dev pause overlay. Freezes time while open, remembering the
+        /// pre-pause scale so resuming in the already-paused garage (timeScale 0) doesn't unfreeze it.</summary>
+        private void ToggleDevMenu()
+        {
+            _devMenuOpen = !_devMenuOpen;
+            if (_devMenuOpen)
+            {
+                _preMenuTimeScale = Time.timeScale;
+                Time.timeScale = 0f;
+            }
+            else
+            {
+                Time.timeScale = _preMenuTimeScale;
+            }
+        }
+
+        // Throwaway IMGUI, like the rest of the dev harness (GarageScreen/RaceHud) — replaced, not ported,
+        // when the UI Toolkit pause menu arrives. Draws only while open, on top of whatever HUD is up.
+        private void OnGUI()
+        {
+            if (!_devMenuOpen) return;
+
+            GUI.depth = -1000; // topmost: draw over the HUD and take clicks first
+            GUI.color = new Color(0f, 0f, 0f, 0.6f);
+            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+
+            const float w = 240f, h = 132f;
+            var panel = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
+            GUI.Box(panel, "PAUSED");
+
+            GUILayout.BeginArea(new Rect(panel.x + 16f, panel.y + 34f, w - 32f, h - 48f));
+            if (GUILayout.Button("RESUME", GUILayout.Height(34f)))
+                ToggleDevMenu();
+            if (GUILayout.Button("NEW RUN", GUILayout.Height(34f)))
+            {
+                _devMenuOpen = false;
+                StartNewRun(); // fresh seed at the same stake; saves + reloads to racing (restores timeScale)
+            }
+            GUILayout.EndArea();
         }
 
         /// <summary>Payout + survival/boss verdict once every car has finished or been eliminated.</summary>

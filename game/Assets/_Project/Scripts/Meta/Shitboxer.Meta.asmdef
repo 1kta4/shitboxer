@@ -3,7 +3,8 @@
     "rootNamespace": "Shitboxer.Meta",
     "references": [
         "Shitboxer.Vehicle",
-        "Shitboxer.Race"
+        "Shitboxer.Race",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
