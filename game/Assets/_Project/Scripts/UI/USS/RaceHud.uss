@@ -1,0 +1,73 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   IN-RACE HUD (v3) — Gran-Turismo-style corner layout over a TRANSPARENT
+   overlay. No plate to block the drive. The HUD deliberately does NOT use the
+   pixel font: over a busy race it's unreadable, so this uses the panel's smooth
+   default face in BOLD, larger, with a dark outline. (The garage keeps pixel.)
+   Requires Tokens.uss (vars).
+   ───────────────────────────────────────────────────────────────────────── */
+
+.hud-screen { flex-grow: 1; }
+
+/* smooth + BOLD + dark outline so it reads large and clean over the race */
+.hud-cap, .hud-line, .hud-verdict, .hud-pos, .hud-lap,
+.hud-curtime, .hud-delta, .hud-time, .hud-dura__name, .hud-dura__val {
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 0.9);
+}
+
+.hud-cap { font-size: 11px; color: var(--ink-dim); letter-spacing: 1px; }
+
+/* ── corners ────────────────────────────────────────────────────────────── */
+.hud-tl { position: absolute; top: 16px; left: 16px; }
+.hud-tc { position: absolute; top: 16px; left: 0; right: 0; align-items: center; }
+.hud-tr { position: absolute; top: 16px; right: 16px; align-items: flex-end; }
+.hud-bl { position: absolute; bottom: 16px; left: 16px; }
+.hud-br { position: absolute; bottom: 16px; right: 16px; align-items: flex-end; }
+
+/* ── top-left: position (big, subtle box) + lap ─────────────────────────── */
+.hud-posbox {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(6, 9, 14, 0.5);
+    padding: 3px 10px 4px;
+    margin-bottom: 5px;
+}
+.hud-posbox .hud-cap { margin-right: 8px; }
+.hud-pos { font-size: 32px; color: #ffffff; }
+.hud-lapbox { flex-direction: row; align-items: center; }
+.hud-lapbox .hud-cap { margin-right: 8px; }
+.hud-lap { font-size: 21px; color: var(--ink); }
+
+/* ── top-centre: current lap time + gap ─────────────────────────────────── */
+.hud-curtime { font-size: 27px; color: #ffffff; }
+.hud-delta { font-size: 14px; color: var(--ink-dim); margin-top: 2px; }
+.hud-delta.green { color: var(--green); }
+.hud-delta.amber { color: var(--amber); }
+
+/* ── top-right: best / last lap ─────────────────────────────────────────── */
+.hud-tr-item { align-items: flex-end; margin-bottom: 6px; }
+.hud-time { font-size: 18px; color: var(--ink); margin-top: 1px; }
+
+/* ── bottom lines (cutoff, payout, cues, status) ────────────────────────── */
+.hud-line { font-size: 14px; color: var(--ink); margin-bottom: 3px; white-space: nowrap; }
+.hud-line.dim { color: var(--ink-dim); }
+.hud-line.amber { color: var(--amber); }
+.hud-line.green { color: var(--green); }
+.hud-line.red { color: var(--red); }
+.hud-verdict { font-size: 15px; color: var(--blue-lt); margin-bottom: 3px; }
+.hud-verdict.bad { color: var(--red); }
+
+/* ── durability bar (bottom-right) ──────────────────────────────────────── */
+.hud-dura { flex-direction: row; align-items: center; margin-top: 3px; }
+.hud-dura__name { font-size: 11px; color: #9fb0c8; margin-right: 6px; }
+.hud-dura__track {
+    width: 100px;
+    height: 9px;
+    background-color: rgba(11, 16, 26, 0.7);
+    border-width: 1px;
+    border-color: #313c4e;
+    overflow: hidden;
+}
+.hud-dura__fill { height: 100%; background-color: var(--green); }
+.hud-dura__val { font-size: 11px; color: #eef3fb; margin-left: 6px; }

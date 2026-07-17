@@ -30,11 +30,8 @@ namespace Shitboxer.Meta
 
             switch (director.Phase)
             {
-                case RunPhase.Racing:
-                    DrawRacingStatus();
-                    break;
-                // Garage is now the UI Toolkit GarageUiHost (GarageView). IMGUI keeps only the in-race
-                // status box and the end-of-run screens until those move to UI Toolkit too.
+                // The in-race status box (right) + the garage are now UI Toolkit (RaceHudView / GarageView).
+                // IMGUI keeps only the end-of-run screens until those move to UI Toolkit too.
                 case RunPhase.RunOver:
                     DrawEndScreen("RUN OVER — out of lives.");
                     break;

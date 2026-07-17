@@ -635,10 +635,11 @@ namespace Shitboxer.Editor
             // UI Toolkit garage overlay on the RunRig (persists via DontDestroyOnLoad, so it survives the
             // race-scene rotation). Shows during the Garage phase; replaces the IMGUI garage draw.
             AttachGarageUi(rig);
+            AttachRaceHud();   // in-race HUD overlay on the RaceRig (UI Toolkit RaceHudView)
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
-            RepairGaragePanelRef(scenePath); // the UIDocument's panel ref doesn't survive SaveScene — patch it.
+            RepairUiPanelRefs(scenePath); // UIDocument panel refs (garage + HUD) don't survive SaveScene — patch them.
             Debug.Log($"[Shitboxer] Run mode added to {System.IO.Path.GetFileName(scenePath)}.");
         }
 
@@ -682,8 +683,43 @@ namespace Shitboxer.Editor
             hostSo.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        /// <summary>Patches the UIDocument's null PanelSettings ref in the saved scene (see AttachGarageUi).</summary>
-        private static void RepairGaragePanelRef(string scenePath)
+        /// <summary>
+        /// Adds the in-race HUD overlay (UIDocument + RaceHudHost) to the RaceRig and wires its panel +
+        /// stylesheets. Like the garage, the panel ref is repaired in the saved scene afterwards.
+        /// </summary>
+        private static void AttachRaceHud()
+        {
+            var raceRig = GameObject.Find("RaceRig");
+            if (raceRig == null) return; // a bare run-mode scene with no race — nothing to overlay
+
+            const string uiDir = "Assets/_Project/Scripts/UI";
+            var panel = AssetDatabase.LoadAssetAtPath<PanelSettings>(uiDir + "/ShitboxerPanel.asset");
+            if (panel == null) return; // AttachGarageUi already warned about the missing panel
+
+            var doc = raceRig.GetComponent<UIDocument>();
+            if (!doc) doc = raceRig.AddComponent<UIDocument>();
+            var docSo = new SerializedObject(doc);
+            docSo.FindProperty("m_PanelSettings").objectReferenceValue = panel;
+            docSo.ApplyModifiedPropertiesWithoutUndo();
+
+            var host = raceRig.GetComponent<RaceHudHost>();
+            if (!host) host = raceRig.AddComponent<RaceHudHost>();
+            var sheets = new[]
+            {
+                AssetDatabase.LoadAssetAtPath<StyleSheet>(uiDir + "/USS/Tokens.uss"),
+                AssetDatabase.LoadAssetAtPath<StyleSheet>(uiDir + "/USS/Garage.uss"),   // the .stat-bar atom
+                AssetDatabase.LoadAssetAtPath<StyleSheet>(uiDir + "/USS/RaceHud.uss"),
+            };
+            var hostSo = new SerializedObject(host);
+            SerializedProperty arr = hostSo.FindProperty("styleSheets");
+            arr.arraySize = sheets.Length;
+            for (int i = 0; i < sheets.Length; i++)
+                arr.GetArrayElementAtIndex(i).objectReferenceValue = sheets[i];
+            hostSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>Patches every null UIDocument PanelSettings ref (garage + HUD) in the saved scene.</summary>
+        private static void RepairUiPanelRefs(string scenePath)
         {
             string guid = AssetDatabase.AssetPathToGUID("Assets/_Project/Scripts/UI/ShitboxerPanel.asset");
             if (string.IsNullOrEmpty(guid)) return;

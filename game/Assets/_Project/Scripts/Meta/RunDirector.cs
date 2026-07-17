@@ -650,19 +650,33 @@ namespace Shitboxer.Meta
         {
             if (!_devMenuOpen) return;
 
-            GUI.depth = -1000; // topmost: draw over the HUD and take clicks first
-            GUI.color = new Color(0f, 0f, 0f, 0.6f);
+            GUI.depth = -1000; // topmost: over the HUD, takes clicks first
+
+            // Dim the scene, then a navy plate + cobalt top accent — the v3 palette, faked in IMGUI.
+            GUI.color = new Color(0.02f, 0.03f, 0.05f, 0.72f);
             GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+
+            const float w = 240f, h = 138f;
+            var panel = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
+            GUI.color = new Color(0.11f, 0.137f, 0.188f, 0.98f);
+            GUI.DrawTexture(panel, Texture2D.whiteTexture);
+            GUI.color = new Color(0.31f, 0.545f, 1f);
+            GUI.DrawTexture(new Rect(panel.x, panel.y, panel.width, 2f), Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            const float w = 240f, h = 132f;
-            var panel = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
-            GUI.Box(panel, "PAUSED");
+            var title = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+                fontSize = 15,
+            };
+            title.normal.textColor = new Color(0.56f, 0.77f, 1f);
+            GUI.Label(new Rect(panel.x, panel.y + 10f, panel.width, 24f), "PAUSED", title);
 
-            GUILayout.BeginArea(new Rect(panel.x + 16f, panel.y + 34f, w - 32f, h - 48f));
-            if (GUILayout.Button("RESUME", GUILayout.Height(34f)))
+            GUILayout.BeginArea(new Rect(panel.x + 20f, panel.y + 42f, w - 40f, h - 54f));
+            if (GUILayout.Button("RESUME", GUILayout.Height(32f)))
                 ToggleDevMenu();
-            if (GUILayout.Button("NEW RUN", GUILayout.Height(34f)))
+            if (GUILayout.Button("NEW RUN", GUILayout.Height(32f)))
             {
                 _devMenuOpen = false;
                 StartNewRun(); // fresh seed at the same stake; saves + reloads to racing (restores timeScale)

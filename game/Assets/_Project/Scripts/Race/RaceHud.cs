@@ -58,68 +58,13 @@ namespace Shitboxer.Race
         private void OnGUI()
         {
             if (!raceManager || !playerCar) return;
-            RaceCarStatus me = raceManager.GetStatus(playerCar);
-            if (me == null) return;
 
+            // The readout box moved to the UI Toolkit HUD (RaceHudView / RaceHudHost). IMGUI keeps only the
+            // full-screen 3-2-1 countdown and the on-hit CRUNCH flash for now (both drawn full-screen, hard
+            // to reproduce in USS). The Draw* readout helpers below are now dead but harmless — this class
+            // is throwaway and goes away once the countdown/flash move to UI Toolkit too.
             DrawCountdown();
-            DrawImpactFlash();   // brief full-frame CRUNCH cue on a hard hit — drawn behind the box
-
-            // Height tracks the standings list so the box always fits its content (no clipping).
-            // Base bumped for the always-on durability bar + the permanent CUR pace line and the
-            // transient SLIPSTREAM cue so none of them can push the standings out of the clipped area.
-            // Wave-16 adds two more always-on-while-racing lines (the cutoff/pace projection and the
-            // payout preview), so the base grows by another 36f to keep the standings inside the area.
-            int rows = raceManager.Leaderboard.Count;
-            float areaHeight = 328f + rows * 18f;
-            GUILayout.BeginArea(new Rect(12, 12, 280, areaHeight), GUI.skin.box);
-
-            // ---- RACE ----------------------------------------------------------------
-            GUILayout.Label($"POS {me.Position}/{raceManager.Cars.Count}     LAP {me.Lap}/{raceManager.TotalLaps}");
-            GUILayout.Label($"TIME {RaceDisplay.FormatRaceClock(Mathf.Max(0f, raceManager.RaceTimeS))}");
-            // Lap timing (wave-12): RaceDisplay.FormatRaceClock renders "-:--.-" for the sentinel -1, so both read as
-            // placeholders until the player completes their first lap. Additive readout only.
-            GUILayout.Label($"LAST {RaceDisplay.FormatRaceClock(me.LastLapTimeS)}    BEST {RaceDisplay.FormatRaceClock(me.BestLapTimeS)}");
-            DrawLapPace(me);
-
-            DrawCutoff(me);
-            DrawPayoutPreview(me);
-
-            switch (me.State)
-            {
-                case CarRaceState.Finished:
-                    GUILayout.Label(me.Position == 1
-                        ? $"WINNER — {RaceDisplay.FormatRaceClock(me.FinishTimeS)}"
-                        : $"FINISHED P{me.Position} — PASS ({RaceDisplay.FormatRaceClock(me.FinishTimeS)})");
-                    break;
-                case CarRaceState.Eliminated:
-                    GUILayout.Label(me.FinishTimeS >= 0f
-                        ? "FINISHED OUTSIDE CUTOFF — ELIMINATED"
-                        : $"ELIMINATED — missed the {raceManager.CutoffFraction:P0} cutoff");
-                    break;
-            }
-
-            // ---- CAR -----------------------------------------------------------------
-            DrawSeparator();
-            DrawSpecBars();
-            DrawDurabilityBar();
-            DrawDraftStatus(me);
-            DrawCombatStatus(me);
-
-            // ---- STANDINGS -----------------------------------------------------------
-            DrawSeparator();
-            foreach (RaceCarStatus s in raceManager.Leaderboard)
-            {
-                string state = s.State switch
-                {
-                    CarRaceState.Finished => $"FIN {RaceDisplay.FormatRaceClock(s.FinishTimeS)}",
-                    CarRaceState.Eliminated => "ELIM",
-                    _ => $"L{s.Lap}",
-                };
-                string marker = s.Car == playerCar ? "  <<" : "";
-                GUILayout.Label($"{s.Position}. {(s.Car ? s.Car.name : "?")}  [{state}]{marker}");
-            }
-
-            GUILayout.EndArea();
+            DrawImpactFlash();
         }
 
         /// <summary>
