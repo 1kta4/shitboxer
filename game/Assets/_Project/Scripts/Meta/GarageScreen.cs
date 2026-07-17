@@ -370,6 +370,15 @@ namespace Shitboxer.Meta
             if (!string.IsNullOrEmpty(director.LastRaceSummary))
                 GUILayout.Label(director.LastRaceSummary);
 
+            // Band-aid (throwaway IMGUI): NEW RUN lives at the TOP so it is always on-screen. This
+            // BeginArea is a FIXED height and does not scroll its body, so on a short window the
+            // records + owned-parts pushed the button below the panel edge and it became unclickable
+            // (a run couldn't be restarted from the end screen). Not worth a real layout fix — this
+            // whole screen is replaced in the UI Toolkit rebuild. Do not invest further here.
+            GUILayout.Space(4);
+            if (GUILayout.Button("NEW RUN", GUILayout.Height(32)))
+                director.StartNewRun();
+
             GUILayout.Space(6);
             GUILayout.Label("== RUN SUMMARY ==");
             GUILayout.Label($"Circuits cleared: {run.CircuitIndex}/{run.TotalCircuits}");
@@ -388,10 +397,6 @@ namespace Shitboxer.Meta
             else
                 DrawOwnedPartsGrouped(run);
             GUILayout.EndScrollView();
-
-            GUILayout.Space(8);
-            if (GUILayout.Button("NEW RUN", GUILayout.Height(32)))
-                director.StartNewRun();
 
             GUILayout.EndArea();
         }
