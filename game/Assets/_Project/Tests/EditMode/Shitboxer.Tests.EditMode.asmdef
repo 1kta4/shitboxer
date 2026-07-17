@@ -6,7 +6,8 @@
         "UnityEditor.TestRunner",
         "Shitboxer.Vehicle",
         "Shitboxer.Race",
-        "Shitboxer.Meta"
+        "Shitboxer.Meta",
+        "Shitboxer.UI.Model"
     ],
     "includePlatforms": [
         "Editor"
