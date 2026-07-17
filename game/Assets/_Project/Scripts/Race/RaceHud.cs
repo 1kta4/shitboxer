@@ -75,10 +75,10 @@ namespace Shitboxer.Race
 
             // ---- RACE ----------------------------------------------------------------
             GUILayout.Label($"POS {me.Position}/{raceManager.Cars.Count}     LAP {me.Lap}/{raceManager.TotalLaps}");
-            GUILayout.Label($"TIME {FormatTime(Mathf.Max(0f, raceManager.RaceTimeS))}");
-            // Lap timing (wave-12): FormatTime renders "-:--.-" for the sentinel -1, so both read as
+            GUILayout.Label($"TIME {RaceDisplay.FormatRaceClock(Mathf.Max(0f, raceManager.RaceTimeS))}");
+            // Lap timing (wave-12): RaceDisplay.FormatRaceClock renders "-:--.-" for the sentinel -1, so both read as
             // placeholders until the player completes their first lap. Additive readout only.
-            GUILayout.Label($"LAST {FormatTime(me.LastLapTimeS)}    BEST {FormatTime(me.BestLapTimeS)}");
+            GUILayout.Label($"LAST {RaceDisplay.FormatRaceClock(me.LastLapTimeS)}    BEST {RaceDisplay.FormatRaceClock(me.BestLapTimeS)}");
             DrawLapPace(me);
 
             DrawCutoff(me);
@@ -88,8 +88,8 @@ namespace Shitboxer.Race
             {
                 case CarRaceState.Finished:
                     GUILayout.Label(me.Position == 1
-                        ? $"WINNER — {FormatTime(me.FinishTimeS)}"
-                        : $"FINISHED P{me.Position} — PASS ({FormatTime(me.FinishTimeS)})");
+                        ? $"WINNER — {RaceDisplay.FormatRaceClock(me.FinishTimeS)}"
+                        : $"FINISHED P{me.Position} — PASS ({RaceDisplay.FormatRaceClock(me.FinishTimeS)})");
                     break;
                 case CarRaceState.Eliminated:
                     GUILayout.Label(me.FinishTimeS >= 0f
@@ -111,7 +111,7 @@ namespace Shitboxer.Race
             {
                 string state = s.State switch
                 {
-                    CarRaceState.Finished => $"FIN {FormatTime(s.FinishTimeS)}",
+                    CarRaceState.Finished => $"FIN {RaceDisplay.FormatRaceClock(s.FinishTimeS)}",
                     CarRaceState.Eliminated => "ELIM",
                     _ => $"L{s.Lap}",
                 };
@@ -208,7 +208,7 @@ namespace Shitboxer.Race
         /// next to the player's BEST, plus a signed delta once a best exists. The delta is this lap's elapsed
         /// minus the best lap's total: it counts up from a large negative toward 0 as the lap runs, then goes
         /// positive (and tints warm) the instant this lap overruns the best — i.e. it is guaranteed slower.
-        /// FormatTime renders the -1 "no lap yet" sentinel as a placeholder, so BEST reads "-:--.-" until the
+        /// RaceDisplay.FormatRaceClock renders the -1 "no lap yet" sentinel as a placeholder, so BEST reads "-:--.-" until the
         /// first lap validates and the delta is simply omitted. Additive readout — no effect on the race.
         /// </summary>
         private void DrawLapPace(RaceCarStatus me)
@@ -217,9 +217,9 @@ namespace Shitboxer.Race
             float best = me.BestLapTimeS;
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"CUR {FormatTime(current)}    BEST {FormatTime(best)}");
+            GUILayout.Label($"CUR {RaceDisplay.FormatRaceClock(current)}    BEST {RaceDisplay.FormatRaceClock(best)}");
 
-            string delta = FormatPaceDelta(current, best);
+            string delta = RaceDisplay.FormatPaceDelta(current, best);
             if (delta.Length > 0)
             {
                 Color prev = GUI.color;
@@ -230,20 +230,6 @@ namespace Shitboxer.Race
                 GUI.color = prev;
             }
             GUILayout.EndHorizontal();
-        }
-
-        /// <summary>
-        /// Pure pace-delta text for the current lap: the signed seconds of the in-progress lap's elapsed
-        /// time (<paramref name="currentLapS"/>) minus the player's best lap (<paramref name="bestLapS"/>),
-        /// e.g. "+1.2" or "-0.8". Returns an empty string when there is no best yet (sentinel &lt; 0) or the
-        /// current time is not valid, so callers show nothing until a comparison is meaningful. No engine,
-        /// scene or clock state, so it is unit-testable and a headless readout would format it identically.
-        /// </summary>
-        public static string FormatPaceDelta(float currentLapS, float bestLapS)
-        {
-            if (bestLapS < 0f || currentLapS < 0f) return string.Empty;
-            float delta = currentLapS - bestLapS;
-            return delta.ToString("+0.0;-0.0");
         }
 
         /// <summary>
@@ -270,44 +256,11 @@ namespace Shitboxer.Race
             if (board == null || board.Count == 0) return;
 
             // Pre-winner the board is sorted by distance, so entry 0 is whoever is leading on the road.
-            float excess = ProjectedPaceExcess01(
+            float excess = RaceDisplay.ProjectedPaceExcess01(
                 board[0].TotalDistanceM, me.TotalDistanceM, raceManager.TrackLengthM * PaceEstimateMinLaps);
 
-            string text = FormatCutoffPace(excess, raceManager.CutoffFraction);
+            string text = RaceDisplay.FormatCutoffPace(excess, raceManager.CutoffFraction);
             if (text.Length > 0) GUILayout.Label(text);
-        }
-
-        /// <summary>
-        /// How far the player is projected to finish BEHIND the winner, as a fraction of the winner's time
-        /// (0.08 = projected to finish 8% slower — inside a 15% cutoff). -1 means "not meaningful yet, omit".
-        ///
-        /// Why this needs no clock: project each car's finish by holding its average pace, and both
-        /// projections extrapolate the SAME elapsed time over the SAME loop length. The finish-time ratio is
-        /// (T·D/playerDist) / (T·D/leaderDist) — T and D cancel exactly, leaving leaderDist/playerDist. So a
-        /// pure distance ratio IS the projected time ratio, with no clock term to get wrong.
-        ///
-        /// Gated on <paramref name="minDistanceM"/> because the ~27 m grid spread is a fixed handicap in
-        /// TotalDistanceM: over the opening metres it swamps genuine pace and would scream AT RISK at a car
-        /// that is merely starting at the back. Returns 0 when the player IS the leader (identical distances).
-        /// Pure — no engine, scene or clock state — so it is unit-testable and a headless readout matches.
-        /// </summary>
-        public static float ProjectedPaceExcess01(float leaderDistanceM, float playerDistanceM, float minDistanceM)
-        {
-            if (minDistanceM < 1f) minDistanceM = 1f;
-            if (playerDistanceM < minDistanceM || leaderDistanceM < minDistanceM) return -1f;
-            return (leaderDistanceM / playerDistanceM) - 1f;
-        }
-
-        /// <summary>
-        /// Renders the projected cutoff standing: the player's projected deficit against the gate they must
-        /// stay inside, plus a blunt SAFE / AT RISK verdict. Empty string for the -1 "not yet meaningful"
-        /// sentinel so the caller draws nothing. Pure and unit-testable.
-        /// </summary>
-        public static string FormatCutoffPace(float paceExcess01, float cutoffFraction)
-        {
-            if (paceExcess01 < 0f) return string.Empty;
-            string verdict = paceExcess01 <= cutoffFraction ? "SAFE" : "AT RISK";
-            return $"PACE +{paceExcess01 * 100f:0}%  /  CUT +{cutoffFraction * 100f:0}%   {verdict}";
         }
 
         /// <summary>
@@ -320,20 +273,7 @@ namespace Shitboxer.Race
         private void DrawPayoutPreview(RaceCarStatus me)
         {
             if (_payoutPreview == null || me.State != CarRaceState.Racing) return;
-            GUILayout.Label(FormatPayoutPreview(me.Position, _payoutPreview(me.Position), _payoutPreview(1)));
-        }
-
-        /// <summary>
-        /// Payout preview text: what the current position banks, and — the point of the whole line — what
-        /// winning would pay instead, so the inversion is legible at a glance ("BANKING $10 at P6 (WIN PAYS
-        /// $7)"). Leading, the comparison is redundant, so it collapses to the plain figure. Pure and
-        /// unit-testable; takes the already-resolved figures rather than computing them, since Race cannot
-        /// reach the payout table (see <see cref="SetPayoutPreview"/>).
-        /// </summary>
-        public static string FormatPayoutPreview(int position, int payoutHere, int payoutIfWon)
-        {
-            if (position <= 1) return $"BANKING ${payoutHere} — LEADING";
-            return $"BANKING ${payoutHere} at P{position}   (WIN PAYS ${payoutIfWon})";
+            GUILayout.Label(RaceDisplay.FormatPayoutPreview(me.Position, _payoutPreview(me.Position), _payoutPreview(1)));
         }
 
         private static void DrawStatBar(string label, float value, Color fill)
@@ -472,11 +412,5 @@ namespace Shitboxer.Race
             GUI.Label(new Rect(0, Screen.height * 0.25f, Screen.width, 90), text, style);
         }
 
-        private static string FormatTime(float seconds)
-        {
-            if (seconds < 0f) return "-:--.-";
-            int minutes = (int)(seconds / 60f);
-            return $"{minutes}:{seconds - minutes * 60f:00.0}";
-        }
     }
 }

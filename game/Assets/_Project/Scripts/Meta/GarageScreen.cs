@@ -383,7 +383,7 @@ namespace Shitboxer.Meta
                 {
                     if (!part || part.Category != category) continue;
                     string tag = run.IsEquipped(part) ? "  — EQUIPPED" : "";
-                    string edition = EditionTag(part.Edition);
+                    string edition = PartDisplay.EditionTag(part.Edition);
                     string editionSuffix = edition.Length > 0 ? "  " + edition : "";
                     GUILayout.Label($"    {part.DisplayName}{editionSuffix}{tag}");
                 }
@@ -398,40 +398,6 @@ namespace Shitboxer.Meta
 
         /// <summary>How many best-lap records / recent runs the end screen lists at most.</summary>
         private const int MaxRecordsShown = 5;
-
-        /// <summary>
-        /// Short bracketed edition tag with its stat-effect magnitude, e.g. "[FOIL x1.25]". Returns ""
-        /// for <see cref="PartEdition.None"/> so an un-editioned part shows nothing extra and looks
-        /// exactly as it does today. The magnitude is <see cref="PartEditionInfo.StatMult"/> — the same
-        /// factor SpecModApplier scales the part's effect by. Pure/static, so it is unit-testable.
-        /// </summary>
-        public static string EditionTag(PartEdition edition)
-        {
-            if (edition == PartEdition.None) return "";
-            return $"[{edition.ToString().ToUpperInvariant()} x{PartEditionInfo.StatMult(edition):0.##}]";
-        }
-
-        /// <summary>
-        /// Formats a lap time in seconds as "M:SS.mm", or "--" for a non-positive / missing time
-        /// (<see cref="MetaProgress.NoLapRecord"/> is 0). Mirrors RaceHud's mm:ss readout style.
-        /// Pure/static — unit-testable without a scene.
-        /// </summary>
-        public static string FormatLapTime(float seconds)
-        {
-            if (seconds <= 0f) return "--";
-            int minutes = (int)(seconds / 60f);
-            return $"{minutes}:{seconds - minutes * 60f:00.00}";
-        }
-
-        /// <summary>
-        /// One compact line summarising a finished run for the end-screen history list, e.g.
-        /// "License 1 - 2 circuits - $37". The stake is shown 1-based as a human "License N". Pure/static.
-        /// </summary>
-        public static string RunHistoryLine(RunHistoryEntry entry)
-        {
-            string circuits = entry.circuitsCleared == 1 ? "1 circuit" : $"{entry.circuitsCleared} circuits";
-            return $"License {entry.stakeLevel + 1} - {circuits} - ${entry.finalMoney}";
-        }
 
         /// <summary>Tint for a non-None edition tag; falls through to the current GUI colour otherwise.</summary>
         private static Color EditionColor(PartEdition edition)
@@ -451,7 +417,7 @@ namespace Shitboxer.Meta
         /// </summary>
         private static void DrawEditionTag(PartEdition edition)
         {
-            string tag = EditionTag(edition);
+            string tag = PartDisplay.EditionTag(edition);
             if (tag.Length == 0) return;
             Color prev = GUI.color;
             GUI.color = EditionColor(edition);
@@ -486,7 +452,7 @@ namespace Shitboxer.Meta
             {
                 int shown = Mathf.Min(laps.Count, MaxRecordsShown);
                 for (int i = 0; i < shown; i++)
-                    GUILayout.Label($"    {laps[i].trackId}: {FormatLapTime(laps[i].lapSeconds)}");
+                    GUILayout.Label($"    {laps[i].trackId}: {PartDisplay.FormatLapRecord(laps[i].lapSeconds)}");
             }
 
             GUILayout.Space(4);
@@ -501,7 +467,7 @@ namespace Shitboxer.Meta
                 // runHistory is oldest-first; list the newest few, newest at the top.
                 int shown = Mathf.Min(history.Count, MaxRecordsShown);
                 for (int i = 0; i < shown; i++)
-                    GUILayout.Label($"    {RunHistoryLine(history[history.Count - 1 - i])}");
+                    GUILayout.Label($"    {PartDisplay.RunHistoryLine(history[history.Count - 1 - i])}");
             }
         }
     }
