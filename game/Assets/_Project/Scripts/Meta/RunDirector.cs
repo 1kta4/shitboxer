@@ -28,7 +28,7 @@ namespace Shitboxer.Meta
     /// promotes the run to the next circuit (fresh race ladder); the run is only complete once
     /// the FINAL circuit's boss falls.
     /// </summary>
-    public class RunDirector : MonoBehaviour
+    public class RunDirector : MonoBehaviour, IRunHost
     {
         public static RunDirector Instance { get; private set; }
 
@@ -110,6 +110,42 @@ namespace Shitboxer.Meta
         public MetaProgress Meta { get; private set; } = new MetaProgress();
 
         public RunPhase Phase { get; private set; } = RunPhase.Racing;
+
+        /// <summary>
+        /// Raised on every run-phase transition. A retained-mode UI subscribes to this instead of
+        /// polling <see cref="Phase"/> each frame. NOTE the initial Racing phase is a field
+        /// initializer above and fires NO event, so a UI must read Phase once when it wakes rather
+        /// than wait for the first transition (see ShitboxerUIRoot, wave 27+).
+        /// </summary>
+        public event System.Action<RunPhase> PhaseChanged;
+
+        /// <summary>
+        /// The single write-point for <see cref="Phase"/>: every transition routes here so the run
+        /// loop's state machine has exactly one edge — what a retained-mode UI (and any future
+        /// save/replay/netcode layer) needs. Idempotent; re-entering the same phase raises nothing.
+        /// </summary>
+        private void SetPhase(RunPhase phase)
+        {
+            if (Phase == phase) return;
+            Phase = phase;
+            PhaseChanged?.Invoke(phase);
+        }
+
+        /// <summary>The live race manager, or null between scenes / while paused in the garage.</summary>
+        public RaceManager CurrentRace => _raceManager;
+
+        /// <summary>The live player car, or null between scenes.</summary>
+        public VehicleController PlayerCar => _playerCar;
+
+        /// <summary>
+        /// Cash a clean finish at <paramref name="position"/> banks right now — exactly what RaceHud's
+        /// pushed payout closure computes, but PULLED through IRunHost so the UI can ask rather than be
+        /// injected. Uses the same <see cref="CleanFinishPayoutFor"/> the real resolution calls, so the
+        /// preview can't drift from the payout. (ApplyPayoutPreview's push stays until RaceHud is
+        /// deleted in wave 30.)
+        /// </summary>
+        public int PayoutPreviewFor(int position) =>
+            CleanFinishPayoutFor(position, IsDesignatedBoss(bossRacesEnabled, Run.IsBossRace));
 
         /// <summary>One-line player verdict of the last resolved race, for the garage header.</summary>
         public string LastRaceSummary { get; private set; } = "";
@@ -678,7 +714,7 @@ namespace Shitboxer.Meta
                     int cashout = Run.CashoutRefundTotal();
                     Run.Money += cashout;
                     if (cashout > 0) LastRaceSummary += $" Cashout parts refunded +${cashout}.";
-                    Phase = RunPhase.RunOver;
+                    SetPhase(RunPhase.RunOver);
                     Time.timeScale = 0f;
                     ClearSave(); // the run is dead — don't resume it next launch
                     RecordRunEndToMeta(seasonCleared: false);
@@ -703,7 +739,7 @@ namespace Shitboxer.Meta
                         LastRaceSummary = $"P{me.Position} — survived. +${totalPay}. SEASON CLEARED!"
                             + fragileNote
                             + (cashout > 0 ? $" Cashout parts refunded +${cashout}." : "");
-                        Phase = RunPhase.RunComplete;
+                        SetPhase(RunPhase.RunComplete);
                         Time.timeScale = 0f;
                         ClearSave(); // season won — the finished run doesn't resume
                         RecordRunEndToMeta(seasonCleared: true);
@@ -757,7 +793,7 @@ namespace Shitboxer.Meta
 
         private void OpenGarage()
         {
-            Phase = RunPhase.Garage;
+            SetPhase(RunPhase.Garage);
             Time.timeScale = 0f;
 
             // Economy-depth hooks, both no-ops at the shipped defaults: reset the standalone per-visit
@@ -859,7 +895,7 @@ namespace Shitboxer.Meta
         public void StartNextRace()
         {
             if (Phase != RunPhase.Garage) return;
-            Phase = RunPhase.Racing;
+            SetPhase(RunPhase.Racing);
             Time.timeScale = 1f;
             ReloadRaceScene();
         }
@@ -885,7 +921,7 @@ namespace Shitboxer.Meta
                 new RunState { Money = startingMoney, Seed = RollSeed(), StakeLevel = stake },
                 totalCircuits, racesPerCircuit);
             LastRaceSummary = "";
-            Phase = RunPhase.Racing;
+            SetPhase(RunPhase.Racing);
             Time.timeScale = 1f;
             Save(); // overwrite any previous save with the fresh, freshly-seeded run
             ReloadRaceScene();
