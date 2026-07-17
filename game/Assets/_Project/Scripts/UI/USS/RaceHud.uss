@@ -71,3 +71,38 @@
 }
 .hud-dura__fill { height: 100%; background-color: var(--green); }
 .hud-dura__val { font-size: 11px; color: #eef3fb; margin-left: 6px; }
+
+/* ── full-screen overlays: 3-2-1 countdown + on-hit CRUNCH flash ─────────── */
+.hud-countdown {
+    position: absolute;
+    top: 22%;
+    left: 0;
+    right: 0;
+    -unity-text-align: middle-center;
+    font-size: 64px;
+    color: #ffffff;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+.hud-flash {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-width: 16px;
+    border-color: rgba(230, 40, 30, 0.85);
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 12%;
+    opacity: 0;
+}
+.hud-crunch {
+    font-size: 44px;
+    color: #ffd84d;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}

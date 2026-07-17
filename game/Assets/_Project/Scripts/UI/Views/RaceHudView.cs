@@ -37,6 +37,8 @@ namespace Shitboxer.UI.Views
         private readonly Label _sProgress = new Label();
         private readonly VisualElement _duraFill = new VisualElement();
         private readonly Label _duraVal = new Label();
+        private readonly Label _countdown = new Label();
+        private readonly VisualElement _flash = new VisualElement();
 
         public RaceHudView()
         {
@@ -107,6 +109,18 @@ namespace Shitboxer.UI.Views
             br.Add(BuildDura());
             screen.Add(br);
 
+            // full-screen overlays: the 3-2-1 countdown and the on-hit CRUNCH flash (were IMGUI)
+            _countdown.AddToClassList("hud-countdown");
+            _countdown.style.display = DisplayStyle.None;
+            screen.Add(_countdown);
+
+            _flash.AddToClassList("hud-flash");
+            _flash.style.display = DisplayStyle.None;
+            var crunch = new Label { text = "CRUNCH" };
+            crunch.AddToClassList("hud-crunch");
+            _flash.Add(crunch);
+            screen.Add(_flash);
+
             Root = screen;
         }
 
@@ -133,6 +147,46 @@ namespace Shitboxer.UI.Views
             RefreshVerdict(me);
             RefreshCues(player, me);
             RefreshDura(player);
+            RefreshCountdown(m);
+            RefreshFlash(player);
+        }
+
+        private void RefreshCountdown(RaceManager m)
+        {
+            float remaining = m.CountdownRemainingS;
+            bool go = remaining <= 0f && m.RaceTimeS >= 0f && m.RaceTimeS < 1.2f;
+            if (remaining > 0f)
+            {
+                _countdown.style.display = DisplayStyle.Flex;
+                _countdown.text = Mathf.Ceil(remaining).ToString("0");
+            }
+            else if (go)
+            {
+                _countdown.style.display = DisplayStyle.Flex;
+                _countdown.text = "GO!";
+            }
+            else
+            {
+                _countdown.style.display = DisplayStyle.None;
+            }
+        }
+
+        private void RefreshFlash(VehicleController player)
+        {
+            VehicleCombat combat = player.GetComponent<VehicleCombat>();
+            const float window = 0.45f;
+            float since = combat != null ? Time.time - combat.LastImpactRealtime : window + 1f;
+            float severity = combat != null ? Mathf.Clamp01(combat.LastImpactSeverity) : 0f;
+
+            // Only hard hits crunch; fades out over the window in well under half a second.
+            if (since < 0f || since > window || severity < 0.45f)
+            {
+                _flash.style.display = DisplayStyle.None;
+                return;
+            }
+            float fade = 1f - since / window;
+            _flash.style.display = DisplayStyle.Flex;
+            _flash.style.opacity = fade * fade * severity;
         }
 
         private void RefreshStatus(RunState run)

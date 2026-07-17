@@ -57,14 +57,10 @@ namespace Shitboxer.Race
 
         private void OnGUI()
         {
-            if (!raceManager || !playerCar) return;
-
-            // The readout box moved to the UI Toolkit HUD (RaceHudView / RaceHudHost). IMGUI keeps only the
-            // full-screen 3-2-1 countdown and the on-hit CRUNCH flash for now (both drawn full-screen, hard
-            // to reproduce in USS). The Draw* readout helpers below are now dead but harmless — this class
-            // is throwaway and goes away once the countdown/flash move to UI Toolkit too.
-            DrawCountdown();
-            DrawImpactFlash();
+            // Fully replaced by UI Toolkit: the readout is RaceHudView, and the countdown + CRUNCH flash
+            // are now RaceHudView overlays too. This throwaway class draws nothing; it's kept only because
+            // RaceTrackBuilder still adds it. Delete it (and stop adding it) in a cleanup pass. The Draw*
+            // helpers below are dead but harmless.
         }
 
         /// <summary>
