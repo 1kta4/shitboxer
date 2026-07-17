@@ -673,15 +673,38 @@ namespace Shitboxer.Meta
             title.normal.textColor = new Color(0.56f, 0.77f, 1f);
             GUI.Label(new Rect(panel.x, panel.y + 10f, panel.width, 24f), "PAUSED", title);
 
-            GUILayout.BeginArea(new Rect(panel.x + 20f, panel.y + 42f, w - 40f, h - 54f));
-            if (GUILayout.Button("RESUME", GUILayout.Height(32f)))
+            float bx = panel.x + 20f, bw = w - 40f;
+            if (DevButton(new Rect(bx, panel.y + 44f, bw, 32f), "RESUME",
+                    new Color(0.14f, 0.17f, 0.23f), new Color(0.73f, 0.79f, 0.88f)))
                 ToggleDevMenu();
-            if (GUILayout.Button("NEW RUN", GUILayout.Height(32f)))
+            if (DevButton(new Rect(bx, panel.y + 82f, bw, 32f), "NEW RUN",
+                    new Color(0.31f, 0.545f, 1f), new Color(0.94f, 0.96f, 1f)))
             {
                 _devMenuOpen = false;
                 StartNewRun(); // fresh seed at the same stake; saves + reloads to racing (restores timeScale)
             }
-            GUILayout.EndArea();
+        }
+
+        /// <summary>A flat v3-style IMGUI button: solid fill + a lit top edge + centred bold text.</summary>
+        private static bool DevButton(Rect rect, string label, Color bg, Color fg)
+        {
+            Color prev = GUI.color;
+            GUI.color = bg;
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = new Color(1f, 1f, 1f, 0.12f);
+            GUI.DrawTexture(new Rect(rect.x, rect.y, rect.width, 1f), Texture2D.whiteTexture);
+            GUI.color = prev;
+
+            var style = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+                fontSize = 12,
+            };
+            style.normal.textColor = fg;
+            GUI.Label(rect, label, style);
+
+            return GUI.Button(rect, GUIContent.none, GUIStyle.none);
         }
 
         /// <summary>Payout + survival/boss verdict once every car has finished or been eliminated.</summary>

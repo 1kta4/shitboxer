@@ -8,6 +8,7 @@
     align-items: center;              /* centre the letterboxed stage        */
     justify-content: flex-start;
     background-color: var(--screen);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/screen.png");
     -unity-font-definition: var(--font-sys);
     color: var(--ink);
     font-size: var(--size-body);

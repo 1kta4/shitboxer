@@ -35,6 +35,7 @@
     font-size: var(--size-label);
     color: var(--ink-mute);
     background-color: #1b2230;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost.png");
     border-width: 1px;
     border-color: #33415a;
     padding: 4px 8px;
@@ -57,6 +58,7 @@
     margin-right: 20px;
     padding: 14px;
     background-color: var(--plate);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/rail-plate.png");
     border-width: 1px;
     border-color: var(--edge);
     border-left-width: 3px;
@@ -118,6 +120,7 @@
     margin-left: 8px;
     margin-right: 8px;
     background-color: #0b101a;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/track.png");
     border-width: 1px;
     border-color: #313c4e;
     overflow: hidden;
@@ -125,6 +128,7 @@
 .stat-bar__fill {
     height: 100%;
     background-color: var(--blue);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/fill.png");
     /* bars ease from 0 -> value on load, and animate on any stat change (buying a part). */
     transition: width 0.45s ease-out;
 }
@@ -134,6 +138,21 @@
     color: #eef3fb;
     -unity-text-align: middle-right;
 }
+/* ghost preview: the delta segment shown when a shop part is selected (green gain / blood loss) */
+.stat-bar__ghost {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background-color: rgba(95, 217, 122, 0.22);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost-stripe.png");
+    background-repeat: repeat;
+}
+.stat-bar__ghost.loss {
+    background-color: rgba(224, 56, 78, 0.28);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost-stripe-loss.png");
+}
+.stat-bar__value.gain { color: var(--green); }
+.stat-bar__value.loss { color: var(--red); }
 
 .gx-ownedh {
     flex-direction: row;
@@ -153,6 +172,7 @@
     padding: 6px 8px;
     margin-bottom: 4px;
     background-color: var(--panel);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer.png");
     border-width: 1px;
     border-color: #2c3646;
 }
@@ -203,6 +223,7 @@
 
 .gx-offer {
     background-color: var(--plate-hi);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer.png");
     border-width: 1px;
     border-color: var(--line);
     border-left-width: 3px;
@@ -213,6 +234,7 @@
 .gx-offer:hover { border-color: #5a7096; }
 .gx-offer.sel {
     background-color: #2f3d55;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer-sel.png");
     border-color: #5f7ba6;
     border-left-color: var(--blue);
 }
@@ -258,6 +280,7 @@
     font-size: var(--size-label);
     color: #0d1723;
     background-color: #c4d0e0;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/button.png");
     border-width: 1px;
     border-color: #f2f7ff;
     border-radius: 0;
@@ -268,7 +291,7 @@
 .gx-btn:disabled { opacity: 0.4; }
 .gx-btn.ghost {
     background-color: #232c3a;
-    background-image: none;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost.png");
     color: #b9c9e0;
     border-color: #3d4a5e;
 }
@@ -291,6 +314,7 @@
     font-size: var(--size-cta);
     color: #f0f6ff;
     background-color: var(--blue);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/cta.png");
     border-width: 0;
     border-radius: 0;
     padding: 12px 24px;

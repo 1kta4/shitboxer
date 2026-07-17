@@ -194,18 +194,33 @@ namespace Shitboxer.UI.Views
             _circuit.text = _vm.CircuitLine;
             _next.text = "NEXT > " + _vm.NextRaceLine;
 
-            bool preview = _vm.HasStatPreview;
-            _grip.style.display = preview ? DisplayStyle.Flex : DisplayStyle.None;
-            _power.style.display = preview ? DisplayStyle.Flex : DisplayStyle.None;
-            if (preview)
+            _slots.text = $"{_vm.SlotsUsed}/{_vm.SlotsTotal} SLOTS";
+            RefreshOwned();
+            RefreshOffers();
+            RefreshStatPreview();
+        }
+
+        /// <summary>Rail GRIP/POWER bars: the current equipped stats, or — when a Stat part is selected in
+        /// the shop — its projected value ghosted on, so you see what a part does before buying.</summary>
+        private void RefreshStatPreview()
+        {
+            bool has = _vm.HasStatPreview;
+            _grip.style.display = has ? DisplayStyle.Flex : DisplayStyle.None;
+            _power.style.display = has ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!has) return;
+
+            IReadOnlyList<OfferVm> list = _vm.CrateOpen ? _vm.CrateContents : _vm.Offers;
+            if (_sel >= 0 && _sel < list.Count && list[_sel].HasStatPreview)
+            {
+                OfferVm o = list[_sel];
+                _grip.SetPreview("GRIP", o.Grip.Before, o.Grip.After);
+                _power.SetPreview("POWER", o.Power.Before, o.Power.After);
+            }
+            else
             {
                 _grip.Set("GRIP", _vm.Current.Grip);
                 _power.Set("POWER", _vm.Current.Power);
             }
-
-            _slots.text = $"{_vm.SlotsUsed}/{_vm.SlotsTotal} SLOTS";
-            RefreshOwned();
-            RefreshOffers();
         }
 
         private void RefreshOwned()
@@ -307,6 +322,7 @@ namespace Shitboxer.UI.Views
         {
             _sel = index;
             RefreshOffers();
+            RefreshStatPreview();
         }
 
         private static VisualElement BuildDelta(OfferVm o)

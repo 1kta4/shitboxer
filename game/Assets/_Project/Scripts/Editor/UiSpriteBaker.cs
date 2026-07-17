@@ -1,0 +1,107 @@
+using UnityEditor;
+using UnityEngine;
+
+namespace Shitboxer.Editor
+{
+    /// <summary>
+    /// Bakes the v3 UI's gradient "depth" into PNG sprites, because USS cannot render gradient functions
+    /// live (linear-/radial-gradient throw "invalid image texture" at repaint). Each surface gets a tall
+    /// 1-D vertical gradient (lit top -> shadow bottom, straight from garage-ps2-v3) that USS references
+    /// via `background-image` and stretches to fill — turning the flat plates into shaded ones with no
+    /// hand-drawn art. Re-run after tweaking a colour; the PNGs overwrite in place. Sprites land in
+    /// Assets/_Project/Scripts/UI/Sprites and are wired up in Tokens/Shitboxer/Garage.uss.
+    /// </summary>
+    public static class UiSpriteBaker
+    {
+        private const string UiDir = "Assets/_Project/Scripts/UI";
+        private const string Dir = UiDir + "/Sprites";
+
+        [MenuItem("Shitboxer/Bake UI Sprites")]
+        public static void Bake()
+        {
+            if (!AssetDatabase.IsValidFolder(Dir))
+                AssetDatabase.CreateFolder(UiDir, "Sprites");
+
+            //          name          top (lit)   bottom (shadow)
+            VGradient("screen",     "#1a2130", "#0a0d14"); // the whole garage/end-screen backdrop
+            VGradient("rail-plate", "#242c3a", "#141a24"); // left rail
+            VGradient("offer",      "#232b39", "#1a212c"); // shop offer row
+            VGradient("offer-sel",  "#2f3d55", "#212a3a"); // selected offer
+            VGradient("button",     "#e8eff9", "#94a5bd"); // chrome buttons
+            VGradient("cta",        "#4f8bff", "#0f2478"); // NEXT RACE / NEW RUN
+            VGradient("fill",       "#8fc4ff", "#1b46b4"); // GRIP / POWER stat fill
+            VGradient("track",      "#1a2230", "#080c14"); // recessed stat track
+            VGradient("ghost",      "#2b3548", "#161d28"); // ghost buttons / owned rows / tag
+
+            // stat-preview ghost: the mock's repeating-linear-gradient diagonal stripes, baked + tiled.
+            Stripes("ghost-stripe",      new Color(0.373f, 0.851f, 0.478f, 0.55f), new Color(0.373f, 0.851f, 0.478f, 0.20f));
+            Stripes("ghost-stripe-loss", new Color(0.878f, 0.220f, 0.306f, 0.55f), new Color(0.878f, 0.220f, 0.306f, 0.20f));
+
+            AssetDatabase.Refresh();
+
+            // USS resolves url() refs at IMPORT time. The sheets were imported before these sprites
+            // existed, so their refs are unresolved and render as the yellow "missing texture"
+            // placeholder — re-import the sheets now that the sprites exist so they re-resolve.
+            AssetDatabase.ImportAsset(UiDir + "/USS/Shitboxer.uss", ImportAssetOptions.ForceUpdate);
+            AssetDatabase.ImportAsset(UiDir + "/USS/Garage.uss", ImportAssetOptions.ForceUpdate);
+
+            Debug.Log($"[Shitboxer] Baked UI gradient sprites into {Dir} and reimported the USS. " +
+                      "Reopen the garage to see the depth.");
+        }
+
+        private static void VGradient(string name, string topHex, string bottomHex)
+        {
+            ColorUtility.TryParseHtmlString(topHex, out Color top);
+            ColorUtility.TryParseHtmlString(bottomHex, out Color bottom);
+
+            const int w = 4, h = 128;
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            for (int y = 0; y < h; y++)
+            {
+                Color c = Color.Lerp(bottom, top, y / (float)(h - 1)); // y=0 bottom of the texture
+                for (int x = 0; x < w; x++) tex.SetPixel(x, y, c);
+            }
+            tex.Apply();
+
+            string path = $"{Dir}/{name}.png";
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path);
+
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+            imp.textureType = TextureImporterType.Default;   // plain Texture2D — the type USS background-image wants
+            imp.filterMode = FilterMode.Bilinear;
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.wrapMode = TextureWrapMode.Clamp;
+            imp.mipmapEnabled = false;
+            imp.SaveAndReimport();
+        }
+
+        /// <summary>A tileable 135-degree diagonal-stripe sprite (two alphas of one colour) — the stat
+        /// preview ghost's repeating-linear-gradient from garage-ps2-v3, which USS can't render live.
+        /// Imported with Repeat wrap so USS `background-repeat: repeat` tiles it across the delta segment.</summary>
+        private static void Stripes(string name, Color a, Color b)
+        {
+            const int size = 16, period = 4;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                    tex.SetPixel(x, y, (x + y) % (period * 2) < period ? a : b);
+            tex.Apply();
+
+            string path = $"{Dir}/{name}.png";
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path);
+
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+            imp.textureType = TextureImporterType.Default;
+            imp.filterMode = FilterMode.Point;      // crisp stripe edges
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.wrapMode = TextureWrapMode.Repeat;  // tiled by background-repeat
+            imp.alphaIsTransparency = true;
+            imp.mipmapEnabled = false;
+            imp.SaveAndReimport();
+        }
+    }
+}

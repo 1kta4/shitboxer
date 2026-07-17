@@ -40,9 +40,9 @@
     --font-display: url("project:///Assets/_Project/Scripts/UI/Fonts/PressStart2P-Regular.ttf");
 
     /* Pixel fonts must land on integer sizes or they shimmer. */
-    --size-title: 16px;   /* Press Start 2P — GARAGE, NEXT RACE */
-    --size-cta:   12px;
-    --size-val:   12px;   /* Silkscreen — numbers we read       */
-    --size-body:  10px;   /* Silkscreen — names, descriptions   */
-    --size-label:  8px;   /* Silkscreen — uppercase micro-labels */
+    --size-title: 20px;   /* Press Start 2P — GARAGE, NEXT RACE */
+    --size-cta:   14px;
+    --size-val:   14px;   /* Silkscreen — numbers we read       */
+    --size-body:  12px;   /* Silkscreen — names, descriptions   */
+    --size-label: 10px;   /* Silkscreen — uppercase micro-labels */
 }
