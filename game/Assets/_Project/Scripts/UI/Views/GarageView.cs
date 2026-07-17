@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Shitboxer.Meta;
 using Shitboxer.UI.Elements;
 using Shitboxer.UI.Model;
@@ -6,13 +7,15 @@ using UnityEngine.UIElements;
 namespace Shitboxer.UI.Views
 {
     /// <summary>
-    /// The garage screen, built as a VisualElement tree over a <see cref="GarageViewModel"/>. Knows
-    /// nothing about scenes, cameras or the run loop — hand it a VM and it works, which is what makes it
-    /// portable and what let its logic be fully tested before a pixel existed. USS does all the styling
-    /// (Tokens + Shitboxer + Garage stylesheets, attached to the panel root by the host).
+    /// The garage screen, "PS2 v3" layout (ported from garage-ps2-v3.html): a header, a permanent left
+    /// rail carrying the car's live state (funds, lives, GRIP/POWER, owned parts) and a main shop column
+    /// of selectable rows that expand to show description / stat delta / BUY. Built over a
+    /// <see cref="GarageViewModel"/>; the static frame is built once and the dynamic lists rebuild on the
+    /// VM's Changed signal. All styling is USS (Tokens + Shitboxer + Garage).
     ///
-    /// It rebuilds its dynamic content on the VM's Changed signal rather than polling — a buy/equip/reroll
-    /// mutates the VM, the VM raises Changed, this re-reads.
+    /// USS has no CSS grid, clip-path or box-shadow, so the mock's diagonal cuts and glows are NOT here —
+    /// they are a later baked-sprite pass. Layout is flexbox; bevels are border colours. Fonts are the
+    /// in-repo pixel faces (swap the two --font vars in Tokens.uss to move onto the demo fonts).
     /// </summary>
     public sealed class GarageView
     {
@@ -20,13 +23,19 @@ namespace Shitboxer.UI.Views
 
         public VisualElement Root { get; }
 
-        private readonly ReadoutRow _statusMoney = new ReadoutRow();
-        private readonly ReadoutRow _statusLives = new ReadoutRow();
-        private readonly Label _circuitLabel = new Label();
-        private readonly Label _nextLabel = new Label();
+        // Mutable widgets, refreshed on Changed.
+        private readonly ReadoutRow _funds = new ReadoutRow();
+        private readonly VisualElement _lives = new VisualElement();
+        private readonly Label _circuit = new Label();
+        private readonly Label _next = new Label();
         private readonly StatBar _grip = new StatBar();
         private readonly StatBar _power = new StatBar();
-        private readonly VisualElement _dynamic = new VisualElement();
+        private readonly Label _slots = new Label();
+        private readonly VisualElement _owned = new VisualElement();
+        private readonly Label _offerCount = new Label();
+        private readonly VisualElement _offers = new VisualElement();
+
+        private int _sel;   // selected shop row (expands its detail)
 
         public GarageView(GarageViewModel vm)
         {
@@ -38,230 +47,313 @@ namespace Shitboxer.UI.Views
 
         private VisualElement Build()
         {
-            var root = new VisualElement();
-            root.AddToClassList("sb-root");
-            root.AddToClassList("garage");
+            var screen = new VisualElement();
+            screen.AddToClassList("sb-screen");
 
-            var panel = new VisualElement();
-            panel.AddToClassList("sb-panel");
-            panel.AddToClassList("garage__panel");
+            var stage = new VisualElement();
+            stage.AddToClassList("gx-stage");
+            stage.Add(BuildHead());
 
-            // Titlebar
-            var titlebar = new VisualElement();
-            titlebar.AddToClassList("sb-titlebar");
-            titlebar.Add(new Label { text = "GARAGE" });
-            _circuitLabel.AddToClassList("garage__circuit");
-            titlebar.Add(_circuitLabel);
-            panel.Add(titlebar);
+            var body = new VisualElement();
+            body.AddToClassList("gx-body");
+            body.Add(BuildRail());
+            body.Add(BuildMain());
+            stage.Add(body);
 
-            // Status well
-            var status = new VisualElement();
-            status.AddToClassList("sb-well");
-            status.AddToClassList("garage__status");
-            status.Add(_statusMoney);
-            status.Add(_statusLives);
-            _nextLabel.AddToClassList("garage__next");
-            status.Add(_nextLabel);
-            panel.Add(status);
+            stage.Add(BuildFoot());
+            screen.Add(stage);
+            return screen;
+        }
 
-            // Stat bars
+        private VisualElement BuildHead()
+        {
+            var head = new VisualElement();
+            head.AddToClassList("gx-head");
+
+            var lockup = new VisualElement();
+            lockup.AddToClassList("gx-lockup");
+            var title = new Label { text = "GARAGE" };
+            title.AddToClassList("gx-title");
+            var tag = new Label { text = "BETWEEN RACES" };
+            tag.AddToClassList("gx-tag");
+            lockup.Add(title);
+            lockup.Add(tag);
+
+            var sys = new VisualElement();
+            sys.AddToClassList("gx-sys");
+            _circuit.AddToClassList("gx-circuit");
+            var mem = new Label { text = "MEM SLOT 1" };
+            mem.AddToClassList("gx-mem");
+            sys.Add(_circuit);
+            sys.Add(mem);
+
+            head.Add(lockup);
+            head.Add(sys);
+            return head;
+        }
+
+        private VisualElement BuildRail()
+        {
+            var rail = new VisualElement();
+            rail.AddToClassList("gx-rail");
+            rail.Add(RailHead("VEHICLE"));
+
+            var readouts = new VisualElement();
+            readouts.AddToClassList("gx-readouts");
+            _funds.AddToClassList("cash");
+            readouts.Add(_funds);
+
+            var livesRow = new VisualElement();
+            livesRow.AddToClassList("gx-lives-row");
+            var livesLabel = new Label { text = "LIVES" };
+            livesLabel.AddToClassList("gx-lives-label");
+            _lives.AddToClassList("gx-lives");
+            livesRow.Add(livesLabel);
+            livesRow.Add(_lives);
+            readouts.Add(livesRow);
+            rail.Add(readouts);
+
+            _next.AddToClassList("gx-next");
+            rail.Add(_next);
+
             var stats = new VisualElement();
-            stats.AddToClassList("garage__stats");
+            stats.AddToClassList("gx-stats");
             stats.Add(_grip);
             stats.Add(_power);
-            panel.Add(stats);
+            rail.Add(stats);
 
-            // Everything below the fold is rebuilt on Changed.
-            _dynamic.AddToClassList("garage__dynamic");
-            panel.Add(_dynamic);
+            var ownedHead = new VisualElement();
+            ownedHead.AddToClassList("gx-ownedh");
+            var ownedTitle = new Label { text = "OWNED" };
+            ownedTitle.AddToClassList("gx-railh-txt");
+            _slots.AddToClassList("gx-slots");
+            ownedHead.Add(ownedTitle);
+            ownedHead.Add(_slots);
+            rail.Add(ownedHead);
 
-            // Footer
-            var footer = new VisualElement();
-            footer.AddToClassList("garage__footer");
-            var next = new Button(() => _vm.NextRace()) { text = "NEXT RACE" };
-            next.AddToClassList("sb-button");
-            next.AddToClassList("garage__next-race");
-            footer.Add(next);
-            panel.Add(footer);
+            _owned.AddToClassList("gx-owned");
+            rail.Add(_owned);
+            return rail;
+        }
 
-            root.Add(panel);
-            return root;
+        private VisualElement BuildMain()
+        {
+            var main = new VisualElement();
+            main.AddToClassList("gx-main");
+
+            var sec = new VisualElement();
+            sec.AddToClassList("gx-sec");
+            var secTitle = new Label { text = "SHOP" };
+            secTitle.AddToClassList("gx-railh-txt");
+            _offerCount.AddToClassList("gx-offercount");
+            sec.Add(secTitle);
+            sec.Add(_offerCount);
+            main.Add(sec);
+
+            _offers.AddToClassList("gx-offers");
+            main.Add(_offers);
+            return main;
+        }
+
+        private VisualElement BuildFoot()
+        {
+            var foot = new VisualElement();
+            foot.AddToClassList("gx-foot");
+
+            var acts = new VisualElement();
+            acts.AddToClassList("gx-acts");
+            var crate = new Button(() => _vm.BuyCrate()) { text = $"BUY CRATE  ${_vm.CratePrice}" };
+            crate.AddToClassList("gx-btn");
+            crate.AddToClassList("ghost");
+            var reroll = new Button(() => _vm.Reroll()) { text = $"REROLL  ${_vm.RerollCost}" };
+            reroll.AddToClassList("gx-btn");
+            reroll.AddToClassList("ghost");
+            acts.Add(crate);
+            acts.Add(reroll);
+
+            var cta = new Button(() => _vm.NextRace()) { text = "NEXT RACE  >" };
+            cta.AddToClassList("gx-cta");
+
+            foot.Add(acts);
+            foot.Add(cta);
+            return foot;
         }
 
         private void Refresh()
         {
-            _statusMoney.Set("$", _vm.Money.ToString());
-            _statusLives.Set("LIVES", _vm.Lives.ToString(), fault: _vm.Lives <= 1);
-            _circuitLabel.text = _vm.CircuitLine;
-            _nextLabel.text = "NEXT: " + _vm.NextRaceLine;
+            _funds.Set("FUNDS", "$" + _vm.Money);
 
-            _grip.style.display = _vm.HasStatPreview ? DisplayStyle.Flex : DisplayStyle.None;
-            _power.style.display = _vm.HasStatPreview ? DisplayStyle.Flex : DisplayStyle.None;
-            if (_vm.HasStatPreview)
+            _lives.Clear();
+            for (int i = 0; i < _vm.Lives; i++)
+            {
+                var dot = new VisualElement();
+                dot.AddToClassList("gx-life");
+                _lives.Add(dot);
+            }
+
+            _circuit.text = _vm.CircuitLine;
+            _next.text = "NEXT > " + _vm.NextRaceLine;
+
+            bool preview = _vm.HasStatPreview;
+            _grip.style.display = preview ? DisplayStyle.Flex : DisplayStyle.None;
+            _power.style.display = preview ? DisplayStyle.Flex : DisplayStyle.None;
+            if (preview)
             {
                 _grip.Set("GRIP", _vm.Current.Grip);
                 _power.Set("POWER", _vm.Current.Power);
             }
 
-            _dynamic.Clear();
-
-            if (_vm.RepairAvailable)
-            {
-                var repair = new Button(() => _vm.Repair()) { text = _vm.RepairLabel };
-                repair.AddToClassList("sb-button");
-                repair.SetEnabled(_vm.CanAffordRepair);
-                _dynamic.Add(repair);
-            }
-
-            _dynamic.Add(SectionLabel(_vm.CrateOpen ? "PARTS CRATE — KEEP ONE" : "SHOP"));
-            if (_vm.CrateOpen)
-            {
-                foreach (OfferVm item in _vm.CrateContents)
-                    _dynamic.Add(BuildPartOffer(item, isCrate: true));
-            }
-            else
-            {
-                foreach (OfferVm offer in _vm.Offers)
-                    _dynamic.Add(BuildPartOffer(offer, isCrate: false));
-
-                var buyCrate = new Button(() => _vm.BuyCrate())
-                    { text = $"BUY PARTS CRATE (${_vm.CratePrice}) — open {_vm.CrateDrawCount}, keep 1" };
-                buyCrate.AddToClassList("sb-button");
-                buyCrate.SetEnabled(_vm.CanAffordCrate);
-                _dynamic.Add(buyCrate);
-
-                var reroll = new Button(() => _vm.Reroll()) { text = $"REROLL (${_vm.RerollCost})" };
-                reroll.AddToClassList("sb-button");
-                reroll.SetEnabled(_vm.CanAffordReroll);
-                _dynamic.Add(reroll);
-            }
-
-            if (_vm.AvailableUpgrades.Count > 0)
-            {
-                _dynamic.Add(SectionLabel("TEAM UPGRADES (permanent)"));
-                foreach (UpgradeVm upgrade in _vm.AvailableUpgrades)
-                    _dynamic.Add(BuildUpgrade(upgrade));
-            }
-
-            _dynamic.Add(SectionLabel($"OWNED PARTS ({_vm.SlotLine})"));
-            if (_vm.OwnedParts.Count == 0)
-            {
-                _dynamic.Add(Dim("(none yet — buy something)"));
-            }
-            else
-            {
-                foreach (OwnedPartVm part in _vm.OwnedParts)
-                    _dynamic.Add(BuildOwned(part));
-            }
+            _slots.text = $"{_vm.SlotsUsed}/{_vm.SlotsTotal} SLOTS";
+            RefreshOwned();
+            RefreshOffers();
         }
 
-        private VisualElement BuildPartOffer(OfferVm offer, bool isCrate)
+        private void RefreshOwned()
+        {
+            _owned.Clear();
+            foreach (OwnedPartVm p in _vm.OwnedParts)
+                _owned.Add(BuildOwned(p));
+        }
+
+        private VisualElement BuildOwned(OwnedPartVm p)
         {
             var row = new VisualElement();
-            row.AddToClassList("offer");
+            row.AddToClassList("gx-owned-item");
+            if (p.Equipped) row.AddToClassList("on");
+            row.Add(Chip(p.Category));
+            var name = new Label { text = p.Name };
+            name.AddToClassList("gx-owned-name");
+            row.Add(name);
+
+            PartDef part = p.Part;
+            bool equipped = p.Equipped;
+            row.RegisterCallback<ClickEvent>(_ =>
+            {
+                if (equipped) _vm.Unequip(part);
+                else _vm.Equip(part);
+            });
+            return row;
+        }
+
+        private void RefreshOffers()
+        {
+            _offers.Clear();
+            IReadOnlyList<OfferVm> list = _vm.CrateOpen ? _vm.CrateContents : _vm.Offers;
+            if (_sel >= list.Count) _sel = list.Count > 0 ? list.Count - 1 : 0;
+
+            for (int i = 0; i < list.Count; i++)
+                _offers.Add(BuildOffer(list[i], i, _vm.CrateOpen));
+
+            _offerCount.text = list.Count + (list.Count == 1 ? " OFFER" : " OFFERS");
+        }
+
+        private VisualElement BuildOffer(OfferVm o, int index, bool isCrate)
+        {
+            bool selected = index == _sel;
+
+            var offer = new VisualElement();
+            offer.AddToClassList("gx-offer");
+            if (selected) offer.AddToClassList("sel");
+            if (!isCrate && !o.Affordable) offer.AddToClassList("unaffordable");
+
+            var row = new VisualElement();
+            row.AddToClassList("gx-offer-row");
+            var marker = new Label { text = ">" };
+            marker.AddToClassList("gx-marker");
+            var name = new Label { text = o.Name };
+            name.AddToClassList("gx-oname");
+            var price = new Label { text = "$" + o.Price };
+            price.AddToClassList("gx-price");
+            row.Add(marker);
+            row.Add(name);
+            row.Add(Chip(o.Category));
+            row.Add(price);
+            offer.Add(row);
+
+            var detail = new VisualElement();
+            detail.AddToClassList("gx-offer-detail");
+            detail.style.display = selected ? DisplayStyle.Flex : DisplayStyle.None;
 
             var info = new VisualElement();
-            info.AddToClassList("offer__info");
-            info.Add(new Label { text = $"{offer.Name}  [{offer.Category}]  ${offer.Price}" });
-            if (!string.IsNullOrEmpty(offer.EditionTag))
-                info.Add(new Label { text = offer.EditionTag });
-            if (!string.IsNullOrEmpty(offer.Description))
+            info.AddToClassList("gx-offer-info");
+            if (!string.IsNullOrEmpty(o.Description))
             {
-                var desc = new Label { text = offer.Description };
-                desc.AddToClassList("offer__desc");
+                var desc = new Label { text = o.Description };
+                desc.AddToClassList("gx-desc");
                 info.Add(desc);
             }
-            if (offer.HasStatPreview)
-            {
-                info.Add(DeltaLabel("GRIP", offer.Grip));
-                info.Add(DeltaLabel("POWER", offer.Power));
-            }
-            row.Add(info);
+            info.Add(BuildDelta(o));
+            detail.Add(info);
 
-            PartDef part = offer.Part;
-            Button action = isCrate
+            PartDef part = o.Part;
+            Button buy = isCrate
                 ? new Button(() => _vm.TakeFromCrate(part)) { text = "KEEP" }
-                : new Button(() => _vm.Buy(part)) { text = "BUY" };
-            action.AddToClassList("sb-button");
-            action.AddToClassList("offer__action");
-            if (!isCrate) action.SetEnabled(offer.Affordable);
-            row.Add(action);
+                : new Button(() => _vm.Buy(part)) { text = o.Affordable ? "BUY" : "NO FUNDS" };
+            buy.AddToClassList("gx-btn");
+            if (!isCrate) buy.SetEnabled(o.Affordable);
+            detail.Add(buy);
+            offer.Add(detail);
 
-            return row;
+            // Click the row (but not the BUY button) to select + expand it.
+            offer.RegisterCallback<ClickEvent>(evt =>
+            {
+                if (evt.target is Button) return;
+                Select(index);
+            });
+            return offer;
         }
 
-        private VisualElement BuildUpgrade(UpgradeVm upgrade)
+        private void Select(int index)
         {
-            var row = new VisualElement();
-            row.AddToClassList("offer");
-
-            var info = new VisualElement();
-            info.AddToClassList("offer__info");
-            info.Add(new Label { text = $"{upgrade.Name}  ${upgrade.Price}" });
-            var desc = new Label { text = upgrade.Description };
-            desc.AddToClassList("offer__desc");
-            info.Add(desc);
-            row.Add(info);
-
-            TeamUpgrade u = upgrade.Upgrade;
-            var buy = new Button(() => _vm.BuyUpgrade(u)) { text = "BUY" };
-            buy.AddToClassList("sb-button");
-            buy.AddToClassList("offer__action");
-            buy.SetEnabled(upgrade.Affordable);
-            row.Add(buy);
-
-            return row;
+            _sel = index;
+            RefreshOffers();
         }
 
-        private VisualElement BuildOwned(OwnedPartVm part)
+        private static VisualElement BuildDelta(OfferVm o)
         {
-            var row = new VisualElement();
-            row.AddToClassList("sb-row");
-            row.AddToClassList("owned");
+            if (!o.HasStatPreview)
+            {
+                var passive = new Label { text = "PASSIVE INCOME" };
+                passive.AddToClassList("gx-delta");
+                passive.AddToClassList("passive");
+                return passive;
+            }
 
-            string tag = string.IsNullOrEmpty(part.EditionTag) ? "" : "  " + part.EditionTag;
-            string suffix = part.Equipped ? "  — EQUIPPED" : "";
-            var label = new Label { text = $"{part.Name}  [{part.Category}]{tag}{suffix}" };
-            label.AddToClassList("owned__label");
-            row.Add(label);
-
-            var spacer = new VisualElement();
-            spacer.AddToClassList("owned__spacer");
-            row.Add(spacer);
-
-            PartDef p = part.Part;
-            Button action = part.Equipped
-                ? new Button(() => _vm.Unequip(p)) { text = "UNEQUIP" }
-                : new Button(() => _vm.Equip(p)) { text = "EQUIP" };
-            action.AddToClassList("sb-button");
-            if (!part.Equipped) action.SetEnabled(part.CanEquip);
-            row.Add(action);
-
-            return row;
+            var wrap = new VisualElement();
+            wrap.AddToClassList("gx-delta");
+            AddDeltaPart(wrap, "GRIP", o.Grip);
+            AddDeltaPart(wrap, "POWER", o.Power);
+            return wrap;
         }
 
-        private static Label DeltaLabel(string stat, StatDelta d)
+        private static void AddDeltaPart(VisualElement wrap, string stat, StatDelta d)
         {
-            string delta = d.Sign == 0 ? "" : $"  ({(d.Sign > 0 ? "+" : "")}{d.Delta:0})";
-            var label = new Label { text = $"{stat} {d.Before:0} -> {d.After:0}{delta}" };
-            label.AddToClassList("offer__delta");
-            // Palette rule: a downgrade is a FAULT (blood); a gain reads as normal (the system working).
-            if (d.Sign < 0) label.AddToClassList("sb-fault");
-            return label;
+            if (d.Sign == 0) return;
+            string sign = d.Sign > 0 ? "+" : "";
+            var lbl = new Label { text = $"{stat} {d.Before:0} -> {d.After:0} ({sign}{d.Delta:0})" };
+            lbl.AddToClassList(d.Sign > 0 ? "up" : "dn");
+            wrap.Add(lbl);
         }
 
-        private static Label SectionLabel(string text)
+        private static Label Chip(PartCategory cat)
         {
-            var label = new Label { text = "-- " + text + " --" };
-            label.AddToClassList("garage__section");
-            return label;
+            string txt = cat == PartCategory.Stat ? "STAT"
+                : cat == PartCategory.Economy ? "ECON"
+                : cat.ToString().ToUpperInvariant();
+            var chip = new Label { text = txt };
+            chip.AddToClassList("gx-chip");
+            if (cat == PartCategory.Economy) chip.AddToClassList("econ");
+            return chip;
         }
 
-        private static Label Dim(string text)
+        private static VisualElement RailHead(string text)
         {
+            var head = new VisualElement();
+            head.AddToClassList("gx-railh");
             var label = new Label { text = text };
-            label.AddToClassList("sb-dim");
-            return label;
+            label.AddToClassList("gx-railh-txt");
+            head.Add(label);
+            return head;
         }
     }
 }

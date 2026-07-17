@@ -1,0 +1,446 @@
+<title>Shitboxer — Garage Visual Directions</title>
+<style>
+  :root{
+    --frame-bg:#0b0d12;
+    --frame-ink:#c9d2dd;
+    --sans:ui-sans-serif,"Segoe UI",system-ui,Roboto,Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Mono","SF Mono",Consolas,monospace;
+    --heavy:"Arial Black","Helvetica Neue",var(--sans);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(120% 80% at 50% -10%, #171b24 0%, #0b0d12 60%, #06070a 100%);
+    color:var(--frame-ink);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+
+  /* ── Switcher ─────────────────────────────────────────── */
+  .bar{
+    position:sticky;top:0;z-index:50;
+    display:flex;flex-wrap:wrap;align-items:center;gap:10px;
+    padding:14px 20px;
+    background:linear-gradient(180deg,rgba(10,12,17,.96),rgba(10,12,17,.82));
+    backdrop-filter:blur(8px);
+    border-bottom:1px solid #20252f;
+  }
+  .bar .brand{
+    font-family:var(--mono);font-size:11px;letter-spacing:.28em;
+    text-transform:uppercase;color:#5f6b7a;margin-right:6px;white-space:nowrap;
+  }
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{
+    font-family:var(--mono);font-size:12px;letter-spacing:.12em;
+    text-transform:uppercase;cursor:pointer;
+    padding:9px 14px;border-radius:2px;
+    color:#8c98a8;background:#131820;border:1px solid #262d38;
+    transition:color .18s ease,background .18s ease,border-color .18s ease;
+  }
+  .seg button:hover{color:#d7e2ee;border-color:#3a4658}
+  .seg button[aria-pressed="true"]{
+    color:#04121f;background:linear-gradient(180deg,#bfe6ff,#5cb3f0);
+    border-color:#aee0ff;box-shadow:0 0 18px rgba(80,180,255,.45);
+  }
+  .hint{margin-left:auto;font-family:var(--mono);font-size:11px;color:#4e5867;letter-spacing:.06em}
+
+  .caption{
+    max-width:820px;margin:22px auto 0;padding:0 20px;text-align:center;
+  }
+  .caption h2{
+    margin:0 0 6px;font-family:var(--heavy);font-weight:900;
+    font-size:clamp(20px,4vw,30px);letter-spacing:.02em;color:#e7eef6;
+  }
+  .caption p{margin:0 auto;max-width:60ch;font-size:13.5px;line-height:1.5;color:#93a0b0}
+  .caption .lin{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#5b6675;margin-top:8px}
+
+  /* ── Stage plumbing ───────────────────────────────────── */
+  .stages{position:relative}
+  .stage{display:none;padding:34px 20px 80px;min-height:60vh}
+  .stage.active{display:block}
+  .frame{
+    position:relative;max-width:760px;margin:0 auto;
+    border-radius:6px;overflow:hidden;
+    display:flex;align-items:flex-start;justify-content:center;
+    padding:38px 30px;min-height:560px;
+  }
+
+  /* ── Shared garage component skeleton ─────────────────── */
+  .gx{position:relative;z-index:3;width:100%;max-width:520px}
+  .gx-titlebar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px}
+  .gx-title{font-family:var(--heavy);font-weight:900;font-size:30px;line-height:1;letter-spacing:.01em}
+  .gx-circuit{font-family:var(--mono);font-size:12px;letter-spacing:.14em}
+  .gx-status{display:flex;flex-direction:column;gap:5px;padding:12px 14px}
+  .gx-readout{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:13px}
+  .gx-readout i{flex:1;height:0;border-bottom:1px dotted currentColor;opacity:.4;margin-top:6px}
+  .gx-readout b{font-weight:700;font-variant-numeric:tabular-nums}
+  .gx-next{font-family:var(--mono);font-size:12px;letter-spacing:.08em;font-weight:700;margin-top:2px}
+  .gx-stats{display:flex;flex-direction:column;gap:8px;padding:10px 14px}
+  .gx-statbar{display:flex;align-items:center;gap:12px}
+  .gx-statname{width:58px;font-family:var(--mono);font-size:12px;letter-spacing:.08em}
+  .gx-track{flex:1;height:14px;border-radius:2px;overflow:hidden;position:relative}
+  .gx-fill{height:100%}
+  .gx-statval{width:30px;text-align:right;font-family:var(--mono);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+  .gx-section{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;padding:16px 14px 6px}
+  .gx-offer{display:flex;align-items:stretch;gap:10px;margin:0 14px 8px;padding:10px 12px;border-radius:3px}
+  .gx-info{flex:1;min-width:0}
+  .gx-offerhead{font-size:14px;font-weight:700}
+  .gx-offerhead em{font-style:normal;font-family:var(--mono);font-size:11px;letter-spacing:.06em;opacity:.7}
+  .gx-offerhead b{float:right;font-variant-numeric:tabular-nums}
+  .gx-desc{font-size:12px;line-height:1.4;margin-top:3px;opacity:.72}
+  .gx-delta{font-family:var(--mono);font-size:11px;margin-top:5px;letter-spacing:.03em}
+  .gx-delta .up{font-weight:700}
+  .gx-btn{
+    font-family:var(--mono);font-size:12px;letter-spacing:.08em;cursor:pointer;
+    padding:0 16px;min-width:76px;border-radius:2px;font-weight:700;
+    transition:transform .06s ease,filter .15s ease;
+  }
+  .gx-btn:active{transform:translateY(1px)}
+  .gx-row2{display:flex;gap:8px;margin:4px 14px 0}
+  .gx-row2 .gx-btn{flex:1;padding:12px 8px}
+  .gx-owned{display:flex;align-items:center;gap:10px;margin:0 14px 6px;padding:8px 12px;border-radius:3px}
+  .gx-owned span{flex:1;font-size:13px}
+  .gx-owned em{font-style:normal;font-family:var(--mono);font-size:11px;opacity:.7}
+  .gx-btn.sm{min-width:82px;padding:8px 10px}
+  .gx-nextrace{
+    width:calc(100% - 28px);margin:18px 14px 6px;padding:15px;border:0;cursor:pointer;
+    font-family:var(--heavy);font-weight:900;font-size:16px;letter-spacing:.06em;border-radius:3px;
+    transition:transform .06s ease,filter .15s ease;
+  }
+  .gx-nextrace:active{transform:translateY(1px)}
+
+  /* ══════════════════════════════════════════════════════
+     DIRECTION 1 — STEEL SILVER  (chrome / liquid metal)
+     ══════════════════════════════════════════════════════ */
+  #steel .frame{
+    background:
+      radial-gradient(140% 90% at 50% 0%, #ffffff 0%, #eef2f6 34%, #cdd5df 78%, #aab4c1 100%);
+    box-shadow:inset 0 1px 0 #fff, 0 30px 80px -30px rgba(30,50,90,.5);
+  }
+  #steel .frame::after{ /* soft top bloom */
+    content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
+    background:radial-gradient(60% 30% at 50% -6%, rgba(255,255,255,.9), transparent 70%);
+    mix-blend-mode:screen;
+  }
+  #steel .gx{
+    background:linear-gradient(180deg,#f7fafc 0%,#e4e9ef 46%,#cfd7e0 100%);
+    border-radius:5px;padding-bottom:14px;
+    border:1px solid #fff;
+    box-shadow:
+      inset 0 1px 0 #ffffff, inset 0 0 0 1px rgba(255,255,255,.5),
+      inset 0 -2px 6px rgba(120,135,155,.4),
+      0 18px 44px -18px rgba(40,60,100,.55);
+  }
+  #steel .gx-titlebar{
+    background:linear-gradient(180deg,#e9eef3,#c3ccd7);
+    border-bottom:1px solid #aeb8c4;border-radius:5px 5px 0 0;
+    box-shadow:inset 0 1px 0 #fff;
+  }
+  #steel .gx-title{
+    color:transparent;
+    background:linear-gradient(180deg,#ffffff 4%,#dfe7ef 30%,#8f9db0 52%,#f3f7fb 66%,#b9c6d6 92%);
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-stroke:1px rgba(70,85,105,.5);
+    filter:drop-shadow(0 1px 0 rgba(255,255,255,.7)) drop-shadow(0 2px 2px rgba(50,70,110,.35));
+  }
+  #steel .gx-circuit{color:#5a687a}
+  #steel .gx-readout{color:#2f3a48}
+  #steel .gx-next{color:#123a9e}
+  #steel .gx-statname{color:#3a4756}
+  #steel .gx-track{
+    background:linear-gradient(180deg,#c3cbd5,#dfe5ec);
+    box-shadow:inset 0 1px 3px rgba(90,105,125,.7), inset 0 -1px 0 #fff;
+  }
+  #steel .gx-fill{
+    background:linear-gradient(180deg,#5b93ff,#1a44d8);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6), 0 0 8px rgba(40,90,230,.6);
+  }
+  #steel .gx-statval{color:#26313f}
+  #steel .gx-section{color:#6a7789;border-bottom:1px solid rgba(150,163,180,.4)}
+  #steel .gx-offer,#steel .gx-owned{
+    background:linear-gradient(180deg,#eef2f6,#d7dee6);
+    border:1px solid #fff;color:#28313d;
+    box-shadow:inset 0 1px 0 #fff, inset 0 -1px 3px rgba(120,135,155,.4);
+  }
+  #steel .gx-delta .up{color:#0e7a2e}
+  #steel .gx-btn{
+    color:#1c2836;
+    background:linear-gradient(180deg,#ffffff,#dbe2ea 52%,#c2cbd6);
+    border:1px solid #fff;
+    box-shadow:inset 0 1px 0 #fff, inset 0 -2px 3px rgba(120,135,155,.5),0 2px 4px rgba(50,70,110,.25);
+  }
+  #steel .gx-btn:hover{filter:brightness(1.06)}
+  #steel .gx-nextrace{
+    color:#eaf2ff;
+    background:linear-gradient(180deg,#4f8bff,#1a3fd0 60%,#122b9e);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.55), inset 0 -3px 6px rgba(0,20,80,.5), 0 8px 20px -6px rgba(30,70,220,.6);
+  }
+  #steel .gx-nextrace:hover{filter:brightness(1.08)}
+
+  /* ══════════════════════════════════════════════════════
+     DIRECTION 2 — AQUA FRUTIGER  (glass / bloom / sparkle)
+     ══════════════════════════════════════════════════════ */
+  #aqua .frame{
+    background:
+      radial-gradient(90% 70% at 26% 14%, #7fe3ff 0%, transparent 46%),
+      radial-gradient(120% 120% at 78% 90%, #0a2ad6 0%, transparent 55%),
+      linear-gradient(158deg,#1b6ff0 0%,#0a34cf 52%,#071d86 100%);
+    box-shadow:0 30px 80px -30px rgba(10,40,140,.7);
+  }
+  #aqua .frame .spark{position:absolute;z-index:2;color:#fff;pointer-events:none;filter:drop-shadow(0 0 6px #bfefff)}
+  #aqua .frame .ring{position:absolute;z-index:1;border-radius:50%;border:2px solid rgba(190,235,255,.5);pointer-events:none}
+  #aqua .frame::after{ /* bloom sheen */
+    content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
+    background:radial-gradient(70% 40% at 30% 8%, rgba(255,255,255,.5), transparent 60%);
+    mix-blend-mode:screen;
+  }
+  #aqua .gx{
+    background:linear-gradient(180deg, rgba(230,246,255,.26), rgba(120,180,255,.14));
+    backdrop-filter:blur(14px) saturate(1.3);
+    border-radius:16px;padding-bottom:14px;
+    border:1px solid rgba(220,244,255,.7);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.9), inset 0 20px 40px -20px rgba(255,255,255,.5),
+      0 20px 50px -18px rgba(4,20,90,.7);
+  }
+  #aqua .gx-titlebar{border-bottom:1px solid rgba(200,235,255,.35)}
+  #aqua .gx-title{
+    color:transparent;
+    background:linear-gradient(180deg,#ffffff 6%,#d4f2ff 34%,#5bb8f5 54%,#eaffff 70%,#9ad9ff 94%);
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-stroke:1px rgba(20,70,150,.5);
+    filter:drop-shadow(0 0 10px rgba(120,220,255,.8)) drop-shadow(0 2px 2px rgba(0,30,110,.5));
+  }
+  #aqua .gx-circuit{color:#dff3ff}
+  #aqua .gx-readout{color:#eaf6ff}
+  #aqua .gx-next{color:#c6f2ff}
+  #aqua .gx-statname{color:#dff2ff}
+  #aqua .gx-track{background:rgba(6,26,90,.5);box-shadow:inset 0 1px 3px rgba(0,10,50,.6), inset 0 -1px 0 rgba(255,255,255,.25)}
+  #aqua .gx-fill{
+    background:linear-gradient(180deg,#c7f6ff,#37c0ff 55%,#0a86ff);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.8), 0 0 12px rgba(90,220,255,.9);
+  }
+  #aqua .gx-statval,#aqua .gx-delta{color:#eaf6ff}
+  #aqua .gx-section{color:#bfe8ff;border-bottom:1px solid rgba(180,225,255,.3)}
+  #aqua .gx-offer,#aqua .gx-owned{
+    background:linear-gradient(180deg, rgba(235,249,255,.22), rgba(120,180,255,.12));
+    border:1px solid rgba(210,240,255,.5);color:#f1f8ff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  #aqua .gx-desc{color:#cfe6ff;opacity:.9}
+  #aqua .gx-delta .up{color:#a9ff8f}
+  #aqua .gx-btn{
+    color:#052a55;
+    background:linear-gradient(180deg,#ffffff,#cdeeff 50%,#7fd0ff);
+    border:1px solid #fff;
+    box-shadow:inset 0 1px 0 #fff, inset 0 -2px 4px rgba(20,110,190,.5), 0 3px 10px rgba(10,60,160,.4);
+  }
+  #aqua .gx-btn:hover{filter:brightness(1.07)}
+  #aqua .gx-nextrace{
+    color:#fff;
+    background:linear-gradient(180deg,#5fdcff,#1a86ff 55%,#0a46e0);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.7), inset 0 -3px 8px rgba(0,30,120,.5), 0 10px 26px -6px rgba(30,140,255,.7);
+  }
+  #aqua .gx-nextrace:hover{filter:brightness(1.08)}
+
+  /* ══════════════════════════════════════════════════════
+     DIRECTION 3 — JEWEL CASE  (PS2 disc / breakcore print)
+     ══════════════════════════════════════════════════════ */
+  #jewel .frame{
+    background:
+      linear-gradient(180deg,#0d1219,#090c12);
+    box-shadow:0 30px 80px -30px rgba(0,0,0,.8);
+    padding-left:64px; /* room for spine */
+  }
+  #jewel .frame::before{ /* halftone / scanline grain */
+    content:"";position:absolute;inset:0;z-index:1;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(150,200,255,.12) 1px, transparent 1.4px);
+    background-size:4px 4px;
+  }
+  #jewel .spine{
+    position:absolute;left:0;top:0;bottom:0;width:52px;z-index:4;
+    background:linear-gradient(180deg,#10161f,#0a0e14);
+    border-right:1px solid #223047;
+    display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+    padding:16px 0;
+  }
+  #jewel .spine .disc{
+    width:34px;height:34px;border-radius:50%;
+    border:2px solid #7fd4ff;
+    display:flex;align-items:center;justify-content:center;color:#7fd4ff;font-size:14px;
+    box-shadow:0 0 12px rgba(90,190,255,.5);
+  }
+  #jewel .spine .vert{
+    writing-mode:vertical-rl;transform:rotate(180deg);
+    font-family:var(--mono);font-size:12px;letter-spacing:.34em;color:#8fa2b6;text-transform:uppercase;
+  }
+  #jewel .spine .pal{font-family:var(--mono);font-size:9px;color:#59677a;letter-spacing:.2em}
+  #jewel .gx{
+    background:linear-gradient(180deg,#0f151d,#0a0e14);
+    border:1px solid #1d2836;border-radius:2px;padding-bottom:14px;
+    box-shadow:inset 0 1px 0 rgba(120,160,210,.12);
+  }
+  #jewel .gx-titlebar{
+    background:linear-gradient(180deg,#131b25,#0c1119);
+    border-bottom:1px solid #223145;
+  }
+  #jewel .gx-title{
+    font-family:var(--heavy);letter-spacing:-.01em;color:#eef4fb;
+    text-shadow:0 0 1px #000, 2px 2px 0 rgba(0,0,0,.6);
+  }
+  #jewel .gx-circuit{color:#6f8298}
+  #jewel .gx-readout{color:#b7c6d6}
+  #jewel .gx-next{color:#7fd4ff}
+  #jewel .gx-statname{color:#8ea0b4}
+  #jewel .gx-track{background:#0a0f16;border:1px solid #1e2a3a;box-shadow:inset 0 1px 2px #000}
+  #jewel .gx-fill{background:linear-gradient(90deg,#1f7fd0,#7fd4ff);box-shadow:0 0 8px rgba(90,190,255,.55)}
+  #jewel .gx-statval{color:#d7e3ef}
+  #jewel .gx-section{color:#67c6ff;border-bottom:1px solid #1d2b3c;letter-spacing:.26em}
+  #jewel .gx-offer,#jewel .gx-owned{
+    background:#0d131b;border:1px solid #1c2836;color:#c4d2e0;
+  }
+  #jewel .gx-desc{color:#7c8ba0}
+  #jewel .gx-delta .up{color:#b6ff3a}
+  #jewel .gx-btn{
+    color:#04263f;background:linear-gradient(180deg,#a9e2ff,#4aa8ea);
+    border:1px solid #bfeaff;
+    box-shadow:0 0 10px rgba(70,160,235,.35);
+  }
+  #jewel .gx-btn:hover{filter:brightness(1.08)}
+  #jewel .gx-nextrace{
+    color:#03243c;background:linear-gradient(180deg,#b6ff3a,#7ad11e);
+    box-shadow:0 8px 22px -8px rgba(150,255,60,.6);
+  }
+  #jewel .barcode{
+    display:flex;align-items:flex-end;gap:1.5px;height:34px;margin:16px 14px 0;
+  }
+  #jewel .barcode i{width:2px;background:#c4d2e0;display:block}
+  #jewel .badge{
+    display:inline-flex;align-items:center;gap:6px;margin:12px 14px 0;
+    font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:#8fa2b6;
+  }
+  #jewel .badge b{background:#c81028;color:#fff;padding:2px 6px;border-radius:2px;font-weight:800}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  @media (max-width:560px){
+    .frame{padding:22px 14px}
+    #jewel .frame{padding-left:60px}
+    .gx-title{font-size:24px}
+  }
+</style>
+
+<div class="bar">
+  <span class="brand">Shitboxer / Garage</span>
+  <div class="seg" id="seg">
+    <button data-go="steel" aria-pressed="true">1 · Steel Silver</button>
+    <button data-go="aqua" aria-pressed="false">2 · Aqua Frutiger</button>
+    <button data-go="jewel" aria-pressed="false">3 · Jewel Case</button>
+  </div>
+  <span class="hint">press 1 / 2 / 3</span>
+</div>
+
+<div class="caption" id="caption"></div>
+
+<div class="stages">
+  <section class="stage active" id="steel">
+    <div class="frame"><div class="cabinet"></div></div>
+  </section>
+  <section class="stage" id="aqua">
+    <div class="frame">
+      <span class="spark" style="top:9%;left:20%;font-size:26px">✦</span>
+      <span class="spark" style="top:64%;left:8%;font-size:18px">✦</span>
+      <span class="spark" style="top:32%;right:9%;font-size:22px">✦</span>
+      <span class="spark" style="bottom:12%;right:22%;font-size:15px">✦</span>
+      <div class="ring" style="width:150px;height:150px;top:-40px;right:-30px"></div>
+      <div class="ring" style="width:90px;height:90px;bottom:30px;left:-20px"></div>
+      <div class="cabinet"></div>
+    </div>
+  </section>
+  <section class="stage" id="jewel">
+    <div class="frame">
+      <div class="spine">
+        <div class="disc">◈</div>
+        <div class="vert">SHITBOXER</div>
+        <div class="pal">PAL</div>
+      </div>
+      <div class="cabinet"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const GARAGE = `
+    <div class="gx">
+      <div class="gx-titlebar">
+        <span class="gx-title">GARAGE</span>
+        <span class="gx-circuit">CIRCUIT 1/1</span>
+      </div>
+      <div class="gx-status">
+        <div class="gx-readout"><span>$</span><i></i><b>15</b></div>
+        <div class="gx-readout"><span>LIVES</span><i></i><b>3</b></div>
+        <div class="gx-next">NEXT: race 1/5</div>
+      </div>
+      <div class="gx-stats">
+        <div class="gx-statbar"><span class="gx-statname">GRIP</span><div class="gx-track"><div class="gx-fill" style="width:62%"></div></div><span class="gx-statval">62</span></div>
+        <div class="gx-statbar"><span class="gx-statname">POWER</span><div class="gx-track"><div class="gx-fill" style="width:58%"></div></div><span class="gx-statval">58</span></div>
+      </div>
+      <div class="gx-section">Shop</div>
+      <div class="gx-offer">
+        <div class="gx-info">
+          <div class="gx-offerhead">Junkyard Turbo <em>[STAT]</em> <b>$5</b></div>
+          <div class="gx-desc">Boost from a scrapyard. More Power, maybe less reliability.</div>
+          <div class="gx-delta">POWER 58 &rarr; 67 <span class="up">(+9)</span></div>
+        </div>
+        <button class="gx-btn">BUY</button>
+      </div>
+      <div class="gx-offer">
+        <div class="gx-info">
+          <div class="gx-offerhead">Broadcast Deal <em>[ECON]</em> <b>$3</b></div>
+          <div class="gx-desc">The network pays per second you're on screen scrapping in the pack.</div>
+        </div>
+        <button class="gx-btn">BUY</button>
+      </div>
+      <div class="gx-offer">
+        <div class="gx-info">
+          <div class="gx-offerhead">Race Slicks <em>[STAT]</em> <b>$5</b></div>
+          <div class="gx-desc">Grip you can feel. Wears fast.</div>
+          <div class="gx-delta">GRIP 62 &rarr; 71 <span class="up">(+9)</span></div>
+        </div>
+        <button class="gx-btn">BUY</button>
+      </div>
+      <div class="gx-row2">
+        <button class="gx-btn">BUY PARTS CRATE ($6)</button>
+        <button class="gx-btn">REROLL ($2)</button>
+      </div>
+      <div class="gx-section">Owned Parts &nbsp;·&nbsp; 1/3 slots</div>
+      <div class="gx-owned"><span>Sticky Compound <em>[STAT]</em> &nbsp;— EQUIPPED</span><button class="gx-btn sm">UNEQUIP</button></div>
+      <div class="gx-owned"><span>Pizza Sponsor <em>[ECON]</em></span><button class="gx-btn sm">EQUIP</button></div>
+      <button class="gx-nextrace">NEXT RACE &nbsp;&rsaquo;</button>
+    </div>`;
+
+  document.querySelectorAll('.cabinet').forEach(c => c.innerHTML = GARAGE);
+
+  // jewel-case extras: barcode + rating badge appended into its garage
+  const jewelGx = document.querySelector('#jewel .gx');
+  const bc = document.createElement('div'); bc.className='barcode';
+  let seed=7; for(let i=0;i<48;i++){ seed=(seed*1103515245+12345)&0x7fffffff; const h=22+(seed%12); const w=(seed>>3)%3?2:3; bc.insertAdjacentHTML('beforeend',`<i style="height:${h}px;width:${w}px"></i>`);}
+  const badge=document.createElement('div'); badge.className='badge'; badge.innerHTML='<b>18</b> SLES-00000 · CONTACT RACING';
+  jewelGx.appendChild(bc); jewelGx.appendChild(badge);
+
+  const CAPTIONS = {
+    steel:{h:'Steel Silver',p:'Bright brushed-chrome product panel: glossy liquid-metal bevels, a cobalt accent, blood-red kept for faults only. Reads like the PS2 "Steel Silver" ad — premium, high-key, blooming.',l:'lineage · PS2 Steel Silver ad'},
+    aqua:{h:'Aqua Frutiger',p:'Frosted glass floating over a cobalt-to-cyan field, lens-flare sparkles and concentric rings, water-gloss buttons, an acid-green only on a stat gain. The rave-flyer / Frutiger-Aero take.',l:'lineage · the blue edits + Spike Up'},
+    jewel:{h:'Jewel Case',p:'A PS2 back-cover: spine label, halftone grain, barcode and rating badge, cold blue-black with an acid-green counter-accent. Structured, gritty, media-packaging — the breakcore mixtape look.',l:'lineage · Polystyrene PS2 cover'}
+  };
+  const capEl = document.getElementById('caption');
+  function show(id){
+    document.querySelectorAll('.stage').forEach(s=>s.classList.toggle('active',s.id===id));
+    document.querySelectorAll('#seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.go===id));
+    const c=CAPTIONS[id]; capEl.innerHTML=`<h2>${c.h}</h2><p>${c.p}</p><div class="lin">${c.l}</div>`;
+  }
+  document.getElementById('seg').addEventListener('click',e=>{const b=e.target.closest('button');if(b)show(b.dataset.go)});
+  addEventListener('keydown',e=>{const m={'1':'steel','2':'aqua','3':'jewel'};if(m[e.key])show(m[e.key])});
+  show('steel');
+</script>

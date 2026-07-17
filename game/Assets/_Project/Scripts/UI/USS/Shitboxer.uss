@@ -1,135 +1,21 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   SHITBOXER UI — the shared visual language (Y2K arcade service menu).
-   Requires Tokens.uss (imported first).
-
-   Two laws, harvested from the prototype:
-     1. NO ROUNDED CORNERS, ANYWHERE. One 2px radius and it reads as a modern
-        app in a costume. border-radius is 0 everywhere, always.
-     2. The 2px bevel never varies. Light is upper-left: top+left lit, bottom+
-        right shadowed for a RAISED element; reversed for a SUNK well. That one
-        unchanging bevel is what says "1998 system utility".
+   SHITBOXER UI — base ground + default text.  Requires Tokens.uss first.
+   The garage's own layout/components live in Garage.uss.
    ───────────────────────────────────────────────────────────────────────── */
 
-.sb-root {
+.sb-screen {
     flex-grow: 1;
-    background-color: var(--void);
+    align-items: center;              /* centre the letterboxed stage        */
+    justify-content: flex-start;
+    background-color: var(--screen);
     -unity-font-definition: var(--font-sys);
-    font-size: var(--size-body);
     color: var(--ink);
+    font-size: var(--size-body);
 }
 
-.sb-root Label {
+.sb-screen Label {
+    -unity-font-definition: var(--font-sys);
     color: var(--ink);
     font-size: var(--size-body);
-    -unity-font-definition: var(--font-sys);
     white-space: nowrap;
-}
-
-/* ── Panel: a raised steel window ─────────────────────────────────────────── */
-.sb-panel {
-    background-color: var(--steel);
-    border-top-width: var(--bevel);
-    border-left-width: var(--bevel);
-    border-right-width: var(--bevel);
-    border-bottom-width: var(--bevel);
-    border-top-color: var(--steel-hi);
-    border-left-color: var(--steel-hi);
-    border-right-color: var(--steel-lo);
-    border-bottom-color: var(--steel-lo);
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    padding: var(--grid);
-}
-
-/* ── Titlebar: the cobalt header ──────────────────────────────────────────── */
-.sb-titlebar {
-    background-color: var(--cab-blue);
-    border-top-width: var(--bevel);
-    border-left-width: var(--bevel);
-    border-right-width: var(--bevel);
-    border-bottom-width: var(--bevel);
-    border-top-color: var(--cab-blue-hi);
-    border-left-color: var(--cab-blue-hi);
-    border-right-color: var(--cab-blue-lo);
-    border-bottom-color: var(--cab-blue-lo);
-    padding: var(--grid);
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.sb-titlebar Label {
-    color: var(--bone);
-    -unity-font-definition: var(--font-display);
-    font-size: var(--size-header);
-}
-
-/* ── Well: a recessed strip (readouts live here) ──────────────────────────── */
-.sb-well {
-    background-color: var(--steel-sunk);
-    border-top-width: var(--bevel);
-    border-left-width: var(--bevel);
-    border-right-width: var(--bevel);
-    border-bottom-width: var(--bevel);
-    border-top-color: var(--steel-lo);
-    border-left-color: var(--steel-lo);
-    border-right-color: var(--steel-hi);
-    border-bottom-color: var(--steel-hi);
-    padding: var(--grid);
-}
-
-/* ── Row: a horizontal line item ──────────────────────────────────────────── */
-.sb-row {
-    flex-direction: row;
-    align-items: center;
-    margin-bottom: 2px;
-}
-
-/* ── Button: raised steel, snaps to sunk on press. No easing — arcade. ─────── */
-.sb-button {
-    background-color: var(--steel);
-    color: var(--ink);
-    -unity-font-definition: var(--font-sys);
-    font-size: var(--size-body);
-    border-top-width: var(--bevel);
-    border-left-width: var(--bevel);
-    border-right-width: var(--bevel);
-    border-bottom-width: var(--bevel);
-    border-top-color: var(--steel-hi);
-    border-left-color: var(--steel-hi);
-    border-right-color: var(--steel-lo);
-    border-bottom-color: var(--steel-lo);
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    padding: 4px 10px;
-    margin: 0;
-}
-
-.sb-button:hover {
-    background-color: var(--steel-hi);
-}
-
-.sb-button:active {
-    border-top-color: var(--steel-lo);
-    border-left-color: var(--steel-lo);
-    border-right-color: var(--steel-hi);
-    border-bottom-color: var(--steel-hi);
-}
-
-.sb-button:disabled {
-    color: var(--ink-soft);
-    opacity: 0.6;
-}
-
-/* ── Fault: the one place blood-red is allowed ────────────────────────────── */
-.sb-fault {
-    color: var(--blood);
-}
-
-.sb-dim {
-    color: var(--ink-soft);
 }

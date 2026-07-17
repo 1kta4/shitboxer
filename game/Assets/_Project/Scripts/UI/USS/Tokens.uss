@@ -1,57 +1,48 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   SHITBOXER UI — design tokens (Y2K arcade service menu)
-   Harvested from the y2k-arcade-ui-prototype. Imported first by every screen.
+   SHITBOXER UI — design tokens.  PS2 "Garage v3" (ported from garage-ps2-v3.html)
+   Dark navy plates, blue system accent, amber cash, green gains, red faults.
 
-   USS is NOT CSS. Constraints that shaped this file:
-     - var() cannot nest inside another function.  rgb(var(--r),0,0) is INVALID.
-     - No math on variables. No calc().
-     - No ::before / ::after, no clip-path, no mix-blend-mode.
-   So every token below is a whole, final value. Nothing is composed.
+   USS is NOT CSS. Constraints that shape this port:
+     - No CSS grid (flexbox only), no clip-path, no box-shadow.
+     - Diagonal cuts + glows the mock uses are deferred to baked sprites.
+   Fonts are the in-repo PIXEL faces for now — swap --font-sys / --font-display
+   below to move the WHOLE UI onto the demo (sans / mono / heavy) fonts.
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {
-    /* ── Palette ──────────────────────────────────────────────────────────
-       Monochrome cold steel, punctuated twice: cobalt (system) and blood
-       (fault). Only two saturated colours exist in the whole UI. If a third
-       ever appears, the accent has stopped meaning anything. */
+    /* ── Ink ─────────────────────────────────────────────────────────────── */
+    --ink:      #e4ecf8;
+    --ink-dim:  #93a4bc;
+    --ink-mute: #5c6c86;
 
-    --cab-blue:    #0000A8;  /* service-menu header. CPS-2 / NAOMI cobalt.   */
-    --cab-blue-hi: #2A2AE0;  /* header bevel, lit edge                       */
-    --cab-blue-lo: #000060;  /* header bevel, shadow edge                    */
+    /* ── Accents (the only saturated colours) ────────────────────────────── */
+    --blue:    #4f8bff;   /* system / selection            */
+    --blue-lt: #8fc4ff;   /* lit blue, labels              */
+    --green:   #5fd97a;   /* stat GAIN / equipped          */
+    --amber:   #e8bb63;   /* CASH / prices                 */
+    --red:     #e0384e;   /* LIVES / faults / can't afford */
 
-    --steel:       #A8AEB4;  /* window body. Neo Geo MVS silver-grey.        */
-    --steel-hi:    #D6DADE;  /* bevel: top + left  (light from upper-left)   */
-    --steel-lo:    #585E62;  /* bevel: bottom + right                        */
-    --steel-sunk:  #8E9498;  /* recessed wells (readout strip)               */
+    /* ── Steel plates ────────────────────────────────────────────────────── */
+    --screen:   #0a0d14;
+    --plate:    #1c2330;
+    --plate-hi: #242c3a;  /* lit top of a plate gradient   */
+    --plate-lo: #141a24;  /* shadow foot of a plate        */
+    --panel:    #1a212c;
+    --edge:     #3a4557;
+    --edge-lit: rgba(190, 215, 255, 0.3);
+    --line:     #2f3a4c;  /* dividers / borders            */
+    --sec:      #8fb6ea;  /* section-header blue           */
 
-    --ink:         #0B0D0F;  /* near-black. Body text on steel.              */
-    --ink-soft:    #3A4044;  /* de-emphasised / disabled text                */
-    --bone:        #E6EAED;  /* stark white. Text on cobalt.                 */
-
-    --blood:       #B00010;  /* deep blood-red. FAULT only. Never decorative.*/
-    --void:        #04060A;  /* deep black. Behind everything.               */
-
-    /* ── Type ─────────────────────────────────────────────────────────────
-       Silkscreen for the body/data, Press Start 2P for the titlebar only.
-       Both OFL (licences ship beside the .ttf in Fonts/). var() cannot nest
-       in url(), so a font swap is a literal edit here, not a token indirection
-       — that is a USS limitation, not an oversight. */
+    /* ── Type ────────────────────────────────────────────────────────────── */
+    /* PIXEL FIRST. To switch to the demo fonts, point these at the sans/heavy
+       .ttf instead (or clear them to fall back to the panel's default theme). */
     --font-sys:     url("project:///Assets/_Project/Scripts/UI/Fonts/Silkscreen-Regular.ttf");
     --font-display: url("project:///Assets/_Project/Scripts/UI/Fonts/PressStart2P-Regular.ttf");
 
-    /* Type scale. Pixel fonts must land on integer sizes or they shimmer.
-       These are multiples of 8 and 6 — do not introduce a 13px. */
-    --size-header:  16px;
-    --size-body:    12px;
-    --size-data:    12px;
-    --size-fine:     8px;
-
-    /* ── Geometry ─────────────────────────────────────────────────────────
-       Everything is on an 8px grid. The bevel is 2px, always, everywhere —
-       that single unchanging bevel is what reads as "1998 system utility"
-       faster than any colour choice. */
-    --bevel:        2px;
-    --grid:         8px;
-    --grid-2:      16px;
-    --grid-3:      24px;
+    /* Pixel fonts must land on integer sizes or they shimmer. */
+    --size-title: 16px;   /* Press Start 2P — GARAGE, NEXT RACE */
+    --size-cta:   12px;
+    --size-val:   12px;   /* Silkscreen — numbers we read       */
+    --size-body:  10px;   /* Silkscreen — names, descriptions   */
+    --size-label:  8px;   /* Silkscreen — uppercase micro-labels */
 }

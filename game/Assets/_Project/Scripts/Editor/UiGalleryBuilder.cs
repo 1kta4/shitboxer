@@ -1,3 +1,4 @@
+using System.IO;
 using Shitboxer.UI;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -29,11 +30,22 @@ namespace Shitboxer.Editor
 
             var rig = new GameObject("UiGalleryRig");
             UIDocument doc = rig.AddComponent<UIDocument>();
-            doc.panelSettings = panel;
+            AssignPanel(doc, panel);
             GalleryDriver driver = rig.AddComponent<GalleryDriver>();
             AssignStyleSheets(driver);
 
+            // A camera so the Game view has something to render — without one Unity draws "No cameras
+            // rendering" over an uncleared framebuffer (the yellow garbage). The UI is a screen-space
+            // overlay drawn on top; the camera just clears the backdrop to the screen navy.
+            var camGo = new GameObject("Main Camera") { tag = "MainCamera" };
+            Camera cam = camGo.AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.039f, 0.051f, 0.078f, 1f);
+            cam.orthographic = true;
+
+            EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
+            WirePanelIntoScene();
             Debug.Log($"[Shitboxer] Built the UI gallery at {ScenePath} — open it and press Play. " +
                       "timeScale is forced to 0 in there, so it also tests that clicks work while paused.");
         }
@@ -67,6 +79,38 @@ namespace Shitboxer.Editor
             EditorUtility.SetDirty(panel);
             AssetDatabase.SaveAssets();
             return panel;
+        }
+
+        private static void AssignPanel(UIDocument doc, PanelSettings panel)
+        {
+            // Best-effort: try the API path first. In this Unity, neither the C# setter nor a
+            // SerializedObject write to m_PanelSettings survives SaveScene on a freshly-built UIDocument
+            // — the reference serialises back as {fileID: 0} and the panel renders blank. So this is only
+            // a first attempt; WirePanelIntoScene() below guarantees the reference on disk afterwards.
+            var so = new SerializedObject(doc);
+            so.FindProperty("m_PanelSettings").objectReferenceValue = panel;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>
+        /// Guarantee the UIDocument's PanelSettings reference by repairing the saved scene file directly.
+        /// The API assignment (see AssignPanel) does not persist here, so we patch the null reference the
+        /// serializer wrote. Deterministic: a PanelSettings .asset is referenced as
+        /// {fileID: 11400000, guid, type: 2} — the same shape this project's URP settings assets use.
+        /// Idempotent: a no-op if the reference is ever non-null (nothing to replace).
+        /// </summary>
+        private static void WirePanelIntoScene()
+        {
+            string guid = AssetDatabase.AssetPathToGUID(PanelPath);
+            if (string.IsNullOrEmpty(guid)) return;
+
+            string text = File.ReadAllText(ScenePath);
+            const string nullRef = "m_PanelSettings: {fileID: 0}";
+            if (!text.Contains(nullRef)) return;
+
+            text = text.Replace(nullRef, $"m_PanelSettings: {{fileID: 11400000, guid: {guid}, type: 2}}");
+            File.WriteAllText(ScenePath, text);
+            AssetDatabase.ImportAsset(ScenePath, ImportAssetOptions.ForceUpdate);
         }
 
         private static void AssignStyleSheets(GalleryDriver driver)
