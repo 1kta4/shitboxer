@@ -106,6 +106,21 @@ namespace Shitboxer.Race
             VehicleCombat.GetOrAdd(gameObject).SetProfile(profile);
         }
 
+        /// <summary>
+        /// What this car can actually do, read off its live spec rather than assumed. Read once, at
+        /// brain construction — which happens in FixedUpdate, after the run layer has bound and
+        /// applied its per-race bot scaling, so a ramped car gets planned as a ramped car. Falls
+        /// back to the historical hardcoded pair when there's no spec to read (a bare race scene),
+        /// so that case drives exactly as before.
+        /// </summary>
+        private BotLimits ResolveLimits()
+        {
+            VehicleSpec spec = _controller && _controller.SpecAsset ? _controller.SpecAsset.Spec : null;
+            if (spec == null) return BotLimits.Default;
+            // Plan on the weaker axle: whichever end lets go first is what sets the corner.
+            return BotLimits.FromGrip(Mathf.Min(spec.FrontTyre.PeakMu, spec.RearTyre.PeakMu));
+        }
+
         private void OnDisable()
         {
             // Coast when switched off (e.g. by RaceManager after finishing) — a lingering
@@ -118,7 +133,7 @@ namespace Shitboxer.Race
             if (!trackPath || trackPath.Line == null) return;
             if (_brain == null)
             {
-                _brain = new BotBrain(trackPath.Line, skill);
+                _brain = new BotBrain(trackPath.Line, skill, ResolveLimits());
                 // Seeded, bounded rival variety (opt-in via enableRivalVariety). OFF resolves to the serialized
                 // `personality` at Nominal difficulty — byte-for-byte today's bots. ON fans a stable per-bot seed
                 // (the base seed reshuffles the whole field; the sibling index gives each bot its own draw — both

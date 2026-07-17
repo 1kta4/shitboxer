@@ -59,6 +59,13 @@ namespace Shitboxer.Meta
         [Min(1)]
         [SerializeField] private int totalCircuits = 1;
 
+        [Tooltip("Races in each circuit — the last one is the boss (top-3 required). 5 gives a run enough garages for the shop to actually breathe: at 3 the whole run turned over ~$30, which couldn't fill six equip slots and left the team upgrades unable to repay themselves. Same CONFIG rule as totalCircuits: never persisted by RunSave, re-stamped onto every run the director adopts, so a retune reaches a run already in flight.")]
+        [Min(1)]
+        [SerializeField] private int racesPerCircuit = 5;
+
+        [Tooltip("Track scenes the run rotates through, one per race — otherwise a 5-race run is the same rectangle five times. Every name must be a scene in Build Settings; 'Shitboxer/Build Race Scenes' generates them and registers them. Leave EMPTY to reload the active scene instead, which is the old single-track behaviour.")]
+        [SerializeField] private string[] raceScenes = { "RaceTest", "RaceGauntlet", "RaceSpeedway" };
+
         [Header("Boss races (opt-in — default OFF reproduces today's sequence exactly)")]
         [Tooltip("When ON, each circuit's final race runs under RaceRuleset.Boss and a clean boss finish pays the boss bonus (and any DoublePayout) and honours NoRepairAfter. OFF (default) makes NO SetRuleset call and no boss reward — the race sequence, rulesets, rewards and repairs are byte-for-byte as shipped.")]
         [SerializeField] private bool bossRacesEnabled = false;
@@ -143,7 +150,7 @@ namespace Shitboxer.Meta
 
             // Season shape is config, not saved progress — stamp it on whichever run we just adopted so a
             // resumed run picks up the current inspector value rather than the default it was rebuilt with.
-            ApplySeasonShape(Run, totalCircuits);
+            ApplySeasonShape(Run, totalCircuits, racesPerCircuit);
 
             _garage = GetComponent<GarageScreen>();
             if (!_garage) _garage = gameObject.AddComponent<GarageScreen>();
@@ -184,6 +191,7 @@ namespace Shitboxer.Meta
 
             ApplyEquippedParts();
             ApplyAttackProfile();
+            ApplyBotStrength(); // AFTER ApplyEquippedParts: skips whichever car is the player's
             ApplyRuleset();     // opt-in boss ruleset BEFORE ApplyDifficulty so the per-circuit tighten reads its base
             ApplyDifficulty();
             ApplyPayoutPreview(); // AFTER ApplyRuleset — the preview reads the ruleset for the boss reward
@@ -240,6 +248,66 @@ namespace Shitboxer.Meta
         {
             AttackProfile profile = AttackLoadout.Build(Run.EquippedParts);
             VehicleCombat.GetOrAdd(_playerCar.gameObject).SetProfile(profile);
+        }
+
+        // --- Bot strength ramp -----------------------------------------------------------------
+        // Bots never equip parts — SpecModApplier.Apply is only ever handed the player's car — so
+        // without this the whole field stays showroom-stock while the player's build compounds at
+        // every garage. Playtest 2026-07-17: the player lapped all 7 rivals by lap 2 of 3.
+        //
+        // This is deliberately NOT DifficultyScalar. That scales a bot's TARGET speed, and a measured
+        // quasi-steady-state lap sim says the lap is ACCELERATION-limited, not target-limited: bots
+        // run ~15-39 m/s against a target of 52, so raising the target changes nothing at all (52 and
+        // 70 give identical lap times). Only the car moves the number. Same reason the racing line
+        // was a dead end — widening corners was worth ~3%.
+
+        [Tooltip("Rival-car grip/power multiplier on race 1, BEFORE any ramp. 1.0 = showroom-stock, which playtested far too soft: rivals drive the same shitbox the player starts in, but a human out-drives BotBrain's speed plan by ~25% (measured: the player's fresh-season best is 14.4s where the plan says a stock car laps ~28s), so an unscaled field is never a race even on lap 1. 1.4 puts race 1 near 23s.")]
+        [Min(1f)]
+        [SerializeField] private float botStrengthBase = 1.4f;
+
+        [Tooltip("Extra grip/power per race already completed this run, added to botStrengthBase. 0.40 across a 5-race season ramps 1.4 -> 3.0, roughly 23s -> 17s a lap. This is the rivals' shop: bots never buy parts, so without it the player's build simply walks away. 0 = a flat field all season.")]
+        [SerializeField] private float botStrengthPerRace = 0.40f;
+
+        [Tooltip("Ceiling on the rival-car scale, so a long season can't hand the field a spaceship. 3.0 lands ~17s a lap against the player's measured 14.4s best — ahead, but no longer lapping them.")]
+        [SerializeField] private float botStrengthMax = 3f;
+
+        /// <summary>
+        /// Scales every rival's car for this race off <see cref="RunState.RaceNumber"/>. Rivals are
+        /// found by their BotDriver — a car with one IS a rival — rather than through
+        /// RaceManager.Cars, which is still empty here: BindToScene runs off sceneLoaded, before
+        /// RaceManager.Start has registered anything. The scene is rebuilt each race so every bot
+        /// starts from its authored prefab spec and this never compounds. Runs before BotDriver
+        /// builds its brain (that happens in FixedUpdate), so BotLimits reads the scaled grip.
+        /// </summary>
+        /// <summary>
+        /// Rival-car scale for a given race of the run: base, plus the ramp per race already run,
+        /// clamped to [1, max]. Pure and static so the ramp is unit-testable without a live scene
+        /// (same convention as <see cref="ApplySeasonShape"/> / <see cref="IsDesignatedBoss"/>).
+        /// Returns 1 for an OFF configuration, which callers treat as "leave rivals as authored".
+        /// </summary>
+        public static float BotStrengthFor(int raceNumber, float baseScale, float perRace, float max) =>
+            Mathf.Clamp(Mathf.Max(1f, baseScale) + Mathf.Max(0f, perRace) * Mathf.Max(0, raceNumber),
+                        1f, Mathf.Max(1f, max));
+
+        private void ApplyBotStrength()
+        {
+            // Grip and power scale together behind one knob, but they are NOT equal levers: measured
+            // on this track, 3x grip alone takes a bot lap 28.0s -> 19.3s while 3x power alone only
+            // reaches 24.5s. Grip is what buys pace; the power rides along so rivals can use the
+            // exits. If this ever needs splitting, raise the grip term first.
+            float scale = BotStrengthFor(Run.RaceNumber, botStrengthBase, botStrengthPerRace, botStrengthMax);
+            if (scale <= 1f) return; // base 1 and no ramp = OFF: rivals stay exactly as authored
+
+            foreach (BotDriver bot in FindObjectsByType<BotDriver>(FindObjectsSortMode.None))
+            {
+                var car = bot.GetComponent<VehicleController>();
+                if (!car || car == _playerCar || car.SpecAsset == null) continue;
+
+                var asset = ScriptableObject.CreateInstance<VehicleSpecAsset>();
+                asset.name = $"BotSpec_Runtime_x{scale:F2}";
+                asset.Spec = SpecModApplier.Scaled(car.SpecAsset.Spec, scale, scale);
+                car.SetSpec(asset);
+            }
         }
 
         // Season-ramp tuning. Deliberately gentle and bounded so circuit 1 plays exactly as
@@ -363,10 +431,13 @@ namespace Shitboxer.Meta
         /// RunState happened to be built with. Pure and static so it's unit-testable without a live scene
         /// (same convention as <see cref="IsDesignatedBoss"/> / <see cref="RulesetForRace"/>). Null-tolerant.
         /// </summary>
-        public static RunState ApplySeasonShape(RunState run, int totalCircuits)
+        /// <param name="racesPerCircuit">Races in each circuit. 0 (the default) leaves the RunState's own
+        /// value alone, so callers that only care about circuit count are unaffected.</param>
+        public static RunState ApplySeasonShape(RunState run, int totalCircuits, int racesPerCircuit = 0)
         {
             if (run == null) return null;
             run.TotalCircuits = Mathf.Max(1, totalCircuits);
+            if (racesPerCircuit > 0) run.RacesPerCircuit = racesPerCircuit;
             return run;
         }
 
@@ -522,11 +593,11 @@ namespace Shitboxer.Meta
             RecordPlayerBestLap(me);
 
             bool eliminated = me.State == CarRaceState.Eliminated;
-            // The boss cushion tightens with the season: the required top-N shrinks by one slot per
-            // circuit (never below 1) so later bosses demand a sharper finish. RunState is untouched —
-            // this is a per-circuit view of Run.BossTopN, computed only here.
-            int effectiveBossTopN = Mathf.Max(1, Run.BossTopN - Run.CircuitIndex);
-            bool bossFailed = !eliminated && Run.IsBossRace && me.Position > effectiveBossTopN;
+            // Flat top-N: a boss race asks for the same finish on every circuit. This used to shrink one
+            // slot per circuit (Max(1, BossTopN - CircuitIndex)), which quietly escalated an already
+            // unannounced gate into "win or lose a life" by circuit 3 — the rule moved under the player
+            // with nothing on screen saying so, and cost a life in playtest.
+            bool bossFailed = !eliminated && Run.IsBossRace && me.Position > Run.BossTopN;
             bool failed = eliminated || bossFailed;
 
             // Opt-in boss race: true only when BossRacesEnabled designated THIS race a boss (its circuit's
@@ -578,7 +649,7 @@ namespace Shitboxer.Meta
                 Run.Lives -= 1;
                 LastRaceSummary = (eliminated
                     ? $"P{me.Position} — ELIMINATED (missed the cutoff). +${totalPay}, -1 life."
-                    : $"P{me.Position} — boss race demands top {effectiveBossTopN}. +${totalPay}, -1 life. Retry it.")
+                    : $"P{me.Position} — boss race demands top {Run.BossTopN}. +${totalPay}, -1 life. Retry it.")
                     + fragileNote;
 
                 if (Run.Lives <= 0)
@@ -792,7 +863,7 @@ namespace Shitboxer.Meta
             int stake = ClampToUnlockedStake(stakeLevel);
             Run = ApplySeasonShape(
                 new RunState { Money = startingMoney, Seed = RollSeed(), StakeLevel = stake },
-                totalCircuits);
+                totalCircuits, racesPerCircuit);
             LastRaceSummary = "";
             Phase = RunPhase.Racing;
             Time.timeScale = 1f;
@@ -915,9 +986,44 @@ namespace Shitboxer.Meta
             }
         }
 
+        /// <summary>
+        /// Which track a given race runs on: rotates through <paramref name="scenes"/> so consecutive
+        /// races differ and a 5-race run sees every layout. Pure and static so the rotation is
+        /// unit-testable without a live scene (same convention as <see cref="ApplySeasonShape"/> /
+        /// <see cref="BotStrengthFor"/>). Falls back to <paramref name="fallback"/> — the active scene —
+        /// when unconfigured or when a slot is blank, which reproduces the single-track behaviour
+        /// rather than throwing on a scene that isn't in Build Settings.
+        /// </summary>
+        public static string SceneForRace(int raceNumber, string[] scenes, string fallback)
+        {
+            if (scenes == null || scenes.Length == 0) return fallback;
+            int index = ((raceNumber % scenes.Length) + scenes.Length) % scenes.Length; // negatives wrap too
+            return string.IsNullOrWhiteSpace(scenes[index]) ? fallback : scenes[index];
+        }
+
+        /// <summary>
+        /// Loads the track for the race that is about to run. Both callers reach here with RaceIndex
+        /// already pointing at that race (a retry leaves it alone, so a failed race is retried on the
+        /// same track). The RunRig survives the load — it's a DontDestroyOnLoad singleton — and
+        /// re-binds to the new scene's RaceManager via OnSceneLoaded.
+        /// </summary>
         private void ReloadRaceScene()
         {
-            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+            string active = SceneManager.GetActiveScene().name;
+            int raceNumber = Run != null ? Run.RaceNumber : 0;
+            string next = SceneForRace(raceNumber, raceScenes, active);
+
+            // A layout that was never generated — or generated but not registered in Build Settings —
+            // must not end a run in an exception two races in. Stay on the current track and say why.
+            if (next != active && !Application.CanStreamedLevelBeLoaded(next))
+            {
+                Debug.LogWarning(
+                    $"[RunDirector] Track scene '{next}' is not in Build Settings — racing '{active}' again. " +
+                    "Run 'Shitboxer/Build Race Scenes' to generate the layouts and register them.", this);
+                next = active;
+            }
+
+            SceneManager.LoadScene(next);
         }
     }
 }

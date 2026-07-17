@@ -59,6 +59,26 @@ namespace Shitboxer.Meta
             return spec;
         }
 
+        /// <summary>
+        /// Returns a deep copy of <paramref name="baseSpec"/> with grip and power scaled — the
+        /// bot field's stand-in for a shopping trip.
+        ///
+        /// Bots never equip parts (<see cref="Apply"/> is only ever handed the player's car), so a
+        /// stock field falls further behind at every garage: by the last race the player is on
+        /// slicks and a turbo while the rivals are still showroom. This scales the same targets a
+        /// Stat part would, so a bot at gripMult 1.4 is exactly a bot on better tyres — no separate
+        /// cheat path, and BotLimits reads the new grip straight off the spec so the brain actually
+        /// drives to it. 1/1 returns an unmodified copy.
+        /// </summary>
+        public static VehicleSpec Scaled(VehicleSpec baseSpec, float gripMult, float powerMult)
+        {
+            VehicleSpec spec = Clone(baseSpec);
+            BakeTarget(spec, SpecModTarget.GripFront, Mathf.Max(0.01f, gripMult));
+            BakeTarget(spec, SpecModTarget.GripRear, Mathf.Max(0.01f, gripMult));
+            BakeTarget(spec, SpecModTarget.Power, Mathf.Max(0.01f, powerMult));
+            return spec;
+        }
+
         private static void BakeTarget(VehicleSpec spec, SpecModTarget target, float m)
         {
             switch (target)

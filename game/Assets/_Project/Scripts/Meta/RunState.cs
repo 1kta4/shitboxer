@@ -110,6 +110,14 @@ namespace Shitboxer.Meta
         public bool IsFinalCircuit => CircuitIndex >= TotalCircuits - 1;
 
         /// <summary>
+        /// Races completed so far this run, counting across circuits — 0 on the very first race.
+        /// The bot-strength ramp keys off this rather than <see cref="CircuitIndex"/>: bots never buy
+        /// parts, so a field that only stepped up per circuit would sit showroom-stock for a whole
+        /// season while the player's build pulled away at every garage.
+        /// </summary>
+        public int RaceNumber => CircuitIndex * RacesPerCircuit + RaceIndex;
+
+        /// <summary>
         /// Per-circuit difficulty scalar and tuning hook: 1.0 on the first circuit, ramping
         /// gently at first then steeper as the season wears on (convex in CircuitIndex).
         /// RunDirector — or a headless server — can multiply payouts / survival expectations by

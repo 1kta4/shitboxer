@@ -601,18 +601,26 @@ namespace Shitboxer.Editor
         }
 
         [MenuItem("Shitboxer/Add Run Mode To Race Scene")]
-        public static void AddRunModeToRaceScene()
+        public static void AddRunModeToRaceScene() => AddRunModeToRaceScene(RaceScenePath);
+
+        /// <summary>
+        /// Wires a RunRig (RunDirector + RunBootstrap, PartPool-configured) into one race scene.
+        /// Every layout gets one, so any of them is play-ready on its own; RunDirector is a
+        /// DontDestroyOnLoad singleton, so the duplicate that loads when the run rotates to the next
+        /// track destroys itself in Awake and the original stays bound.
+        /// </summary>
+        public static void AddRunModeToRaceScene(string scenePath)
         {
-            if (AssetDatabase.LoadAssetAtPath<SceneAsset>(RaceScenePath) == null)
+            if (AssetDatabase.LoadAssetAtPath<SceneAsset>(scenePath) == null)
             {
-                Debug.LogError($"[Shitboxer] {RaceScenePath} not found — run 'Shitboxer/Build Race Test Scene' first.");
+                Debug.LogError($"[Shitboxer] {scenePath} not found — run 'Shitboxer/Build Race Scenes' first.");
                 return;
             }
 
             BuildMetaAssets(); // idempotent; guarantees the PartPool exists
             var pool = AssetDatabase.LoadAssetAtPath<PartPool>(PoolPath);
 
-            Scene scene = EditorSceneManager.OpenScene(RaceScenePath, OpenSceneMode.Single);
+            Scene scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
 
             GameObject rig = GameObject.Find("RunRig");
             if (rig == null) rig = new GameObject("RunRig");
@@ -624,7 +632,7 @@ namespace Shitboxer.Editor
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
-            Debug.Log("[Shitboxer] Run mode added to RaceTest.unity — press Play for the full circuit loop (heats, then a boss race).");
+            Debug.Log($"[Shitboxer] Run mode added to {System.IO.Path.GetFileName(scenePath)}.");
         }
 
         // ------------------------------------------------------------------ helpers

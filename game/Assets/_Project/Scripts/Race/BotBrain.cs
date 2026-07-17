@@ -74,6 +74,43 @@ namespace Shitboxer.Race
     }
 
     /// <summary>
+    /// What the brain believes its car can do. Fed by the host from the car's ACTUAL VehicleSpec,
+    /// so a bot handed better tyres drives to them.
+    ///
+    /// This used to be two hardcoded constants (10 / 8), which had two costs. It left the bots
+    /// under-driving even their stock car — a GripBox is PeakMu 1.32, so ~13 m/s^2 of grip planned
+    /// as if it were 10 — and it meant any attempt to scale a bot's car was invisible to the brain:
+    /// you could hand a rival race slicks and it would still brake for the corner as though it were
+    /// on the old ones. Cornering speed is sqrt(MaxLatAccel / curvature), so this struct is what
+    /// decides bot pace.
+    /// </summary>
+    public struct BotLimits
+    {
+        /// <summary>Cornering grip the speed plan trusts (m/s^2).</summary>
+        public float MaxLatAccel;
+
+        /// <summary>Braking the speed plan trusts (m/s^2).</summary>
+        public float BrakeDecel;
+
+        /// <summary>Braking as a fraction of cornering grip — same contact patch, minus a margin
+        /// for weight transfer and the lack of ABS, so bots don't plan on locking up.</summary>
+        private const float BrakeGripFraction = 0.9f;
+
+        /// <summary>The historical hardcoded pair. Reproduces the pre-BotLimits plan bit-for-bit.</summary>
+        public static BotLimits Default => new BotLimits { MaxLatAccel = 10f, BrakeDecel = 8f };
+
+        /// <summary>
+        /// Limits implied by a tyre's peak grip coefficient: mu*g of lateral, a shade less braking.
+        /// Pure so the mapping is unit-testable without a scene.
+        /// </summary>
+        public static BotLimits FromGrip(float peakMu)
+        {
+            float lat = Mathf.Max(1f, peakMu * 9.81f);
+            return new BotLimits { MaxLatAccel = lat, BrakeDecel = Mathf.Max(1f, lat * BrakeGripFraction) };
+        }
+    }
+
+    /// <summary>
     /// Plain-C# driving policy: pure pursuit of a lookahead point on a RacingLine for
     /// steering, curvature-ahead speed planning for throttle/brake, and a timed
     /// reverse-out recovery when wedged against a wall. No engine-loop or scene
@@ -81,9 +118,7 @@ namespace Shitboxer.Race
     /// </summary>
     public sealed class BotBrain
     {
-        // Tuning shared by all bots; per-bot flavour comes from BotSkill.
-        private const float MaxLatAccel = 10f;         // m/s^2 assumed cornering grip
-        private const float BrakeDecel = 8f;           // m/s^2 assumed braking
+        // Tuning shared by all bots; per-bot flavour comes from BotSkill, per-car from BotLimits.
         private const float BaseStraightSpeed = 38f;   // m/s before aggression bonus
         private const float SteerSaturationDeg = 35f;  // heading error that means full lock
         private const float CurvatureHalfWindowM = 6f;
@@ -130,6 +165,7 @@ namespace Shitboxer.Race
 
         private readonly RacingLine _line;
         private readonly BotSkill _skill;
+        private readonly BotLimits _limits;
         private readonly int _mistakeSeed; // stable per-bot seed so no two cars bobble in lockstep at the same corner
 
         private float _stuckTimer;
@@ -147,10 +183,18 @@ namespace Shitboxer.Race
         // the scene, so the core stays engine-loop-independent.
         private BotPersonality _personality = BotPersonality.Neutral;
 
-        public BotBrain(RacingLine line, BotSkill skill)
+        /// <summary>Brain on the historical hardcoded limits (10 / 8) — unchanged behaviour.</summary>
+        public BotBrain(RacingLine line, BotSkill skill) : this(line, skill, BotLimits.Default) { }
+
+        /// <summary>
+        /// Brain that plans against <paramref name="limits"/> — the host derives these from the
+        /// car's real spec, so scaling a bot's tyres actually shows up in its lap time.
+        /// </summary>
+        public BotBrain(RacingLine line, BotSkill skill, BotLimits limits)
         {
             _line = line;
             _skill = skill;
+            _limits = limits;
             _mistakeSeed = ComputeSeed(skill);
         }
 
@@ -326,16 +370,16 @@ namespace Shitboxer.Race
         private float PlanTargetSpeed(float progress, float speed)
         {
             float target = BaseStraightSpeed + 14f * _skill.Aggression;
-            float horizon = Mathf.Max(40f, speed * speed / (2f * BrakeDecel) + 20f);
+            float horizon = Mathf.Max(40f, speed * speed / (2f * _limits.BrakeDecel) + 20f);
 
             for (float d = 4f; d <= horizon; d += PlanHorizonStepM)
             {
                 float curvature = _line.CurvatureAt(progress + d, CurvatureHalfWindowM);
                 if (curvature < 1e-3f) continue;
 
-                float cornerSpeed = Mathf.Sqrt(MaxLatAccel / curvature) * _skill.CornerSpeedMult;
+                float cornerSpeed = Mathf.Sqrt(_limits.MaxLatAccel / curvature) * _skill.CornerSpeedMult;
                 float allowedNow = Mathf.Sqrt(cornerSpeed * cornerSpeed
-                    + 2f * BrakeDecel * Mathf.Max(0f, d - CurvatureHalfWindowM));
+                    + 2f * _limits.BrakeDecel * Mathf.Max(0f, d - CurvatureHalfWindowM));
                 target = Mathf.Min(target, allowedNow);
             }
             return target;
