@@ -153,7 +153,6 @@ namespace Shitboxer.Meta
 
         private RaceManager _raceManager;
         private VehicleController _playerCar;
-        private GarageScreen _garage;
         private bool _raceResolved;
 
         // Dev pause menu (ESC): a throwaway harness affordance to bail on a season and start a fresh run
@@ -193,10 +192,6 @@ namespace Shitboxer.Meta
             // Season shape is config, not saved progress — stamp it on whichever run we just adopted so a
             // resumed run picks up the current inspector value rather than the default it was rebuilt with.
             ApplySeasonShape(Run, totalCircuits, racesPerCircuit);
-
-            _garage = GetComponent<GarageScreen>();
-            if (!_garage) _garage = gameObject.AddComponent<GarageScreen>();
-            _garage.Configure(this);
         }
 
         private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
@@ -256,7 +251,6 @@ namespace Shitboxer.Meta
             ApplyBotStrength(); // AFTER ApplyEquippedParts: skips whichever car is the player's
             ApplyRuleset();     // opt-in boss ruleset BEFORE ApplyDifficulty so the per-circuit tighten reads its base
             ApplyDifficulty();
-            ApplyPayoutPreview(); // AFTER ApplyRuleset — the preview reads the ruleset for the boss reward
 
             // Deal this race's grid. BindToScene runs off sceneLoaded, which Unity fires BEFORE Start, so
             // RaceManager picks the seed up in time to shuffle ahead of its own position snapshot.
@@ -446,25 +440,6 @@ namespace Shitboxer.Meta
         {
             if (!bossRacesEnabled) return; // shipped path: no ruleset call — the race stays on its Standard defaults
             _raceManager.SetRuleset(RulesetForRace(bossRacesEnabled, Run.IsBossRace));
-        }
-
-        /// <summary>
-        /// Hands the race HUD a closure over this director's own payout math, so the cash figure the player
-        /// weighs mid-race is produced by the same code that later pays them (see
-        /// <see cref="CleanFinishPayoutFor"/>). Pushed rather than imported because Shitboxer.Race cannot
-        /// reference Shitboxer.Meta — Meta already depends on Race, so a back-reference would be circular.
-        ///
-        /// The boss designation is captured ONCE here rather than per-frame: it can't change mid-race, and
-        /// this runs after ApplyRuleset so the ruleset the boss reward reads is already in place. Silently
-        /// does nothing when the scene has no HUD — the preview is a readout, never a requirement.
-        /// </summary>
-        private void ApplyPayoutPreview()
-        {
-            var hud = FindFirstObjectByType<RaceHud>();
-            if (hud == null) return;
-
-            bool bossRace = IsDesignatedBoss(bossRacesEnabled, Run.IsBossRace);
-            hud.SetPayoutPreview(position => CleanFinishPayoutFor(position, bossRace));
         }
 
         /// <summary>

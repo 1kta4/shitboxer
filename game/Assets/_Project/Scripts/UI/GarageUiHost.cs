@@ -1,5 +1,4 @@
 using Shitboxer.Meta;
-using Shitboxer.Race;
 using Shitboxer.UI.Model;
 using Shitboxer.UI.Views;
 using UnityEngine;
@@ -21,7 +20,6 @@ namespace Shitboxer.UI
 
         private IRunHost _host;
         private UIDocument _doc;
-        private RaceHud _raceHud;
         private bool _styled;
 
         private void Start()
@@ -49,12 +47,6 @@ namespace Shitboxer.UI
 
         private void Sync(RunPhase phase)
         {
-            // The in-race HUD (RaceRig, Race assembly) can't see the run phase, so hide it here the moment
-            // we leave Racing — otherwise its readout bleeds through the garage. Re-found after each scene
-            // rotation (the old HUD is destroyed, so the reference goes null and we look again).
-            if (_raceHud == null) _raceHud = FindAnyObjectByType<RaceHud>();
-            if (_raceHud != null) _raceHud.enabled = phase == RunPhase.Racing;
-
             VisualElement root = _doc != null ? _doc.rootVisualElement : null;
             if (root == null) return;
 

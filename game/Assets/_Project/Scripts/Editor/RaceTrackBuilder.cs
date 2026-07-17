@@ -180,7 +180,6 @@ namespace Shitboxer.Editor
             var rig = new GameObject("RaceRig");
             var manager = rig.AddComponent<RaceManager>();
             manager.Configure(trackPath, cars, RaceLaps, CutoffFraction);
-            rig.AddComponent<RaceHud>().Configure(manager, playerCar);
             rig.AddComponent<RaceDebugLogger>().Configure(manager);
 
             EditorSceneManager.SaveScene(scene, layout.ScenePath);
