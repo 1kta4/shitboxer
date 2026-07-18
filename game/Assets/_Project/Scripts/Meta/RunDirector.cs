@@ -34,6 +34,7 @@ namespace Shitboxer.Meta
         public static RunDirector Instance { get; private set; }
 
         [SerializeField] private PartPool partPool;
+        [SerializeField] private VehicleSpecAsset[] chassisSpecs;
         [SerializeField] private PayoutTable payoutTable = new PayoutTable();
         [Tooltip("Cash a fresh run starts with.")]
         [SerializeField] private int startingMoney = 5;
@@ -163,6 +164,10 @@ namespace Shitboxer.Meta
         /// <summary>Editor wiring (MetaAssetsBuilder) — sets serialized fields only.</summary>
         public void Configure(PartPool pool) => partPool = pool;
 
+        /// <summary>Editor wiring: the base spec per chassis id (0 = Grip, 1 = Power), swapped onto the
+        /// player at scene bind so car-select actually changes the car driven.</summary>
+        public void ConfigureChassis(VehicleSpecAsset[] specs) => chassisSpecs = specs;
+
         private void Awake()
         {
             if (Instance != null && Instance != this)
@@ -177,9 +182,20 @@ namespace Shitboxer.Meta
             // any single run, so run-end bookkeeping and a future stake-select UI both read/write it.
             Meta = MetaProgress.Load();
 
-            // Resume an interrupted run if a save exists (parts resolved by Id via the pool);
-            // otherwise begin fresh with the starting cash and a freshly-rolled deterministic seed.
-            if (partPool != null && RunSave.TryLoad(partPool, out RunState resumed))
+            // A fresh run requested by the main menu (with a chosen chassis) wins over any save.
+            if (RunLaunch.ConsumeNewRun(out int launchChassis, out int launchStake))
+            {
+                Run = new RunState
+                {
+                    Money = startingMoney,
+                    Seed = RollSeed(),
+                    StakeLevel = ClampToUnlockedStake(launchStake),
+                    ChassisId = launchChassis,
+                };
+            }
+            // Otherwise resume an interrupted run if a save exists (parts resolved by Id via the pool);
+            // else begin fresh with the starting cash and a freshly-rolled deterministic seed.
+            else if (partPool != null && RunSave.TryLoad(partPool, out RunState resumed))
             {
                 Run = resumed;
             }
@@ -242,6 +258,13 @@ namespace Shitboxer.Meta
             // ever writes a runtime asset onto the live component, never the prefab). This retires
             // GarageScreen.TryCaptureBaseSpec, which had to guess the same moment from inside OnGUI
             // and so blacked out the garage's stat bars for the rest of any RESUMED run.
+            // Car-select chassis: swap the run's chosen base spec onto the player before we snapshot it,
+            // so BaseSpec (and every part preview built on it) reflects the picked car. Idempotent — the
+            // scene is rebuilt each race, so the player carries its prefab spec here every time.
+            if (chassisSpecs != null && Run.ChassisId >= 0 && Run.ChassisId < chassisSpecs.Length
+                && chassisSpecs[Run.ChassisId] != null)
+                _playerCar.SetSpec(chassisSpecs[Run.ChassisId]);
+
             BaseSpec = _playerCar.SpecAsset != null
                 ? SpecModApplier.Clone(_playerCar.SpecAsset.Spec)
                 : null;
@@ -993,7 +1016,7 @@ namespace Shitboxer.Meta
         {
             int stake = ClampToUnlockedStake(stakeLevel);
             Run = ApplySeasonShape(
-                new RunState { Money = startingMoney, Seed = RollSeed(), StakeLevel = stake },
+                new RunState { Money = startingMoney, Seed = RollSeed(), StakeLevel = stake, ChassisId = Run.ChassisId },
                 totalCircuits, racesPerCircuit);
             LastRaceSummary = "";
             SetPhase(RunPhase.Racing);

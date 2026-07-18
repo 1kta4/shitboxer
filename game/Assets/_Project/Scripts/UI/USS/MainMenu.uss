@@ -1,0 +1,117 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   MAIN MENU (v3, baked chrome). Requires Tokens + Shitboxer + Garage — it
+   reuses the baked plate/button sprites (ghost / cta / rail-plate / offer-sel).
+   ───────────────────────────────────────────────────────────────────────── */
+
+.menu { align-items: center; justify-content: flex-start; padding: 0 20px 20px; }
+
+.menu-head { align-items: center; margin-top: 6%; margin-bottom: 22px; }
+.menu-title { -unity-font-definition: var(--font-display); font-size: 44px; color: #eef4fb; }
+.menu-tag {
+    font-size: var(--size-label);
+    color: var(--ink-mute);
+    letter-spacing: 3px;
+    margin-top: 10px;
+}
+
+.menu-body { width: 100%; max-width: 560px; flex-grow: 1; align-items: stretch; }
+.menu-section { flex-grow: 1; }
+.menu-heading {
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-cta);
+    color: var(--blue-lt);
+    -unity-text-align: middle-center;
+    margin-bottom: 16px;
+}
+
+/* ── main list ─────────────────────────────────────────────────────────── */
+.menu-list { align-items: stretch; }
+.menu-btn {
+    -unity-font-definition: var(--font-sys);
+    font-size: var(--size-val);
+    color: var(--ink);
+    background-color: var(--plate-hi);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
+    border-width: 0;
+    border-radius: 0;
+    padding: 14px;
+    margin: 0 0 8px 0;
+}
+.menu-btn:hover { color: #ffffff; }
+.menu-btn.primary {
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-cta);
+    color: #f0f6ff;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/cta.png");
+}
+
+/* ── car select ────────────────────────────────────────────────────────── */
+.menu-cards { flex-direction: row; justify-content: center; flex-wrap: wrap; }
+.chassis-card {
+    width: 168px;
+    margin: 6px;
+    padding: 14px;
+    background-color: var(--plate-hi);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/rail-plate.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
+    border-width: 1px;
+    border-color: var(--line);
+    border-left-width: 3px;
+    border-left-color: rgba(0, 0, 0, 0);
+}
+.chassis-card:hover { border-color: #5a7096; }
+.chassis-card.selected {
+    border-left-color: var(--blue);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer-sel.png");
+}
+.chassis-card.locked { opacity: 0.5; }
+.chassis-name { font-size: var(--size-val); color: #e9f0fa; margin-bottom: 6px; }
+.chassis-blurb { font-size: var(--size-label); color: var(--ink-dim); white-space: normal; }
+
+.menu-foot { flex-direction: row; justify-content: space-between; margin-top: 16px; }
+.menu-foot .menu-btn { flex-grow: 1; margin: 0 4px; }
+
+/* ── collection / settings scroll ──────────────────────────────────────── */
+.menu-scroll { flex-grow: 1; }
+.menu-group {
+    font-size: var(--size-label);
+    color: var(--sec);
+    letter-spacing: 2px;
+    margin-top: 12px;
+    margin-bottom: 6px;
+}
+.collect-item {
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    background-color: var(--panel);
+    border-width: 1px;
+    border-color: #2c3646;
+}
+.collect-item.locked { opacity: 0.4; }
+.collect-name { font-size: var(--size-body); color: var(--ink); }
+
+/* ── profile ───────────────────────────────────────────────────────────── */
+.stat-row {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 12px;
+    margin-bottom: 4px;
+    background-color: var(--panel);
+    border-width: 1px;
+    border-color: #2c3646;
+}
+.stat-row__label { font-size: var(--size-body); color: var(--ink-dim); }
+.stat-row__value { font-size: var(--size-val); color: var(--amber); }
+
+/* ── settings fields (default UI Toolkit controls, tinted) ─────────────── */
+.menu-field { margin-bottom: 8px; }
+.menu-field Label { -unity-font-definition: var(--font-sys); font-size: var(--size-label); color: var(--ink); }
+.menu-dim { font-size: var(--size-body); color: var(--ink-mute); margin: 6px 0; }

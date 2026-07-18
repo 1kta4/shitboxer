@@ -632,6 +632,13 @@ namespace Shitboxer.Editor
             if (!rig.GetComponent<RunBootstrap>()) rig.AddComponent<RunBootstrap>();
             director.Configure(pool);
 
+            // Car-select chassis specs (index 0 = Grip, 1 = Power), swapped onto the player at run start.
+            director.ConfigureChassis(new[]
+            {
+                AssetDatabase.LoadAssetAtPath<Shitboxer.Vehicle.VehicleSpecAsset>("Assets/_Project/Settings/Vehicles/GripBox.asset"),
+                AssetDatabase.LoadAssetAtPath<Shitboxer.Vehicle.VehicleSpecAsset>("Assets/_Project/Settings/Vehicles/PowerBox.asset"),
+            });
+
             // UI Toolkit garage overlay on the RunRig (persists via DontDestroyOnLoad, so it survives the
             // race-scene rotation). Shows during the Garage phase; replaces the IMGUI garage draw.
             AttachGarageUi(rig);

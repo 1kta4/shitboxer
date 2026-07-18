@@ -57,6 +57,10 @@ namespace Shitboxer.Meta
         /// </summary>
         public int StakeLevel;
 
+        /// <summary>Which chassis this run drives (index into RunDirector.chassisSpecs; 0 = Grip). Chosen
+        /// on the car-select screen and persisted, so a resumed run keeps its car.</summary>
+        public int ChassisId;
+
         /// <summary>Per-stake difficulty/reward gain. Stake 0 is a no-op (factor 1.0), gentle above.</summary>
         public const float StakeGainPerLevel = 0.15f;
 
