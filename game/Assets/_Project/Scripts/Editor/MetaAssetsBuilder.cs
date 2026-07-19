@@ -22,6 +22,8 @@ namespace Shitboxer.Editor
         private const string SettingsDir = "Assets/_Project/Settings";
         private const string PartsDir = SettingsDir + "/Parts";
         private const string PoolPath = PartsDir + "/PartPool.asset";
+        private const string MetaDir = SettingsDir + "/Meta";
+        private const string RivalRosterPath = MetaDir + "/RivalRoster.asset";
         private const string RaceScenePath = "Assets/_Project/Scenes/RaceTest.unity";
 
         [MenuItem("Shitboxer/Build Meta Assets")]
@@ -598,6 +600,8 @@ namespace Shitboxer.Editor
             pool.Parts = parts;
             EditorUtility.SetDirty(pool);
 
+            EnsureRivalRoster();
+
             AssetDatabase.SaveAssets();
             Debug.Log($"[Shitboxer] Meta assets ready — {parts.Count} parts in {PartsDir}, pool at {PoolPath}.");
         }
@@ -619,8 +623,9 @@ namespace Shitboxer.Editor
                 return;
             }
 
-            BuildMetaAssets(); // idempotent; guarantees the PartPool exists
+            BuildMetaAssets(); // idempotent; guarantees the PartPool and RivalRoster exist
             var pool = AssetDatabase.LoadAssetAtPath<PartPool>(PoolPath);
+            var rivalRoster = AssetDatabase.LoadAssetAtPath<RivalRoster>(RivalRosterPath);
 
             Scene scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
 
@@ -631,6 +636,7 @@ namespace Shitboxer.Editor
             if (!director) director = rig.AddComponent<RunDirector>();
             if (!rig.GetComponent<RunBootstrap>()) rig.AddComponent<RunBootstrap>();
             director.Configure(pool);
+            director.ConfigureRivalRoster(rivalRoster);
 
             // Car-select chassis specs (index 0 = Grip, 1 = Power), swapped onto the player at run start.
             director.ConfigureChassis(new[]
@@ -651,6 +657,26 @@ namespace Shitboxer.Editor
         }
 
         // ------------------------------------------------------------------ helpers
+
+        /// <summary>
+        /// Guarantees the career rival roster asset exists, and deliberately leaves its list EMPTY.
+        ///
+        /// An empty roster makes <see cref="RivalRoster.Rivals"/> fall through to the built-in
+        /// <see cref="RivalRoster.Default"/>, so the 24 rivals have exactly ONE source of truth — the code.
+        /// The alternative (baking the list into YAML here) would duplicate every rival's character into an
+        /// asset that this builder then must never overwrite, which is precisely how the part catalogue's
+        /// numbers ended up living in two places at once. Author the asset by hand only when you actually
+        /// want to override the built-in roster; a hand-authored list is never clobbered by a rebuild.
+        /// </summary>
+        private static void EnsureRivalRoster()
+        {
+            var roster = AssetDatabase.LoadAssetAtPath<RivalRoster>(RivalRosterPath);
+            if (roster != null) return; // never clobber a hand-authored roster
+
+            roster = ScriptableObject.CreateInstance<RivalRoster>();
+            AssetDatabase.CreateAsset(roster, RivalRosterPath);
+            EditorUtility.SetDirty(roster);
+        }
 
         /// <summary>
         /// Adds the UI Toolkit garage overlay (UIDocument + GarageUiHost) to the RunRig and wires its
@@ -742,7 +768,7 @@ namespace Shitboxer.Editor
 
         private static void EnsureFolders()
         {
-            foreach (string dir in new[] { "Assets/_Project", SettingsDir, PartsDir })
+            foreach (string dir in new[] { "Assets/_Project", SettingsDir, PartsDir, MetaDir })
             {
                 if (!AssetDatabase.IsValidFolder(dir))
                 {

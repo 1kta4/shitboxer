@@ -165,6 +165,27 @@ namespace Shitboxer.Race
             return angleRad / Mathf.Max(2f * halfWindowM, 0.01f);
         }
 
+        /// <summary>
+        /// Curvature WITH A SIGN (rad/m): positive = the track turns right, negative = left, magnitude
+        /// identical to <see cref="CurvatureAt"/>.
+        ///
+        /// The sign is what makes "inside" meaningful. <see cref="CurvatureAt"/> uses
+        /// <see cref="Vector3.Angle"/>, which is unsigned, so it can tell you a corner is here but not which
+        /// way it bends — and "the player attacks down the inside" is otherwise undefinable, since inside is
+        /// the right-hand side of a right-hander and the left-hand side of a left-hander. Everything that
+        /// classifies a pass or a defensive line by side is built on this.
+        ///
+        /// Signed about <see cref="Vector3.up"/>, matching the track frame the rest of the Race layer uses
+        /// (<c>trackRight = Cross(up, trackDir)</c>, + = right of travel).
+        /// </summary>
+        public float SignedCurvatureAt(float distance, float halfWindowM)
+        {
+            Vector3 before = DirectionAt(distance - halfWindowM);
+            Vector3 after = DirectionAt(distance + halfWindowM);
+            float angleRad = Vector3.SignedAngle(before, after, Vector3.up) * Mathf.Deg2Rad;
+            return angleRad / Mathf.Max(2f * halfWindowM, 0.01f);
+        }
+
         /// <summary>Index of the sample-segment containing a (wrapped) distance, plus the 0..1 fraction into it.</summary>
         private int SampleIndexAt(float distance, out float frac)
         {

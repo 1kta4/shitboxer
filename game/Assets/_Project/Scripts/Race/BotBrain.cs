@@ -11,6 +11,18 @@ namespace Shitboxer.Race
         public Vector3 RelativePosition;
         /// <summary>Rival world velocity.</summary>
         public Vector3 Velocity;
+
+        /// <summary>
+        /// True when this neighbour is the human player — the only car a bot holds a memory of.
+        /// <c>false</c> (the struct default) makes every neighbour anonymous, which is exactly today's
+        /// behaviour, so a host that never sets it drives unchanged.
+        ///
+        /// A bool rather than an identity key because only the player is ever modelled: a key plus a
+        /// key-to-profile lookup inside the brain would cost allocation and complexity for a capability
+        /// nothing needs. NOTE this assumes exactly one human — split-screen or netcode would need this to
+        /// become a key. Cheap to change; nothing else depends on the shape.
+        /// </summary>
+        public bool IsPlayer;
     }
 
     /// <summary>What the brain can sense about its own car this step. Plain data so a server can fill it.</summary>
@@ -157,6 +169,20 @@ namespace Shitboxer.Race
         private const float DefendOffsetDefenseGain = 1f;         // ...and covers up to 2x the base line (still corridor-clamped)
         private const float OvertakeMarginBoldnessCut = 0.6f;     // full boldness commits on 40% of the base speed advantage
         private const float OvertakeClearanceBoldnessCut = 0.55f; // ...and slices past leaving 45% of the base gap (never negative)
+
+        // --- Persistent-memory gains. Every one multiplies a *Effective bias that is 0 for an unknown
+        // player, so all of these are inert until the memory layer supplies a confident profile. Sized so a
+        // maximally-remembered player shifts racecraft noticeably but never past the bounds a maximally
+        // defensive/bold bot already reaches today. ---
+        private const float FollowGapCautionGain = 0.5f;   // max caution widens the follow buffer ~17.5%
+        private const float FollowGapSpaceGain = 0.25f;    // ...and an erratic player buys a bit more again
+        private const float MaxMemoryFollowGapScale = 1.7f; // ceiling on the combined widening (base band tops out at 1.4)
+        private const float ClearanceCautionGain = 0.35f;  // and more room when slicing past them
+        private const float ClearanceSpaceGain = 0.20f;
+        private const float SideCoverM = 1.2f;             // how far to pre-cover the side a player favours (m)
+        private const float LanePreferenceScoreGain = 8f;  // SAFETY-CRITICAL: must stay well under ScoreLane's 30/car penalty
+        private const float AlongsideHalfLengthM = 3.5f;   // longitudinal overlap that counts as "beside us"
+        private const float AlongsideHalfWidthM = 3.2f;    // ...within this lateral gap. Door-slam guard only.
         private const float MistakeBinLengthM = 16f;              // each ~16 m of track gets one stable mistake draw (~0.5 s bobble at pace)
         private const float MistakeMaxChance = 0.35f;             // at MistakeRate 1, ~35% of bins bobble
         private const float MistakeMaxLift = 0.5f;                // a bobble eases at most half the throttle — a lift, never a stop
@@ -182,6 +208,13 @@ namespace Shitboxer.Race
         // set defends/passes/follows exactly as before. The host opts in via SetPersonality; nothing here reads
         // the scene, so the core stays engine-loop-independent.
         private BotPersonality _personality = BotPersonality.Neutral;
+
+        // Persistent-memory layer (orthogonal to both: memory = what this rival has learned about THIS player,
+        // personality = how it races anyone, difficulty = how good it is). Unknown by default -> every bias is
+        // gated to zero by Confidence01 == 0, so a bot with no memory set races exactly as before. The host
+        // opts in via SetPlayerMemory; nothing here reads the scene, so the core stays engine-loop-independent.
+        // Only ever consulted for a neighbour flagged BotNeighbor.IsPlayer.
+        private RivalMemoryProfile _playerMemory = RivalMemoryProfile.Unknown;
 
         /// <summary>Brain on the historical hardcoded limits (10 / 8) — unchanged behaviour.</summary>
         public BotBrain(RacingLine line, BotSkill skill) : this(line, skill, BotLimits.Default) { }
@@ -212,6 +245,15 @@ namespace Shitboxer.Race
         /// leaves every bias at identity, reproducing today's behaviour exactly.
         /// </summary>
         public void SetPersonality(in BotPersonality personality) => _personality = personality;
+
+        /// <summary>
+        /// Sets what this rival remembers about the human player, biasing the SAME tactical knobs the
+        /// personality layer touches (line cover, pass commitment, follow gap, lane choice) — never pace.
+        /// Fed by the host from the persistent career memory and kept out of the core so a headless server
+        /// can set it too. <see cref="RivalMemoryProfile.Unknown"/> — the default — leaves every bias gated
+        /// to zero, reproducing today's behaviour exactly.
+        /// </summary>
+        public void SetPlayerMemory(in RivalMemoryProfile memory) => _playerMemory = memory;
 
         /// <summary>
         /// Clamps a raw commitment/rubber-band factor to the subtle bounded band. Kept pure and
@@ -407,6 +449,12 @@ namespace Shitboxer.Race
             float boldness = Mathf.Clamp01(_skill.OvertakeBoldness + _personality.DiveAggressionClamped);
             float draftRange = DraftRangeM * (1f + DraftRangeDefenseGain * defensiveness);
 
+            // Memory: a rival that has learned this player is a threat starts watching for them from further
+            // back than it would any other car. ThreatEffective is 0 for an unknown player, so this collapses
+            // to the identical float expression as `draftRange` above — bit-for-bit, not merely close.
+            float defensivenessVsPlayer = Mathf.Clamp01(defensiveness + _playerMemory.ThreatEffective);
+            float draftRangePlayer = DraftRangeM * (1f + DraftRangeDefenseGain * defensivenessVsPlayer);
+
             int count = sensors.Neighbors != null ? Mathf.Min(sensors.NeighborCount, sensors.Neighbors.Length) : 0;
             if (count == 0) return;
 
@@ -414,6 +462,7 @@ namespace Shitboxer.Race
             float aheadDist = float.MaxValue, aheadLateral = 0f, aheadAlongSpeed = 0f;
             float behindDist = float.MaxValue, behindLateral = 0f;
             bool hasAhead = false, hasBehind = false;
+            bool aheadIsPlayer = false, behindIsPlayer = false;
 
             for (int i = 0; i < count; i++)
             {
@@ -425,18 +474,23 @@ namespace Shitboxer.Race
                 Vector3 nvel = sensors.Neighbors[i].Velocity;
                 nvel.y = 0f;
 
+                bool isPlayer = sensors.Neighbors[i].IsPlayer;
+                float rearRange = isPlayer ? draftRangePlayer : draftRange;
+
                 if (along > 1f && along < FollowRangeM && Mathf.Abs(lateral) < LaneHalfWidthM && along < aheadDist)
                 {
                     aheadDist = along;
                     aheadLateral = lateral;
                     aheadAlongSpeed = Vector3.Dot(nvel, trackDir);
                     hasAhead = true;
+                    aheadIsPlayer = isPlayer;
                 }
-                else if (along < -1f && along > -draftRange && Mathf.Abs(lateral) < LaneHalfWidthM * 1.5f && -along < behindDist)
+                else if (along < -1f && along > -rearRange && Mathf.Abs(lateral) < LaneHalfWidthM * 1.5f && -along < behindDist)
                 {
                     behindDist = -along;
                     behindLateral = lateral;
                     hasBehind = true;
+                    behindIsPlayer = isPlayer;
                 }
             }
 
@@ -448,25 +502,61 @@ namespace Shitboxer.Race
                 // < 1) so it tucks in and closes harder; a Cruiser keeps more room (> 1). Neutral == 1, so this
                 // is bit-for-bit the base follow gap for a neutral bot, and the scale is bounded so the buffer
                 // stays positive (never rear-ends).
-                float effGap = aheadDist - FollowBufferM * _personality.FollowGapScale;
+                // Memory: back off a player this rival has learned to be wary of (or that it has seen drive
+                // erratically) by widening the buffer it keeps. Both terms are 0 for an unknown player, so
+                // gapScale is bit-for-bit _personality.FollowGapScale and effGap is unchanged. Re-clamped to
+                // the same band FollowGapScale guarantees, so the buffer can never go non-positive and the
+                // "never rear-ends" property survives.
+                float gapScale = _personality.FollowGapScale;
+                if (aheadIsPlayer)
+                {
+                    gapScale *= 1f + FollowGapCautionGain * _playerMemory.CautionEffective
+                                   + FollowGapSpaceGain * _playerMemory.SpaceEffective;
+                    gapScale = Mathf.Clamp(gapScale,
+                        1f - BotPersonality.MaxFollowGapBias, MaxMemoryFollowGapScale);
+                }
+
+                float effGap = aheadDist - FollowBufferM * gapScale;
                 float theirSpeed = Mathf.Max(0f, aheadAlongSpeed);
                 float cap = theirSpeed + effGap * FollowClosingGainMps;
                 speedCap = Mathf.Max(effGap > 0f ? MinFollowSpeed : 0f, cap);
 
-                // Bolder bots need less of a speed advantage before they commit to the move.
-                float overtakeMargin = OvertakeSpeedMargin * (1f - OvertakeMarginBoldnessCut * boldness);
+                // Bolder bots need less of a speed advantage before they commit to the move. Memory adds a
+                // grudge term: a rival with a score to settle attacks THIS player on a slimmer edge than it
+                // would anyone else. 0 for an unknown player.
+                float boldnessVsAhead = aheadIsPlayer
+                    ? Mathf.Clamp01(boldness + _playerMemory.ContestEffective)
+                    : boldness;
+                float overtakeMargin = OvertakeSpeedMargin * (1f - OvertakeMarginBoldnessCut * boldnessVsAhead);
                 wantToPass = ourAlongSpeed > OvertakeMinSpeed
                     && freeTargetSpeed > theirSpeed + overtakeMargin;
             }
 
             if (wantToPass)
-                desiredTactical = PickOvertakeOffset(sensors, count, trackDir, trackRight, aheadLateral, baseLateral);
+                desiredTactical = PickOvertakeOffset(sensors, count, trackDir, trackRight, aheadLateral,
+                    baseLateral, aheadIsPlayer);
             else if (hasBehind)
             {
                 // Light block: lean toward the side the follower is drifting to; a more defensive bot covers
                 // a little more of the line. Still small, and corridor-clamped later.
-                float defendMax = DefendMaxOffsetM * (1f + DefendOffsetDefenseGain * defensiveness);
-                desiredTactical = Mathf.Clamp(behindLateral, -defendMax, defendMax);
+                float defenseVsBehind = behindIsPlayer ? defensivenessVsPlayer : defensiveness;
+                float defendMax = DefendMaxOffsetM * (1f + DefendOffsetDefenseGain * defenseVsBehind);
+
+                // Memory, and the most legible behaviour in the whole system: PRE-COVER the side this player
+                // habitually attacks, instead of only reacting to where they have already moved. A rival that
+                // has watched you go down the inside nine times starts edging there before you commit.
+                //
+                // The anticipation is added INSIDE the existing clamp, deliberately. It can shift WHERE the
+                // cover sits but never widen it beyond what defensiveness already authorises, so no amount of
+                // memory can make a bot cover more of the track than a maximally defensive bot does today.
+                float anticipate = behindIsPlayer ? SideCoverM * _playerMemory.CoverSideEffective : 0f;
+                desiredTactical = Mathf.Clamp(behindLateral + anticipate, -defendMax, defendMax);
+
+                // Safety clamp that should exist regardless of memory: never steer the tactical offset INTO a
+                // car that is already alongside. Without this, a well-timed anticipation could close the door
+                // on a player whose nose is level — which is a door-slam, and reads as griefing rather than
+                // racecraft however defensible the intent.
+                desiredTactical = AvoidClosingOnAlongside(sensors, count, trackDir, trackRight, desiredTactical);
             }
         }
 
@@ -476,24 +566,44 @@ namespace Shitboxer.Race
         /// (right-of-travel metres) relative to the base line.
         /// </summary>
         private float PickOvertakeOffset(in BotSensors sensors, int count, Vector3 trackDir,
-            Vector3 trackRight, float blockerLateral, float baseLateral)
+            Vector3 trackRight, float blockerLateral, float baseLateral, bool blockerIsPlayer = false)
         {
             // Bolder bots leave less room as they slice past — bounded so there's always a positive gap. The
             // Diver/Cruiser archetype bias folds into boldness here too, so a bolder character squeezes closer;
             // the bias is 0 at Neutral, so this is bit-for-bit the pre-archetype clearance for a neutral bot.
-            float boldness = Mathf.Clamp01(_skill.OvertakeBoldness + _personality.DiveAggressionClamped);
+            // Memory adds the same grudge term used for the commitment threshold above, so a rival that wants
+            // to beat THIS player specifically also slices closer to them. 0 for an unknown player.
+            float boldness = Mathf.Clamp01(_skill.OvertakeBoldness + _personality.DiveAggressionClamped
+                + (blockerIsPlayer ? _playerMemory.ContestEffective : 0f));
             float clearance = PassClearanceM * (1f - OvertakeClearanceBoldnessCut * boldness);
+
+            // ...but a player this rival is wary of, or has found erratic, gets MORE room, not less. Applied
+            // after the boldness cut so caution can win back what a grudge takes away.
+            if (blockerIsPlayer)
+                clearance *= 1f + ClearanceCautionGain * _playerMemory.CautionEffective
+                                + ClearanceSpaceGain * _playerMemory.SpaceEffective;
+
+            // Memory: prefer the lane this player does NOT habitually use. Signed and corner-relative, so
+            // +CoverSideBias (a player who lives down the inside) pushes this rival to attack around the
+            // outside instead of trading paint for the same piece of road. 0 for an unknown player, in which
+            // case both ScoreLane calls receive 0 and score exactly as they do today.
+            float side = blockerIsPlayer ? _playerMemory.CoverSideEffective : 0f;
             float leftTarget = blockerLateral - clearance;
             float rightTarget = blockerLateral + clearance;
-            float chosen = ScoreLane(sensors, count, trackDir, trackRight, leftTarget)
-                         >= ScoreLane(sensors, count, trackDir, trackRight, rightTarget)
+            float chosen = ScoreLane(sensors, count, trackDir, trackRight, leftTarget, +side)
+                         >= ScoreLane(sensors, count, trackDir, trackRight, rightTarget, -side)
                 ? leftTarget : rightTarget;
             chosen = Mathf.Clamp(chosen, -CorridorHalfWidthM, CorridorHalfWidthM);
             return chosen - baseLateral;
         }
 
-        /// <summary>Higher = better lane to aim for: penalises wall proximity and traffic already using it.</summary>
-        private float ScoreLane(in BotSensors sensors, int count, Vector3 trackDir, Vector3 trackRight, float laneLateral)
+        /// <summary>
+        /// Higher = better lane to aim for: penalises wall proximity and traffic already using it.
+        /// <paramref name="lanePreference"/> is a signed memory bias for THIS lane; 0 (the default, and the
+        /// value every non-player blocker gets) reproduces today's scoring exactly.
+        /// </summary>
+        private float ScoreLane(in BotSensors sensors, int count, Vector3 trackDir, Vector3 trackRight,
+            float laneLateral, float lanePreference = 0f)
         {
             float score = CorridorHalfWidthM - Mathf.Abs(laneLateral);
             if (Mathf.Abs(laneLateral) > CorridorHalfWidthM) score -= 100f; // off the corridor: hard no
@@ -507,7 +617,41 @@ namespace Shitboxer.Race
                 if (Mathf.Abs(Vector3.Dot(rel, trackRight) - laneLateral) < LaneHalfWidthM * 2f)
                     score -= 30f;
             }
-            return score;
+
+            // Memory is a TIEBREAK, never an override. The gain is sized deliberately small against the two
+            // penalties above (30 per occupying car, 100 off-corridor): at 8 it can pick between two clear
+            // lanes but can never talk a bot into a lane that already has a car in it, let alone off the
+            // corridor into a wall. LanePreference_NeverBeatsTraffic pins that relationship — if these three
+            // constants ever drift, that test fails rather than the bot quietly learning to crash.
+            return score + lanePreference * LanePreferenceScoreGain;
+        }
+
+        /// <summary>
+        /// Refuses to move the tactical offset TOWARD a car that is currently alongside. Pure geometry, no
+        /// memory involved: whatever produced the desired offset — reactive block, archetype bias, or learned
+        /// anticipation — closing the door on a car whose nose is already level is a door-slam. Returns the
+        /// desired offset unchanged whenever nothing is alongside, which is the overwhelming common case.
+        /// </summary>
+        private float AvoidClosingOnAlongside(in BotSensors sensors, int count, Vector3 trackDir,
+            Vector3 trackRight, float desiredTactical)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 rel = sensors.Neighbors[i].RelativePosition;
+                rel.y = 0f;
+                float along = Vector3.Dot(rel, trackDir);
+                if (Mathf.Abs(along) > AlongsideHalfLengthM) continue; // not overlapping us longitudinally
+
+                float lateral = Vector3.Dot(rel, trackRight);
+                if (Mathf.Abs(lateral) > AlongsideHalfWidthM) continue; // far enough sideways to be no one's problem
+
+                // They're beside us. Don't let the offset travel any further toward their side than we
+                // already are; clamping at 0 keeps us straight rather than jerking the other way, which
+                // would be its own hazard with a third car about.
+                if (lateral > 0f) desiredTactical = Mathf.Min(desiredTactical, 0f);
+                else desiredTactical = Mathf.Max(desiredTactical, 0f);
+            }
+            return desiredTactical;
         }
 
         /// <summary>

@@ -58,6 +58,31 @@ namespace Shitboxer.Meta
         /// <summary>Cap on <see cref="runHistory"/>; older entries are trimmed once it is exceeded.</summary>
         public const int MaxRunHistory = 50;
 
+        /// <summary>
+        /// Total races ever completed, across every run. This is the DECAY CLOCK for the rivalry memory
+        /// model: memories fade by races elapsed, not by wall-clock time, so taking a week off never costs
+        /// the player their rivals' attention while a genuine change of driving style still gets noticed
+        /// within a season.
+        /// </summary>
+        public int careerRaces;
+
+        /// <summary>
+        /// Tier 1 of the rivalry memory: how this player races, as every rival understands it. Shared
+        /// deliberately — see <see cref="PlayerStyleProfile"/> for why strictly per-rival observation is
+        /// statistically unviable at this field size.
+        /// </summary>
+        public PlayerStyleProfile playerStyle = new PlayerStyleProfile();
+
+        /// <summary>Career race ordinal at which <see cref="playerStyle"/> was last folded — its decay clock.</summary>
+        public int styleLastFoldedRace;
+
+        /// <summary>
+        /// Tier 2: what each named rival personally holds against this player, keyed by permanent roster
+        /// id. A List of flat entries rather than a Dictionary, for the same JsonUtility reason as
+        /// <see cref="lapRecords"/>. Bounded by <see cref="RivalMemoryStore.MaxRivalMemories"/>.
+        /// </summary>
+        public List<RivalMemory> rivalMemories = new List<RivalMemory>();
+
         /// <summary>Sentinel returned by <see cref="BestLap"/> when a track has no recorded lap yet.</summary>
         public const float NoLapRecord = 0f;
 
@@ -209,6 +234,8 @@ namespace Shitboxer.Meta
                         loaded.unlocks ??= new List<string>();
                         loaded.lapRecords ??= new List<LapRecord>();
                         loaded.runHistory ??= new List<RunHistoryEntry>();
+                        loaded.rivalMemories ??= new List<RivalMemory>();
+                        loaded.playerStyle ??= new PlayerStyleProfile();
                         return loaded;
                     }
                 }

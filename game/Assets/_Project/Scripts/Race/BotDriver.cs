@@ -30,6 +30,8 @@ namespace Shitboxer.Race
         [SerializeField] private bool enableRivalVariety = true;
         [Tooltip("Base seed for the deterministic variety assignment. Combined with each bot's sibling index, so changing it deterministically reshuffles which archetype/skill each bot draws (without touching any code). 0 = seed straight off the sibling index. Ignored when variety is off.")]
         [SerializeField] private int rivalVarietySeed = 0;
+        [Tooltip("Stable 0-based grid slot this bot occupies, baked by the scene builder. -1 (the default) falls back to the sibling index — byte-for-byte the behaviour of a scene built before this field existed. This is what lets the run layer bind a persistent named rival to a specific car without depending on hierarchy order.")]
+        [SerializeField] private int rivalSlot = -1;
         [Tooltip("Grip fraction an all-out (high-aggression) bot saps from a car it rams. Timid bots sap 40% of this. 0 disables bot attacks.")]
         [SerializeField] private float maxContactGripSap = 0.16f;
 
@@ -39,6 +41,9 @@ namespace Shitboxer.Race
         private float _flippedTimer;
         private float _noProgressTimer;
         private float _lastProgress;
+        private int _identitySeed; // 0 = none pushed; falls back to the legacy sibling-index seed
+        private BotPersonalityKind? _authoredKind; // null = none pushed; falls back to the seeded archetype draw
+        private RivalMemoryProfile _playerMemory = RivalMemoryProfile.Unknown; // Unknown = no memory, races as today
 
         // Opponent sensing: mirrors VehicleCombat's aura scan (Vehicle-layer OverlapSphere, resolve via
         // the attached rigidbody). Buffers are reused each step so FixedUpdate stays allocation-free.
@@ -74,6 +79,70 @@ namespace Shitboxer.Race
                 Consistency = Mathf.Clamp01(consistency ?? skill01),
             };
             _brain = null;
+        }
+
+        /// <summary>Editor-builder wiring: bakes the stable grid slot this bot occupies.</summary>
+        public void ConfigureRivalSlot(int slot) => rivalSlot = slot;
+
+        /// <summary>
+        /// This bot's stable 0-based grid slot. Falls back to the sibling index when unbaked (-1), which is
+        /// exactly what the variety layer used before persistent identity existed — so a scene that predates
+        /// the <c>rivalSlot</c> field keeps its current bots.
+        /// </summary>
+        public int RivalSlot => rivalSlot >= 0 ? rivalSlot : transform.GetSiblingIndex();
+
+        /// <summary>
+        /// Opaque per-race key the observation layer tags this car's events with. 0 = unidentified (no run
+        /// layer bound us), which observers treat as "don't attribute anything to this car".
+        /// </summary>
+        public int RivalKey { get; private set; }
+
+        /// <summary>
+        /// Binds this car to a persistent roster rival. Pushed by the run layer at <c>sceneLoaded</c> — before
+        /// <c>Start</c>, and well before the brain is lazily built in <c>FixedUpdate</c> — following the same
+        /// one-way Meta-&gt;Race push as <c>RaceManager.SetRuleset</c> / <c>SetGridSeed</c>. Race never reaches
+        /// back for a roster it isn't allowed to reference.
+        ///
+        /// An <paramref name="identitySeed"/> of 0 leaves the variety resolver on the legacy sibling-index
+        /// seed, so an unbound bot is unchanged. Safe to call after the brain exists — the config is
+        /// re-resolved rather than the brain rebuilt, so no driving state is discarded mid-race.
+        /// </summary>
+        public void SetRivalIdentity(int rivalKey, int identitySeed, BotPersonalityKind? authoredKind = null)
+        {
+            RivalKey = rivalKey;
+            _identitySeed = identitySeed;
+            _authoredKind = authoredKind;
+            if (_brain != null) ApplyRivalConfig();
+        }
+
+        /// <summary>
+        /// Resolves and pushes the bounded (personality, difficulty) pair for this bot. Prefers the run
+        /// layer's stable identity seed — which is hashed off the rival's NAME, so character follows the
+        /// driver across tracks and runs — and falls back to the legacy hierarchy-derived seed when no
+        /// identity was pushed.
+        /// </summary>
+        /// <summary>
+        /// Pushes what this rival remembers about the player. Sent by the run layer at scene bind, alongside
+        /// the identity, following the same one-way Meta-&gt;Race push. Stored and re-applied at brain
+        /// construction (which happens lazily in <c>FixedUpdate</c>), so ordering with <c>Start</c> doesn't
+        /// matter. <see cref="RivalMemoryProfile.Unknown"/> — the default — is a true no-op.
+        /// </summary>
+        public void SetPlayerMemory(in RivalMemoryProfile memory)
+        {
+            _playerMemory = memory;
+            _brain?.SetPlayerMemory(memory);
+        }
+
+        private void ApplyRivalConfig()
+        {
+            int seed = _identitySeed != 0
+                ? _identitySeed
+                : rivalVarietySeed * SeedStride + transform.GetSiblingIndex();
+            ResolveRivalConfig(enableRivalVariety, seed, personality,
+                out _, out BotPersonality botPersonality, out BotDifficulty botDifficulty, _authoredKind);
+            _brain.SetPersonality(botPersonality);
+            _brain.SetDifficulty(botDifficulty);
+            _brain.SetPlayerMemory(_playerMemory);
         }
 
         private void Awake()
@@ -136,14 +205,11 @@ namespace Shitboxer.Race
                 _brain = new BotBrain(trackPath.Line, skill, ResolveLimits());
                 // Seeded, bounded rival variety (opt-in via enableRivalVariety). OFF resolves to the serialized
                 // `personality` at Nominal difficulty — byte-for-byte today's bots. ON fans a stable per-bot seed
-                // (the base seed reshuffles the whole field; the sibling index gives each bot its own draw — both
-                // deterministic, no Random) across the four archetypes and a subtle skill band. All the bounds and
-                // the identity-when-off guarantee live in the pure resolver below, so this stays engine-loop-thin.
-                int seed = rivalVarietySeed * SeedStride + transform.GetSiblingIndex();
-                ResolveRivalConfig(enableRivalVariety, seed, personality,
-                    out _, out BotPersonality botPersonality, out BotDifficulty botDifficulty);
-                _brain.SetPersonality(botPersonality);
-                _brain.SetDifficulty(botDifficulty);
+                // across the four archetypes and a subtle skill band. The seed prefers a run-layer identity
+                // (hashed off the rival's name, so character travels with the driver) and falls back to the
+                // hierarchy-derived one. All the bounds and the identity-when-off guarantee live in the pure
+                // resolver below, so this stays engine-loop-thin.
+                ApplyRivalConfig();
             }
 
             Vector3 velocity = _controller.Body ? _controller.Body.linearVelocity : Vector3.zero;
@@ -225,6 +291,11 @@ namespace Shitboxer.Race
 
                 _neighborBuf[n].RelativePosition = rb.position - pos;
                 _neighborBuf[n].Velocity = rb.linearVelocity;
+                // Flag the human so the brain knows which neighbour it holds a memory of. Positive test on
+                // the input provider — the same way RunDirector identifies the player — rather than "has no
+                // BotDriver", which would misread any other driverless car as the player. False for every
+                // bot, which is the pre-memory behaviour for the whole field.
+                _neighborBuf[n].IsPlayer = rb.TryGetComponent(out VehicleInputProvider _);
                 n++;
             }
             return n;
@@ -357,7 +428,8 @@ namespace Shitboxer.Race
         /// so nothing here can push a bot past the subtle bands.
         /// </summary>
         public static void ResolveRivalConfig(bool enableVariety, int seed, BotPersonalityKind fallbackKind,
-            out BotPersonalityKind kind, out BotPersonality personality, out BotDifficulty difficulty)
+            out BotPersonalityKind kind, out BotPersonality personality, out BotDifficulty difficulty,
+            BotPersonalityKind? authoredKind = null)
         {
             if (!enableVariety)
             {
@@ -369,7 +441,13 @@ namespace Shitboxer.Race
                 return;
             }
 
-            kind = RivalKind(seed);
+            // A bound roster rival brings its own AUTHORED archetype, which wins over the seeded draw.
+            // Deriving the archetype from the seed instead (hash(id) % 4) fans unevenly — the shipped
+            // 24-rival roster lands 8/7/6/3 that way — and it silently discards the deliberate 6x4
+            // personality-by-archetype cross the roster is built as. The seed still drives the skill tier
+            // and the mistake pattern, so a rival keeps its own texture within its authored archetype.
+            // Null (every caller that predates the roster) keeps the seeded draw, bit-for-bit.
+            kind = authoredKind ?? RivalKind(seed);
             personality = BotPersonality.FromKind(kind);
             difficulty = BotDifficulty.FromTier(RivalBaseSkill01(seed));
         }

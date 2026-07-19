@@ -181,6 +181,9 @@ namespace Shitboxer.Editor
             var manager = rig.AddComponent<RaceManager>();
             manager.Configure(trackPath, cars, RaceLaps, CutoffFraction);
             rig.AddComponent<RaceDebugLogger>().Configure(manager);
+            // Race telemetry: watches what the player does to each rival so the career memory layer has
+            // something to learn from. Purely observational — it applies no forces and drives nothing.
+            rig.AddComponent<RaceObserverHost>().Configure(manager, trackPath);
 
             EditorSceneManager.SaveScene(scene, layout.ScenePath);
 
@@ -383,6 +386,9 @@ namespace Shitboxer.Editor
 
                 var driver = botGo.AddComponent<BotDriver>();
                 driver.Configure(trackPath, preset.CornerMult, preset.Aggression, preset.LookaheadM, preset.LateralOffsetM);
+                // Bake the stable grid slot so the run layer can bind a persistent named rival to this car
+                // without depending on hierarchy order, which is not contractual and shifts under a rebuild.
+                driver.ConfigureRivalSlot(i);
                 cars.Add(botGo.GetComponent<VehicleController>());
             }
 

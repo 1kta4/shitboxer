@@ -124,6 +124,43 @@ namespace Shitboxer.Race
         /// this assembly referencing theirs. Presentation-only — no gameplay logic reads it.</summary>
         public event System.Action<ImpactEvent> OnImpact;
 
+        /// <summary>
+        /// Payload for <see cref="OnContact"/>: an ATTRIBUTED car-to-car hit — who we touched, how hard, and
+        /// whose doing it was.
+        ///
+        /// Deliberately separate from <see cref="ImpactEvent"/>, which is documented presentation-only and
+        /// carries no identity. Widening that struct instead would have quietly turned a presentation
+        /// contract into a gameplay one and dragged the Fx assembly boundary along with it.
+        /// </summary>
+        public readonly struct ContactReport
+        {
+            /// <summary>The car we hit. Never null — this event only fires for car-to-car contact.</summary>
+            public readonly VehicleController Other;
+            /// <summary>0..1 impact severity, the same number that drove the physics response.</summary>
+            public readonly float Severity01;
+            /// <summary>OUR share of the blame, 0..1. The other car's callback reports exactly 1 − this.</summary>
+            public readonly float Aggressorness01;
+            public readonly Vector3 Point;
+
+            public ContactReport(VehicleController other, float severity01, float aggressorness01, Vector3 point)
+            {
+                Other = other;
+                Severity01 = severity01;
+                Aggressorness01 = aggressorness01;
+                Point = point;
+            }
+        }
+
+        /// <summary>
+        /// Fires on each non-trivial CAR-TO-CAR hit with the other car's identity and the fault split. This is
+        /// the seam the observation layer joins collisions to rivals on; wall hits never raise it.
+        ///
+        /// Both cars in a collision raise their own report with complementary blame, so a subscriber watching
+        /// the whole field sees every incident TWICE. De-duplicating that is the subscriber's job — see
+        /// <c>RaceObserver.RecordContact</c>, which collapses a repeat for the same pair inside a short window.
+        /// </summary>
+        public event System.Action<ContactReport> OnContact;
+
         /// <summary>Adds the component if the car doesn't already have one — safe to call repeatedly.</summary>
         public static VehicleCombat GetOrAdd(GameObject go) =>
             go.TryGetComponent(out VehicleCombat existing) ? existing : go.AddComponent<VehicleCombat>();
@@ -188,6 +225,11 @@ namespace Shitboxer.Race
             {
                 LastImpactRealtime = Time.time;
                 OnImpact?.Invoke(new ImpactEvent(severity01, LastImpactDirection, contactPoint, aggressorness > 0.5f));
+
+                // Attributed channel for the observation layer: same gate as the presentation hook, but
+                // car-to-car only and carrying WHO plus the raw fault split rather than a thresholded bool.
+                if (isCarHit)
+                    OnContact?.Invoke(new ContactReport(other, severity01, aggressorness, contactPoint));
             }
 
             // Aggressor/victim split shared by the self-rattle and the persistent wear below: the aggressor
@@ -251,16 +293,35 @@ namespace Shitboxer.Race
             Rigidbody otherBody = other.Body;
             if (myBody == null || otherBody == null) return 0.5f;
 
-            Vector3 toOther = other.transform.position - transform.position;
+            return Aggressorness(transform.position, transform.forward, myBody.linearVelocity,
+                other.transform.position, other.transform.forward, otherBody.linearVelocity);
+        }
+
+        /// <summary>
+        /// 0..1 estimate of how much car A is the aggressor in an A-to-B contact: 1 = A drove into B,
+        /// 0 = A was rammed, ~0.5 = a mutual/side smack.
+        ///
+        /// SYMMETRIC BY CONSTRUCTION: <c>Aggressorness(A,B) + Aggressorness(B,A) == 1</c> for any
+        /// non-degenerate pair, so the two cars never disagree about who initiated. That property is what
+        /// lets the observation layer record a single attributed incident from either car's callback.
+        ///
+        /// Pure — no scene, no Rigidbody, no Time — so the fault split is unit-testable without a collision
+        /// and a headless server derives it identically. The body is unchanged from the original instance
+        /// method; only the inputs were lifted to parameters.
+        /// </summary>
+        public static float Aggressorness(Vector3 aPos, Vector3 aFwd, Vector3 aVel,
+            Vector3 bPos, Vector3 bFwd, Vector3 bVel)
+        {
+            Vector3 toOther = bPos - aPos;
             if (toOther.sqrMagnitude < 1e-6f) return 0.5f; // co-located: no meaningful direction
             Vector3 dirToOther = toOther.normalized;
 
             // Each car's "drive-in": how fast it's closing on the other, gated by how forward-facing it is
             // into the contact. A car reversing or facing away contributes nothing toward being aggressor.
-            float myDriveIn = Mathf.Max(0f, Vector3.Dot(myBody.linearVelocity, dirToOther))
-                              * Mathf.Clamp01(Vector3.Dot(transform.forward, dirToOther));
-            float otherDriveIn = Mathf.Max(0f, Vector3.Dot(otherBody.linearVelocity, -dirToOther))
-                                 * Mathf.Clamp01(Vector3.Dot(other.transform.forward, -dirToOther));
+            float myDriveIn = Mathf.Max(0f, Vector3.Dot(aVel, dirToOther))
+                              * Mathf.Clamp01(Vector3.Dot(aFwd, dirToOther));
+            float otherDriveIn = Mathf.Max(0f, Vector3.Dot(bVel, -dirToOther))
+                                 * Mathf.Clamp01(Vector3.Dot(bFwd, -dirToOther));
 
             float total = myDriveIn + otherDriveIn;
             return total > 1e-4f ? myDriveIn / total : 0.5f;

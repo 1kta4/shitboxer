@@ -68,6 +68,16 @@ namespace Shitboxer.Meta
         [Tooltip("Track scenes the run rotates through, one per race — otherwise a 5-race run is the same rectangle five times. Every name must be a scene in Build Settings; 'Shitboxer/Build Race Scenes' generates them and registers them. Leave EMPTY to reload the active scene instead, which is the old single-track behaviour.")]
         [SerializeField] private string[] raceScenes = { "RaceTest", "RaceGauntlet", "RaceSpeedway" };
 
+        [Header("Persistent rivals")]
+        [Tooltip("Career roster the run draws its field of named rivals from. Leave EMPTY to fall back to the built-in 24-rival roster in RivalRoster.Default. A null roster pushes no identities at all, so every bot keeps its legacy hierarchy-derived character — byte-for-byte the pre-roster behaviour.")]
+        [SerializeField] private RivalRoster rivalRoster;
+
+        [Tooltip("When ON, rivals adapt their RACECRAFT to what they have learned about this player across the career — defending the side you favour, leaving room if you race dirty, fighting harder if there's history. Never touches pace. OFF (default) pushes no memory at all, so every rival races exactly as it does today; observation still runs and memories still accumulate, so flipping this on later starts from a career's worth of evidence rather than nothing.")]
+        [SerializeField] private bool rivalMemoryEnabled = false;
+
+        /// <summary>Opt-in rivalry adaptation (default OFF). See the tooltip; observation runs either way.</summary>
+        public bool RivalMemoryEnabled => rivalMemoryEnabled;
+
         [Header("Boss races (opt-in — default OFF reproduces today's sequence exactly)")]
         [Tooltip("When ON, each circuit's final race runs under RaceRuleset.Boss and a clean boss finish pays the boss bonus (and any DoublePayout) and honours NoRepairAfter. OFF (default) makes NO SetRuleset call and no boss reward — the race sequence, rulesets, rewards and repairs are byte-for-byte as shipped.")]
         [SerializeField] private bool bossRacesEnabled = false;
@@ -167,6 +177,10 @@ namespace Shitboxer.Meta
         /// <summary>Editor wiring: the base spec per chassis id (0 = Grip, 1 = Power), swapped onto the
         /// player at scene bind so car-select actually changes the car driven.</summary>
         public void ConfigureChassis(VehicleSpecAsset[] specs) => chassisSpecs = specs;
+
+        /// <summary>Editor wiring: the career roster this run draws its named rivals from. Null is legal —
+        /// bots then keep their legacy hierarchy-derived character and no identities are pushed.</summary>
+        public void ConfigureRivalRoster(RivalRoster roster) => rivalRoster = roster;
 
         private void Awake()
         {
@@ -271,7 +285,8 @@ namespace Shitboxer.Meta
 
             ApplyEquippedParts();
             ApplyAttackProfile();
-            ApplyBotStrength(); // AFTER ApplyEquippedParts: skips whichever car is the player's
+            ApplyBotStrength();      // AFTER ApplyEquippedParts: skips whichever car is the player's
+            ApplyRivalIdentities();  // AFTER ApplyBotStrength: that one early-outs when the ramp is off, this must always run
             ApplyRuleset();     // opt-in boss ruleset BEFORE ApplyDifficulty so the per-circuit tighten reads its base
             ApplyDifficulty();
 
@@ -387,6 +402,120 @@ namespace Shitboxer.Meta
                 asset.Spec = SpecModApplier.Scaled(car.SpecAsset.Spec, scale, scale);
                 car.SetSpec(asset);
             }
+        }
+
+        // This run's drawn field: entry i is the roster index racing in grid slot i. Rebuilt at every
+        // BindToScene rather than persisted — RivalField.Draw depends only on the run seed and the sizes,
+        // so it reproduces identically across the scene reload, the track rotation, and a resumed run.
+        private int[] _rivalField = System.Array.Empty<int>();
+
+        /// <summary>
+        /// Binds each scene-baked bot to a persistent roster rival: a stable name, a stable character, and
+        /// the per-race key the observation layer attributes events with.
+        ///
+        /// This is what makes a rival a WHO rather than a grid position. Character is seeded off the rival's
+        /// id (see <see cref="RivalField.IdentitySeed"/>), so Vera Kestrel drives like Vera Kestrel on every
+        /// track in every run — which is the precondition for any memory of her being worth keeping.
+        ///
+        /// A null roster makes no calls at all, leaving every bot on its legacy hierarchy-derived seed, so
+        /// the pre-roster behaviour is reproduced byte-for-byte.
+        /// </summary>
+        private void ApplyRivalIdentities()
+        {
+            IReadOnlyList<RivalDef> roster = rivalRoster != null ? rivalRoster.Rivals : null;
+            if (roster == null || roster.Count == 0) return;
+
+            // Sort by the baked slot so the draw is stable regardless of the order FindObjectsByType
+            // happens to return — that order is not contractual, and letting it leak in would reshuffle
+            // who is who between two loads of the same race.
+            var bots = new List<BotDriver>(FindObjectsByType<BotDriver>(FindObjectsSortMode.None));
+            bots.Sort((a, b) => a.RivalSlot.CompareTo(b.RivalSlot));
+            if (bots.Count == 0) return;
+
+            _rivalField = RivalField.Draw(RivalFieldSeed(), roster.Count, bots.Count);
+
+            for (int i = 0; i < bots.Count; i++)
+            {
+                RivalDef def = roster[_rivalField[i]];
+                bots[i].SetRivalIdentity(RivalField.KeyForSlot(i), RivalField.IdentitySeed(def.id),
+                    def.drivingArchetype);
+            }
+
+            if (rivalMemoryEnabled) PushRivalMemories(bots, roster);
+        }
+
+        /// <summary>
+        /// Hands each rival what it has learned about this player. Opt-in via <see cref="rivalMemoryEnabled"/>;
+        /// with the flag off nothing is pushed and every bot keeps <c>RivalMemoryProfile.Unknown</c>, which is
+        /// a true no-op at every tactical site.
+        ///
+        /// Runs the nemesis budget across the whole field before pushing, so the caps are decided once with
+        /// everyone's history in view rather than per car.
+        /// </summary>
+        private void PushRivalMemories(List<BotDriver> bots, IReadOnlyList<RivalDef> roster)
+        {
+            if (Meta == null) Meta = new MetaProgress();
+            Meta.rivalMemories ??= new List<RivalMemory>();
+            Meta.playerStyle ??= new PlayerStyleProfile();
+
+            PlayerStyleProfile style = RivalMemoryStore.GetStyle(
+                Meta.playerStyle, Meta.careerRaces, Meta.styleLastFoldedRace);
+
+            var ids = new List<string>(bots.Count);
+            var memories = new List<RivalMemory>(bots.Count);
+            var profiles = new List<RivalMemoryProfile>(bots.Count);
+
+            for (int i = 0; i < bots.Count; i++)
+            {
+                RivalDef def = roster[_rivalField[i]];
+                RivalMemory mem = RivalMemoryStore.Get(Meta.rivalMemories, def.id, Meta.careerRaces);
+                ids.Add(def.id);
+                memories.Add(mem);
+                profiles.Add(RivalAdaptation.ToProfile(style, mem, RivalLearningProfile.For(def.personality)));
+            }
+
+            RivalAdaptation.ApplyNemesisBudget(ids, memories, profiles);
+
+            for (int i = 0; i < bots.Count; i++)
+            {
+                bots[i].SetPlayerMemory(profiles[i]);
+                // Persist what was actually emitted so next race slews from here rather than recomputing —
+                // this is what makes the anti-oscillation limit hold ACROSS races, not just within one.
+                StoreRememberedBiases(ids[i], memories[i], profiles[i]);
+            }
+        }
+
+        private void StoreRememberedBiases(string rivalId, RivalMemory mem, in RivalMemoryProfile profile)
+        {
+            RivalMemory updated = RivalAdaptation.RememberBiases(mem, profile);
+            updated.rivalId = rivalId;
+            for (int i = 0; i < Meta.rivalMemories.Count; i++)
+            {
+                if (Meta.rivalMemories[i].rivalId != rivalId) continue;
+                Meta.rivalMemories[i] = updated;
+                return;
+            }
+        }
+
+        /// <summary>
+        /// Seed for the rival draw. Deliberately keyed off the RUN seed alone — not <see cref="GridSeed"/>,
+        /// which mixes in the circuit/race indices — because the field must be the SAME cast of drivers for
+        /// every race of a run. Mixing race indices in would redraw the roster each race and there would be
+        /// no one to build a rivalry with.
+        /// </summary>
+        private int RivalFieldSeed() => unchecked(Run.Seed * 31 + 977);
+
+        /// <summary>
+        /// The rival racing in a given grid slot this run, for the HUD and (later) the collection screen.
+        /// Returns an invalid <see cref="RivalDef"/> when the slot is unbound or no roster is assigned;
+        /// callers should check <see cref="RivalDef.IsValid"/>.
+        /// </summary>
+        public RivalDef RivalForSlot(int slot)
+        {
+            IReadOnlyList<RivalDef> roster = rivalRoster != null ? rivalRoster.Rivals : null;
+            if (roster == null || slot < 0 || slot >= _rivalField.Length) return default;
+            int index = _rivalField[slot];
+            return index >= 0 && index < roster.Count ? roster[index] : default;
         }
 
         // Season-ramp tuning. Deliberately gentle and bounded so circuit 1 plays exactly as
@@ -741,6 +870,11 @@ namespace Shitboxer.Meta
             // additive history — no gameplay/economy effect — and a no-op when no lap validated.
             RecordPlayerBestLap(me);
 
+            // Rivalry memory: fold what the observation layer saw into the persistent career model. Sits
+            // here for the same reason as the lap record — before any early-return branch — so the last
+            // race of a dying run still teaches the rivals who were in it.
+            RecordRivalEncounters(me);
+
             bool eliminated = me.State == CarRaceState.Eliminated;
             // Flat top-N: a boss race asks for the same finish on every circuit. This used to shrink one
             // slot per circuit (Max(1, BossTopN - CircuitIndex)), which quietly escalated an already
@@ -1073,6 +1207,61 @@ namespace Shitboxer.Meta
             if (Meta.RecordBestLap(CurrentTrackId(), me.BestLapTimeS))
                 MetaProgress.Save(Meta); // a new record — flush now so lap records survive a mid-run quit
         }
+
+        /// <summary>
+        /// Folds this race's observations into the persistent rivalry memory, then advances the decay clock
+        /// and saves. Maps each rival's per-race observation key back to its permanent roster id — the key
+        /// is only unique within one race, and keying memory by it would scramble histories between races.
+        ///
+        /// Deliberately tolerant: no observer, no roster, or no rivals simply means nothing is learned this
+        /// race. Memory is enrichment, never a precondition for the run resolving.
+        /// </summary>
+        private void RecordRivalEncounters(RaceCarStatus me)
+        {
+            if (Meta == null) Meta = new MetaProgress();
+            Meta.rivalMemories ??= new List<RivalMemory>();
+            Meta.playerStyle ??= new PlayerStyleProfile();
+
+            var observerHost = FindFirstObjectByType<RaceObserverHost>();
+            if (observerHost == null || me == null) return;
+
+            RaceObservationSummary race = observerHost.Summarize(me.Position);
+            if (race.Rivals == null || race.Rivals.Length == 0) return;
+
+            // Advance the clock FIRST so this race's fold stamps the ordinal it belongs to, and the decay
+            // applied on the next read counts from here.
+            Meta.careerRaces++;
+
+            // Tier 1: the shared style profile every rival reads.
+            Meta.playerStyle = RivalMemoryStore.GetStyle(Meta.playerStyle, Meta.careerRaces, Meta.styleLastFoldedRace);
+            RivalMemoryStore.FoldStyle(Meta.playerStyle, race);
+            Meta.styleLastFoldedRace = Meta.careerRaces;
+
+            // Tier 2: personal history, per rival.
+            //
+            // Folded in a CANONICAL ORDER (by roster id), not in whatever order the observer happens to
+            // hold them. PhysX decides collision callback ordering and it can differ between a client and a
+            // headless server, so folding in observation order would let float summation drift the two
+            // models apart — which the multiplayer constraint forbids and which would be near-impossible to
+            // diagnose after the fact.
+            var folds = new List<(string id, RivalEncounterSummary enc)>(race.Rivals.Length);
+            foreach (RivalEncounterSummary enc in race.Rivals)
+            {
+                RivalDef def = RivalForSlot(SlotForKey(enc.RivalKey));
+                if (!def.IsValid) continue;
+                folds.Add((def.id, enc));
+            }
+            folds.Sort((x, y) => string.CompareOrdinal(x.id, y.id));
+
+            long stamp = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            foreach ((string id, RivalEncounterSummary enc) in folds)
+                RivalMemoryStore.Fold(Meta.rivalMemories, id, enc, Meta.careerRaces, stamp);
+
+            MetaProgress.Save(Meta);
+        }
+
+        /// <summary>Inverse of <see cref="RivalField.KeyForSlot"/>. -1 for the player or an unknown key.</summary>
+        private static int SlotForKey(int rivalKey) => rivalKey > 0 ? rivalKey - 1 : -1;
 
         /// <summary>
         /// Stable identifier for the track the current race runs on — the active scene's name (every race
