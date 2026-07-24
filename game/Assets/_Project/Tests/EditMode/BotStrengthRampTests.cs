@@ -162,6 +162,23 @@ namespace Shitboxer.Tests
         }
 
         [Test]
+        public void BotStrengthFor_Retuned24RaceSeason_LandsOnThePracticalCeilingAtTheFinale()
+        {
+            // Doc 08 decision 13: base 1.4, +0.013/race, cap 1.70 — the PRACTICAL player ceiling, not
+            // the theoretical x2. The ramp must reach the cap BY THE CURVE at the final race (index 23:
+            // 1.4 + 23*0.013 = 1.699), not slam into a clamp mid-season the way the old 5-race tune
+            // (0.40/race, capped at race 4) did on a 24-race calendar.
+            Assert.That(RunDirector.BotStrengthFor(0, 1.4f, 0.013f, 1.7f), Is.EqualTo(1.4f).Within(1e-4f),
+                "race 1 starts at base");
+            Assert.That(RunDirector.BotStrengthFor(11, 1.4f, 0.013f, 1.7f), Is.EqualTo(1.543f).Within(1e-4f),
+                "mid-season sits above a typical build's ~1.45 reach — survive-and-farm territory");
+            Assert.That(RunDirector.BotStrengthFor(23, 1.4f, 0.013f, 1.7f), Is.EqualTo(1.699f).Within(1e-4f),
+                "the finale lands a hair under the cap by ramp, not by clamp");
+            Assert.LessOrEqual(RunDirector.BotStrengthFor(100, 1.4f, 0.013f, 1.7f), 1.7f + 1e-4f,
+                "nothing ever exceeds the practical ceiling");
+        }
+
+        [Test]
         public void BotStrengthFor_OffConfig_LeavesRivalsAsAuthored()
         {
             // Callers treat 1 as "don't touch the spec at all", so an OFF config must return exactly 1.
@@ -189,6 +206,27 @@ namespace Shitboxer.Tests
             Assert.IsFalse(run.IsBossRace);
             run.RaceIndex = 4;
             Assert.IsTrue(run.IsBossRace);
+        }
+
+        [Test]
+        public void ApplySeasonShape_FullSeason_Is8CircuitsOf3Races()
+        {
+            // Doc 08 decision 12: 8 circuits x 3 races = 24, the calendar the bot ramp above is sized
+            // against. RaceNumber must run 0..23 and the run only completes after the final boss.
+            RunState run = RunDirector.ApplySeasonShape(new RunState(), 8, 3);
+
+            Assert.AreEqual(8, run.TotalCircuits);
+            Assert.AreEqual(3, run.RacesPerCircuit);
+
+            run.CircuitIndex = 7;
+            run.RaceIndex = 2;
+            Assert.AreEqual(23, run.RaceNumber, "the finale is race number 23 — what the ramp's cap keys off");
+            Assert.IsTrue(run.IsBossRace, "the finale is the last circuit's boss");
+            Assert.IsTrue(run.IsFinalCircuit);
+            Assert.IsFalse(run.RunComplete, "the run is not complete until the finale is CLEARED");
+
+            run.RaceIndex = 3; // cleared the final boss
+            Assert.IsTrue(run.RunComplete);
         }
 
         [Test]

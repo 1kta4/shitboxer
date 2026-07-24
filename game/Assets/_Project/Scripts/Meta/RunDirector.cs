@@ -57,13 +57,13 @@ namespace Shitboxer.Meta
         public int CratePrice => cratePrice;
 
         [Header("Season shape")]
-        [Tooltip("How many circuits make up a full season. 1 (default) is the roadmap's Phase-3 gate: a single-circuit run, short enough that the \"one more run\" test is cheap to repeat. Raise it as real circuits/tracks land. Clamped to >= 1. Season length is CONFIG, not run progress — RunSave never persists it — so this field is re-stamped onto every run the director adopts (fresh, resumed, or restarted), letting a change here take effect on a run already in flight.")]
+        [Tooltip("How many circuits make up a full season. 8 (doc 08 decision 12): 24 races, ~75 minutes — the length RunState.DifficultyMult's convex ramp was built for, and what makes team upgrades and long-horizon parts viable at all (both are structurally dead in a short run by their own docs). Track scenes rotate modulo the raceScenes list, so 8 circuits over 3 built tracks just cycles. Clamped to >= 1. Season length is CONFIG, not run progress — RunSave never persists it — so this field is re-stamped onto every run the director adopts (fresh, resumed, or restarted), letting a change here take effect on a run already in flight.")]
         [Min(1)]
-        [SerializeField] private int totalCircuits = 1;
+        [SerializeField] private int totalCircuits = 8;
 
-        [Tooltip("Races in each circuit — the last one is the boss (top-3 required). 5 gives a run enough garages for the shop to actually breathe: at 3 the whole run turned over ~$30, which couldn't fill six equip slots and left the team upgrades unable to repay themselves. Same CONFIG rule as totalCircuits: never persisted by RunSave, re-stamped onto every run the director adopts, so a retune reaches a run already in flight.")]
+        [Tooltip("Races in each circuit — the last one is the boss (top-3 required). 3 per doc 08 decision 12 (8 circuits x 3 = the 24-race season). The old value of 5 existed to give a ONE-circuit season enough garages for the shop to breathe; at 8 circuits the run has 24 garages, so that rationale is superseded and 3 keeps each circuit's boss cadence tight. Same CONFIG rule as totalCircuits: never persisted by RunSave, re-stamped onto every run the director adopts, so a retune reaches a run already in flight.")]
         [Min(1)]
-        [SerializeField] private int racesPerCircuit = 5;
+        [SerializeField] private int racesPerCircuit = 3;
 
         [Tooltip("Track scenes the run rotates through, one per race — otherwise a 5-race run is the same rectangle five times. Every name must be a scene in Build Settings; 'Shitboxer/Build Race Scenes' generates them and registers them. Leave EMPTY to reload the active scene instead, which is the old single-track behaviour.")]
         [SerializeField] private string[] raceScenes = { "RaceTest", "RaceGauntlet", "RaceSpeedway" };
@@ -400,11 +400,11 @@ namespace Shitboxer.Meta
         [Min(1f)]
         [SerializeField] private float botStrengthBase = 1.4f;
 
-        [Tooltip("Extra grip/power per race already completed this run, added to botStrengthBase. 0.40 across a 5-race season ramps 1.4 -> 3.0, roughly 23s -> 17s a lap. This is the rivals' shop: bots never buy parts, so without it the player's build simply walks away. 0 = a flat field all season.")]
-        [SerializeField] private float botStrengthPerRace = 0.40f;
+        [Tooltip("Extra grip/power per race already completed this run, added to botStrengthBase. 0.013 across the 24-race season (doc 08 decision 13) ramps 1.4 -> 1.70, landing exactly on the cap at the final race. This is the rivals' shop: bots never buy parts, so without it the player's build simply walks away. The old 0.40 was tuned for a 5-race season — at 24 races it capped the field at race 4 and sat flat for the remaining 20. 0 = a flat field all season.")]
+        [SerializeField] private float botStrengthPerRace = 0.013f;
 
-        [Tooltip("Ceiling on the rival-car scale, so a long season can't hand the field a spaceship. 3.0 lands ~17s a lap against the player's measured 14.4s best — ahead, but no longer lapping them.")]
-        [SerializeField] private float botStrengthMax = 3f;
+        [Tooltip("Ceiling on the rival-car scale, so a long season can't hand the field a spaceship. 1.70 (doc 08 decision 13) is the PRACTICAL player-build ceiling, not the theoretical x2.0: a typical build (~x1.45) never out-stats the field, a genuinely good one passes it in the last third of the season — earned, not scheduled. The old 3.0 put bots at u~3.96 on GripBox (4g cornering), survivable only because they ride rails.")]
+        [SerializeField] private float botStrengthMax = 1.7f;
 
         /// <summary>
         /// Scales every rival's car for this race off <see cref="RunState.RaceNumber"/>. Rivals are

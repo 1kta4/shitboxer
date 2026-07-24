@@ -1735,8 +1735,8 @@ MonoBehaviour:
   repairDamageExponent: 1
   cratePrice: 6
   crateDrawCount: 3
-  totalCircuits: 1
-  racesPerCircuit: 5
+  totalCircuits: 8
+  racesPerCircuit: 3
   raceScenes:
   - RaceTest
   - RaceGauntlet
@@ -1750,8 +1750,8 @@ MonoBehaviour:
   difficultyRampPerCircuit: 0
   difficultyRampMaxScalar: 1.5
   botStrengthBase: 1.4
-  botStrengthPerRace: 0.4
-  botStrengthMax: 3
+  botStrengthPerRace: 0.013
+  botStrengthMax: 1.7
 --- !u!4 &1508611871
 Transform:
   m_ObjectHideFlags: 0

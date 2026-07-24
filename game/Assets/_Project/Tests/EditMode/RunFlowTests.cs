@@ -127,15 +127,16 @@ namespace Shitboxer.Tests
             Assert.AreEqual(0, RunDirector.CleanFinishPayout(3, null, null, 1f, false, default, 0));
         }
 
-        // --- Season shape (roadmap: "start with 1 circuit, not 8") ----------------------------------
+        // --- Season shape (doc 08 decision 12: the 8-circuit, 24-race full season) ------------------
 
         [Test]
-        public void DefaultSeason_IsOneCircuit_PerTheRoadmap()
+        public void DefaultSeason_IsEightCircuits_PerDecision12()
         {
-            // The roadmap's Phase-3 gate is explicitly a ONE-circuit run — short enough that the
-            // "one more run" test is cheap to repeat. Pin the default so it can't drift back up
-            // without someone deliberately editing this assertion.
-            Assert.AreEqual(1, new RunState().TotalCircuits);
+            // Doc 08 decision 12 deliberately overrides the roadmap's "start with 1 circuit, not 8":
+            // the 24-race season is what team upgrades, long-horizon parts and the retuned bot ramp
+            // are all sized against. Pin the default so it can't drift without someone deliberately
+            // editing this assertion — the same guard the old 1-circuit pin provided.
+            Assert.AreEqual(8, new RunState().TotalCircuits);
         }
 
         [Test]
