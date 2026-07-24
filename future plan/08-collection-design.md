@@ -1,8 +1,9 @@
 # 08 — Collection Design (components, parts, sectors)
 
-**Status: in progress, 2026-07-22.** Built by walking `Jokers.docx` (the Balatro-mapped collection
+**Status: in progress, 2026-07-24.** Built by walking `Jokers.docx` (the Balatro-mapped collection
 spec) against the shipped physics. Decisions below are LOCKED unless re-litigated explicitly.
-Open questions are at the bottom — they are the live work.
+Open questions are at the bottom — they are the live work. Slices 1–6 playtested 2026-07-23;
+slices 7–8 (damage rework, season/bot retune) built 2026-07-24, **not yet played**.
 
 Companion to `03-game-design.md`. Where the two disagree, this doc is newer; the one deliberate
 override is noted in decision 2.
@@ -160,7 +161,7 @@ implementation get surfaced and added rather than silently dropped.
 everything** — you specialise. A run levels 3–4 components deep and leaves the rest near L1.
 Individual levels are nearly invisible on the bar; the *count* is what family jokers read.
 
-**12 — Full season: 8 circuits, 24 races, ~75 minutes.**
+**12 — Full season: 8 circuits, 24 races, ~75 minutes.** *(Built — slice 8.)*
 Overrides doc 05's "start with 1 circuit, not 8" and requires `RunState.TotalCircuits = 8`.
 This is what `RunState.DifficultyMult` (convex in `CircuitIndex`) was built for, and it is what
 finally makes team upgrades and long-horizon jokers viable — both are structurally dead at
@@ -173,7 +174,7 @@ one (~×2.0). A typical build lands ~×1.45 and **never crosses**; only a genuin
 the field, and only in the last third of the season. The first half is survive-and-farm; the second
 half is cash it in.
 
-> **Required retune — the shipped values are tuned for a 5-race season and are now wrong.**
+> **Required retune — DONE, slice 8.**
 > `botStrengthBase 1.4` (unchanged), `botStrengthPerRace 0.40 → 0.013`, `botStrengthMax 3.0 → 1.70`.
 > At the shipped values bots hit the ×3 cap at **race 4** and sit flat for the remaining 20 races,
 > at µ 3.96 on GripBox — roughly 4g cornering, well past any driveable player car. Bots survive
@@ -189,7 +190,7 @@ Single bind, default **Q**, **rebindable in settings**. `VehicleInput.Boost` exi
 rebind layer yet, so that is new work.
 `DraftBoost` (charge-and-deploy, built, `Enabled = false`) is the reference implementation.
 
-**15 — Damage: crippled at half, retired at zero.**
+**15 — Damage: crippled at half, retired at zero.** *(Built — slice 7.)*
 One number, not two — the Kart's *"very low health"* meant very low **weight**, not a second stat.
 
 ```
@@ -692,13 +693,76 @@ dropped mid-run, and these fixtures only execute in the editor's Test Runner (se
 
 ---
 
+## Slice 7 — the damage rework (decision 15)
+
+**Durability is real.** Open question 1's durability half, built 2026-07-24:
+
+- `MinDurability` 0.4 → **0.0**. A car can now be wrecked outright.
+- `MaxWearPerformanceLoss` (const) → **`VehicleSpec.WearExponent`**, the per-chassis curve of the
+  decision-15 table: `DurabilityMult = D^exponent`, cached on write so the per-wheel force path
+  never calls `Pow`. Both shipped boxes sit at the default 1.0 — existing assets need no edit,
+  Unity fills the missing serialized field with the C# default.
+- **`DamageResistance` went live**: folded in at `ApplyDamage` intake, so it protects against every
+  wear source including boss-amplified hits. Capped at **0.9 in both `Validate` and the ledger
+  bake** — the bake previously `Clamp01`ed, which would have let a deep-durability build become
+  literally unhittable the moment the sim started reading the field.
+- **`CarRaceState.Retired`**: RaceManager retires any car whose durability hits zero — bots
+  included, and `ReleaseBot` stops a wrecked bot sawing at a wheel that no longer grips. A retired
+  PLAYER fast-resolves the race via `FinishRaceNow` (the old editor-only `DevFinishRaceNow`,
+  promoted to runtime because retirement now needs it): the running order is stamped final, the
+  retired car sorts behind every finisher, and the failure path pays the elimination consolation,
+  takes a life, and retries the race. The HUD verdict reads `RETIRED — CAR DESTROYED`.
+- **Race-start durability floor, 0.25** (`RunDirector.RaceStartDurability`) — a rule the
+  implementation forced. A failed race is *retried*; without the floor, a broke player with a
+  wrecked car would retire at every green flag until the run bled out, an automatic game-over with
+  zero player input. So overnight the crew hammers the panels straight enough to roll, free. 25% is
+  still deeply crippled (25% pace at exponent 1) and the garage repair still reads the true carried
+  wear, so the strategic choice of driving damaged to save money survives.
+- **Fragile parts break at the crippled line** (`CarDurability <= 0.5`) instead of near the old 0.4
+  floor — the same threshold the Gold enhancement will read, so "heavily damaged" means one thing
+  everywhere.
+- `RepairCostFor` generalised for free: the wear span is the whole 0..1 range now, so a
+  durability-0.2 car pays 80% of full price rather than the floor-clamped 100%.
+
+**Verification:** standalone harness rebuilt this session (the previous one was session-local) —
+542 passed / 0 failed / 144 skipped, zero warnings, all assemblies + Editor compiled. The 144 skips
+are the known `ScriptableObject` fixtures; the editor's Test Runner remains the authority for them.
+Two old tests were deliberately rewritten, not patched: the "floor keeps a wreck driveable"
+assertion (that design is exactly what decision 15 overturns) and the repair-cost floor pins.
+
+---
+
+## Slice 8 — season + bot ramp retune (decisions 12, 13)
+
+Both flagged as required in the decisions above; built 2026-07-24. `totalCircuits 1 → 8`,
+`racesPerCircuit 5 → 3` (the 5 existed to give a ONE-circuit season enough garages; 8 circuits give
+24), `botStrengthPerRace 0.40 → 0.013`, `botStrengthMax 3.0 → 1.70`, base 1.4 unchanged. The curve
+lands on the cap **by ramp, not by clamp**, exactly at race 24: `1.4 + 23×0.013 = 1.699`.
+
+Three things worth knowing:
+
+- These are **inspector fields serialized into all three race scenes** — the C# defaults alone
+  would have changed nothing for the existing scenes. Scene YAML edited directly; `RunState`'s
+  default and the old "season is ONE circuit" pin test both now assert the decision-12 shape.
+- **Track rotation needed no code**: `SceneForRace` already cycles `raceScenes` modulo race number,
+  so 8 circuits over 3 built tracks just repeats the loop. Real track variety is open question 5.
+- **`ApplyDifficulty` saturates early**: `DifficultyMult` hits the bot-commitment band's ceiling
+  (1.3) around circuit 3 and the survival cutoff tightens to its 0.08 floor by mid-season, so from
+  there the *only* thing still ramping is the ×1.7 grip/power curve. Probably fine — commitment was
+  always meant to be subtle — but it is untested at 24 races and worth watching in the first full
+  playthrough.
+
+---
+
 ## Open questions
 
-1. **Durability and weight need to become real.** `MinDurability` and `MaxWearPerformanceLoss` are
-   `const`. Nine of the fifteen cars are defined by them, as are Seals (Stage 1/2/3 trade power for
-   durability) and Enhancements (Glass, Gold, Rock).
+1. ~~**Durability and weight need to become real.**~~ **Durability done — slice 7.** Weight was
+   always expressible (`MassKg` + the ledger); the remaining half of this question is content, not
+   plumbing: the nine durability/weight-defined cars, Seals, and Enhancements can now be authored.
 2. **"Health" vs "durability."** The Kart is specced *"very low health… standard durability."* There
-   is only one number today, and it is both a pool and a performance scalar.
+   is only one number today, and it is both a pool and a performance scalar. (Slice 7 kept one
+   number deliberately — decision 15's "crippled at half" only works because pace and pool are the
+   same value.)
 3. **v1 scope and sequencing.** Components, Enhancements, Seals, Editions-as-materials, Spectrals,
    Tarots, Actives, Booster tiers — eight subsystems, on top of Phase 4 UI already mid-flight.
 4. **What the race HUD shows**, now that the four stat bars are excluded from it.
