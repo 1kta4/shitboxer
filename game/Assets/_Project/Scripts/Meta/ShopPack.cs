@@ -2,12 +2,6 @@ namespace Shitboxer.Meta
 {
     /// <summary>
     /// What a booster pack contains. Two are offered every visit; buying one opens a pick-one draw.
-    ///
-    /// <see cref="Spectral"/> is DECLARED BUT NOT YET ROLLED — see
-    /// <see cref="ShopPackCatalog.Weight"/>. Its content (the source document's high-risk transform
-    /// consumables) does not exist, and stocking a pack that opens onto nothing would be worse than
-    /// not offering it. The member exists so the save format, the UI and the draw table are already
-    /// shaped for it.
     /// </summary>
     public enum ShopPackKind
     {
@@ -15,8 +9,60 @@ namespace Shitboxer.Meta
         Parts,
         /// <summary>Draws components; pick one to level up.</summary>
         Components,
-        /// <summary>Not implemented — see the type remarks.</summary>
+        /// <summary>Draws edition materials aimed at FITTED stat parts (doc 08 slice 13 — editions
+        /// as materials); pick one, and that part is Foil/Holo/Polychrome for the rest of the run.</summary>
         Spectral,
+    }
+
+    /// <summary>
+    /// One Spectral-pack offer — an edition aimed at a specific fitted part — and its string codec.
+    /// Encoded as "Edition:partId" because the open pack lives on <see cref="RunState.PackSpectrals"/>
+    /// as plain strings (serializable, save-safe); this is the ONE place the format is known.
+    /// Pure static, headless-safe.
+    /// </summary>
+    public static class SpectralOffer
+    {
+        /// <summary>The applyable tiers, lowest first — the same order upgrades must walk.</summary>
+        public static readonly PartEdition[] Tiers =
+        {
+            PartEdition.Foil,
+            PartEdition.Holo,
+            PartEdition.Polychrome,
+        };
+
+        /// <summary>
+        /// Draw weight per tier: Foil is the common pull, Polychrome the jackpot. Zero for None (a
+        /// material that does nothing is never offered) and for any unknown future member.
+        /// </summary>
+        public static int Weight(PartEdition edition)
+        {
+            switch (edition)
+            {
+                case PartEdition.Foil: return 60;
+                case PartEdition.Holo: return 30;
+                case PartEdition.Polychrome: return 10;
+                default: return 0;
+            }
+        }
+
+        public static string Encode(PartEdition edition, string partId) => $"{edition}:{partId}";
+
+        /// <summary>
+        /// Decode one stored offer. False (with junk-safe outs) for anything unparseable — a stale
+        /// or hand-edited save line is dropped rather than thrown on.
+        /// </summary>
+        public static bool TryDecode(string encoded, out PartEdition edition, out string partId)
+        {
+            edition = PartEdition.None;
+            partId = null;
+            if (string.IsNullOrEmpty(encoded)) return false;
+            int split = encoded.IndexOf(':');
+            if (split <= 0 || split >= encoded.Length - 1) return false;
+            if (!System.Enum.TryParse(encoded.Substring(0, split), out edition)) return false;
+            if (!System.Enum.IsDefined(typeof(PartEdition), edition) || edition == PartEdition.None) return false;
+            partId = encoded.Substring(split + 1);
+            return true;
+        }
     }
 
     /// <summary>One pack on the shelf: what it holds, what it costs, and how many it draws.</summary>
@@ -52,17 +98,20 @@ namespace Shitboxer.Meta
         };
 
         /// <summary>
-        /// Relative shelf frequency. <see cref="ShopPackKind.Spectral"/> weighs ZERO because its
-        /// contents are not built — a pack that opened onto an empty pick screen would take the
-        /// player's money and hand back nothing. Give it a weight the day spectrals exist.
+        /// Relative shelf frequency. Spectral is the scarce one — its prize (a permanent stat
+        /// amplifier on a fitted part) outclasses one component level, so it must not show up as
+        /// often. Buying one is still refused when NO fitted part can take an edition (see
+        /// ShopLogic.TryBuyPack) — the slice-4 rule that a pack whose prize can't be taken is
+        /// never sold.
         /// </summary>
         public static int Weight(ShopPackKind kind)
         {
             switch (kind)
             {
-                case ShopPackKind.Parts: return 55;
-                case ShopPackKind.Components: return 45;
-                default: return 0;   // Spectral — not implemented
+                case ShopPackKind.Parts: return 50;
+                case ShopPackKind.Components: return 40;
+                case ShopPackKind.Spectral: return 15;
+                default: return 0;
             }
         }
 

@@ -27,6 +27,7 @@ namespace Shitboxer.UI.Model
         private readonly List<ComponentVm> _components = new List<ComponentVm>();
         private readonly List<ComponentVm> _blueprints = new List<ComponentVm>();
         private readonly List<ComponentVm> _packComponents = new List<ComponentVm>();
+        private readonly List<SpectralVm> _packSpectrals = new List<SpectralVm>();
 
         public GarageViewModel(IRunHost host)
         {
@@ -73,6 +74,9 @@ namespace Shitboxer.UI.Model
         /// <summary>True while an open COMPONENTS pack is waiting to be picked from.</summary>
         public bool ComponentPackOpen => Run.ComponentPackOpen;
 
+        /// <summary>True while an open SPECTRAL pack is waiting to be picked from (doc 08 slice 13).</summary>
+        public bool SpectralPackOpen => Run.SpectralPackOpen;
+
         /// <summary>True while any paid-for pack is unresolved. The shelf is hidden until it is.</summary>
         public bool PackOpen => Run.PackOpen;
 
@@ -84,6 +88,9 @@ namespace Shitboxer.UI.Model
 
         /// <summary>The components an open components pack is offering.</summary>
         public IReadOnlyList<ComponentVm> PackComponents => _packComponents;
+
+        /// <summary>The edition materials an open Spectral pack is offering, each pre-aimed at a fitted part.</summary>
+        public IReadOnlyList<SpectralVm> PackSpectrals => _packSpectrals;
 
         public int CratePrice => _host.CratePrice;
         public int CrateDrawCount => _host.CrateDrawCount;
@@ -129,6 +136,7 @@ namespace Shitboxer.UI.Model
         public bool BuyPack(int packIndex) => Mutate(_host.BuyPack(packIndex));
         public bool TakeFromCrate(PartDef part) => Mutate(_host.TakeFromCrate(part));
         public bool TakeComponent(CarComponent component) => Mutate(_host.TakeComponent(component));
+        public bool TakeSpectral(SpectralVm pick) => Mutate(_host.TakeSpectral(pick.Part, pick.Edition));
         public bool BuyBlueprint(CarComponent component) => Mutate(_host.BuyBlueprint(component));
         public bool BuyUpgrade(TeamUpgrade upgrade) => Mutate(_host.BuyUpgrade(upgrade));
         public bool Repair() => Mutate(_host.RepairCar());
@@ -151,7 +159,7 @@ namespace Shitboxer.UI.Model
             // bakes the real car in, so the preview cannot disagree with what you drive.
             VehicleSpec baseSpec = _host.BaseSpec;
             VehicleSpec current = baseSpec != null
-                ? SpecModApplier.Apply(StatLedger.Bake(baseSpec, Run.ComponentLedger()), Run.EquippedParts)
+                ? SpecModApplier.Apply(StatLedger.Bake(baseSpec, Run.ComponentLedger()), Run.EquippedParts, Run.EditionOf)
                 : null;
             Current = current != null ? StatSummary.Compute(current) : default;
 
@@ -184,6 +192,20 @@ namespace Shitboxer.UI.Model
                 foreach (int ordinal in Run.PackComponents)
                     _packComponents.Add(BuildComponent((CarComponent)ordinal, free: true));
 
+            // Spectral picks (doc 08 slice 13): resolve each stored "Edition:partId" offer against
+            // the owned list. An offer whose target has vanished mid-pack is skipped here as a
+            // display guard, but TrySell already purges those, so normally all resolve.
+            _packSpectrals.Clear();
+            if (Run.SpectralPackOpen)
+                foreach (string encoded in Run.PackSpectrals)
+                {
+                    if (!SpectralOffer.TryDecode(encoded, out PartEdition edition, out string partId)) continue;
+                    PartDef target = Run.OwnedParts.Find(p => p != null && p.Id == partId);
+                    if (target == null) continue;
+                    _packSpectrals.Add(new SpectralVm(target, edition,
+                        $"{PartDisplay.EditionTag(edition)} → {target.DisplayName.ToUpperInvariant()}"));
+                }
+
             // The ten-row list is a read-out of the car, so it stays visible even mid-pack — unlike the
             // Blueprint shelf, which is stock and hides behind an open pack like every other offer.
             _components.Clear();
@@ -199,9 +221,12 @@ namespace Shitboxer.UI.Model
             foreach (PartDef part in Run.OwnedParts)
             {
                 if (!part) continue;
-                _owned.Add(new OwnedPartVm(part, part.DisplayName, part.Category, part.Edition,
-                    PartDisplay.EditionTag(part.Edition), Run.IsEquipped(part),
-                    _host.Shop.SellValueOf(part)));
+                // EFFECTIVE edition (run material beats the authored one) drives both the row tag
+                // and the refund — the fitted list must show the same number the sale pays.
+                PartEdition edition = Run.EditionOf(part);
+                _owned.Add(new OwnedPartVm(part, part.DisplayName, part.Category, edition,
+                    PartDisplay.EditionTag(edition), Run.IsEquipped(part),
+                    _host.Shop.SellValueOf(part, Run)));
             }
 
             _availableUpgrades.Clear();

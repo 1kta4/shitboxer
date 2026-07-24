@@ -178,6 +178,19 @@ namespace Shitboxer.Meta
             part == null ? 0 : Math.Max(1, (int)(PriceOf(part) * SellFraction));
 
         /// <summary>
+        /// Run-aware sell value: an editioned part (doc 08 slice 13) refunds against its
+        /// edition-multiplied price — Foil ×1.5, Holo ×2, Polychrome ×3 — so a material applied is
+        /// value banked, not value burned. A plain part (or a null run) refunds exactly the shipped
+        /// number above.
+        /// </summary>
+        public int SellValueOf(PartDef part, RunState run)
+        {
+            if (part == null) return 0;
+            PartEdition edition = run != null ? run.EditionOf(part) : part.Edition;
+            return Math.Max(1, (int)(PriceOf(part) * PartEditionInfo.PriceMult(edition) * SellFraction));
+        }
+
+        /// <summary>
         /// Buys an offered part. A bought part is ALWAYS equipped — there is no owned-but-benched state
         /// for shelf purchases — which is why this refuses when the car is full rather than quietly
         /// selling something the player can't use. Sell a part to make room.
@@ -209,7 +222,14 @@ namespace Shitboxer.Meta
         public bool TrySell(PartDef part, RunState run)
         {
             if (part == null || run == null || !run.Owns(part)) return false;
-            int refund = SellValueOf(part);
+            int refund = SellValueOf(part, run); // edition-aware: the applied material is priced into the refund
+            // Any open Spectral offer AIMED at this part dies with it — an offer targeting a part
+            // that has left the run could never be resolved, and leaving it behind would wedge the
+            // pack open forever. If that empties the pack, the pack is resolved: selling every
+            // target was the player's choice, and the shelf must come back.
+            if (run.PackSpectrals.Count > 0 && !string.IsNullOrEmpty(part.Id))
+                run.PackSpectrals.RemoveAll(o =>
+                    SpectralOffer.TryDecode(o, out _, out string targetId) && targetId == part.Id);
             run.RemovePart(part);
             run.Money += refund;
             BreakRerollStreak(run);
@@ -370,12 +390,91 @@ namespace Shitboxer.Meta
                     break;
                 }
 
+                case ShopPackKind.Spectral:
+                {
+                    // Editions as materials (doc 08 slice 13). Each offer is pre-aimed — "FOIL onto
+                    // the Junkyard Turbo" — so the pick stays the same one-tap decision as every
+                    // other pack, no second target-choosing step. Refused when nothing fitted can
+                    // take an edition: never sell a pack whose prize can't be taken.
+                    var drawn = new List<string>();
+                    DrawSpectrals(run, pack.DrawCount, drawn);
+                    if (drawn.Count == 0) return false;
+
+                    run.Money -= pack.Price;
+                    run.PackSpectrals.AddRange(drawn);
+                    break;
+                }
+
                 default:
-                    return false; // Spectral: declared, not implemented — never stocked, never sold
+                    return false; // unknown future kind — never stocked, never sold
             }
 
             _packs.RemoveAt(packIndex);
             BreakRerollStreak(run);
+            return true;
+        }
+
+        /// <summary>
+        /// Draws up to <paramref name="count"/> Spectral offers: DISTINCT fitted parts that can
+        /// actually take an edition — they carry SpecMods (editions amplify stat effect; on a
+        /// stat-less part a material would be a lie) and sit below Polychrome — each paired with a
+        /// weighted-rolled tier STRICTLY ABOVE its current one. Fitted parts only: the material is
+        /// applied on pick and a bought part is always fitted, so an un-fitted target can't exist.
+        /// </summary>
+        private void DrawSpectrals(RunState run, int count, List<string> into)
+        {
+            if (run == null || into == null || count <= 0) return;
+
+            var candidates = new List<PartDef>();
+            foreach (PartDef part in run.EquippedParts)
+                if (part != null && !string.IsNullOrEmpty(part.Id)
+                    && part.SpecMods != null && part.SpecMods.Count > 0
+                    && run.EditionOf(part) < PartEdition.Polychrome)
+                    candidates.Add(part);
+
+            int draws = Math.Min(count, candidates.Count);
+            for (int i = 0; i < draws; i++)
+            {
+                int pick = _rng.Next(candidates.Count);
+                PartDef part = candidates[pick];
+                candidates.RemoveAt(pick);
+                into.Add(SpectralOffer.Encode(RollEditionAbove(run.EditionOf(part)), part.Id));
+            }
+        }
+
+        /// <summary>A weighted tier roll restricted to editions above <paramref name="current"/> —
+        /// Foil-heavy from None, and from Holo the only legal pull is the Polychrome jackpot.</summary>
+        private PartEdition RollEditionAbove(PartEdition current)
+        {
+            int total = 0;
+            foreach (PartEdition tier in SpectralOffer.Tiers)
+                if (tier > current) total += SpectralOffer.Weight(tier);
+            if (total <= 0) return PartEdition.Polychrome; // unreachable for a valid candidate
+
+            int roll = _rng.Next(total);
+            foreach (PartEdition tier in SpectralOffer.Tiers)
+            {
+                if (tier <= current) continue;
+                roll -= SpectralOffer.Weight(tier);
+                if (roll < 0) return tier;
+            }
+            return PartEdition.Polychrome;
+        }
+
+        /// <summary>
+        /// Takes one offer from an open Spectral pack, stamping the edition onto that part for the
+        /// rest of the run. Already paid at buy time; the options not chosen are gone. Refuses an
+        /// offer that is not in the open pack, or whose target has been sold out from under it —
+        /// though TrySell already purges those, so that path is a belt-and-braces guard.
+        /// </summary>
+        public bool TryTakeSpectral(PartDef part, PartEdition edition, RunState run)
+        {
+            if (part == null || run == null) return false;
+            string encoded = SpectralOffer.Encode(edition, part.Id);
+            if (!run.PackSpectrals.Contains(encoded)) return false;
+            if (!run.TryUpgradeEdition(part, edition)) return false;
+
+            run.PackSpectrals.Clear();
             return true;
         }
 

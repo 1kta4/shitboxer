@@ -354,20 +354,28 @@ namespace Shitboxer.Tests
         }
 
         [Test]
-        public void SpectralPacksAreNeverStocked_BecauseTheyHaveNoContentYet()
+        public void SpectralPacks_AreStockedButScarce_SinceEditionsBecameMaterials()
         {
-            // A pack that opened onto an empty pick screen would take the player's money and hand back
-            // nothing. Give Spectral a weight the day spectrals exist.
-            Assert.AreEqual(0, ShopPackCatalog.Weight(ShopPackKind.Spectral));
+            // Slice 13 deliberately retired the old "never stocked" pin: spectrals ARE content now
+            // (edition materials for fitted stat parts). The pack rolls, but as the scarce slot —
+            // its prize outclasses one component level. The money-safety half of the old rule
+            // survives at BUY time instead: TryBuyPack refuses a Spectral when nothing fitted can
+            // take an edition (see SpectralPackTests).
+            Assert.Greater(ShopPackCatalog.Weight(ShopPackKind.Spectral), 0,
+                "spectrals have content now — a zero weight would be dead code again");
+            Assert.Less(ShopPackCatalog.Weight(ShopPackKind.Spectral), ShopPackCatalog.Weight(ShopPackKind.Components),
+                "the material pack stays the scarce pull");
 
             var shop = new ShopLogic(seed: 28);
             var run = new RunState { Money = 100 };
-            for (int visit = 0; visit < 40; visit++)
+            bool sawSpectral = false;
+            for (int visit = 0; visit < 200 && !sawSpectral; visit++)
             {
                 shop.BeginVisit(Pool(20), run);
                 foreach (ShopPack pack in shop.Packs)
-                    Assert.AreNotEqual(ShopPackKind.Spectral, pack.Kind);
+                    if (pack.Kind == ShopPackKind.Spectral) sawSpectral = true;
             }
+            Assert.IsTrue(sawSpectral, "a positive weight must actually reach the shelf");
         }
 
         [Test]

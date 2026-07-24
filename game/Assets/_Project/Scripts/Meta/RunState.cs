@@ -180,8 +180,57 @@ namespace Shitboxer.Meta
         /// <summary>True while a paid-for component pack is waiting to be picked from.</summary>
         public bool ComponentPackOpen => PackComponents.Count > 0;
 
+        /// <summary>
+        /// Offers drawn by a bought-but-unresolved SPECTRAL pack (doc 08 slice 13 — editions as
+        /// materials), each encoded by <see cref="SpectralOffer"/> as "Edition:partId". Strings so
+        /// the whole run stays plainly serializable, same rationale as <see cref="PackComponents"/>.
+        /// Lives on the run for exactly the reason the parts crate does: paid at buy time, saved
+        /// immediately, so a quit-then-resume must not keep the spend and lose the draw.
+        /// </summary>
+        public List<string> PackSpectrals = new List<string>();
+
+        /// <summary>True while a paid-for Spectral pack is waiting to be picked from.</summary>
+        public bool SpectralPackOpen => PackSpectrals.Count > 0;
+
         /// <summary>True while ANY paid-for pack is unresolved. Blocks the rest of the shop.</summary>
-        public bool PackOpen => CrateOpen || ComponentPackOpen;
+        public bool PackOpen => CrateOpen || ComponentPackOpen || SpectralPackOpen;
+
+        /// <summary>
+        /// Editions applied THIS RUN, keyed by <see cref="PartDef.Id"/> (doc 08 slice 13). Editions
+        /// must live here and never on the PartDef: parts are shared ScriptableObject assets, so
+        /// stamping one at runtime would mutate the asset on disk and leak the upgrade into every
+        /// future run. Read through <see cref="EditionOf"/>, which merges in anything the asset was
+        /// authored with; persisted by RunSave as "id:Edition" pairs.
+        /// </summary>
+        public readonly Dictionary<string, PartEdition> PartEditions = new Dictionary<string, PartEdition>();
+
+        /// <summary>
+        /// A part's EFFECTIVE edition: the run's applied material when it beats the authored one,
+        /// else whatever the asset shipped with (all shipped assets are None today). This is the
+        /// value the bake, the sell price and the garage rows all read — one lookup, no disagreement.
+        /// </summary>
+        public PartEdition EditionOf(PartDef part)
+        {
+            if (part == null) return PartEdition.None;
+            if (!string.IsNullOrEmpty(part.Id)
+                && PartEditions.TryGetValue(part.Id, out PartEdition applied)
+                && applied > part.Edition)
+                return applied;
+            return part.Edition;
+        }
+
+        /// <summary>
+        /// Applies an edition material to an owned part. Materials only ever UPGRADE — applying a
+        /// tier at or below the current effective edition is refused, so a Foil can never overwrite
+        /// a Polychrome and a duplicate material is never silently swallowed.
+        /// </summary>
+        public bool TryUpgradeEdition(PartDef part, PartEdition edition)
+        {
+            if (part == null || string.IsNullOrEmpty(part.Id) || !Owns(part)) return false;
+            if (edition <= EditionOf(part)) return false;
+            PartEditions[part.Id] = edition;
+            return true;
+        }
 
         /// <summary>
         /// Permanent team upgrades bought this run (doc 03's vouchers). Unlike parts these are never
@@ -252,6 +301,10 @@ namespace Shitboxer.Meta
         {
             if (part == null) return false;
             EquippedParts.Remove(part);
+            // The material leaves with the part: selling (or breaking) an editioned part forfeits
+            // its edition — the sale already priced it in — and a later re-acquisition of the same
+            // unique must come back plain rather than remembering a bonus that was paid out.
+            if (!string.IsNullOrEmpty(part.Id)) PartEditions.Remove(part.Id);
             return OwnedParts.Remove(part);
         }
 

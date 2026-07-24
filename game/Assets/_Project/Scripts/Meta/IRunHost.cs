@@ -65,6 +65,9 @@ namespace Shitboxer.Meta
         bool BuyPack(int packIndex);
         /// <summary>Takes one component from an open components pack, raising it a level.</summary>
         bool TakeComponent(CarComponent component);
+        /// <summary>Takes one offer from an open Spectral pack, stamping that edition onto the
+        /// targeted fitted part for the rest of the run (doc 08 slice 13).</summary>
+        bool TakeSpectral(PartDef part, PartEdition edition);
         /// <summary>
         /// Buys one of the Blueprints ON THIS VISIT'S SHELF (<see cref="ShopLogic.Blueprints"/>),
         /// raising that component a level. False for anything not stocked.

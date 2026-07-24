@@ -425,7 +425,9 @@ namespace Shitboxer.UI.Views
             row.AddToClassList("gx-owned-item");
             if (p.Equipped) row.AddToClassList("on");
             row.Add(Chip(p.Category));
-            var name = new Label { text = p.Name };
+            // The edition tag rides the name ("[FOIL x1.25] Junkyard Turbo") — the fitted list is
+            // where an applied Spectral material has to be visible, next to the refund that prices it.
+            var name = new Label { text = p.EditionTag.Length > 0 ? $"{p.EditionTag} {p.Name}" : p.Name };
             name.AddToClassList("gx-owned-name");
             row.Add(name);
 
@@ -439,6 +441,18 @@ namespace Shitboxer.UI.Views
         private void RefreshOffers()
         {
             _offers.Clear();
+
+            // An open Spectral pack replaces the shelf, exactly as a parts crate does — the pick is
+            // the visit's business until it is resolved. Each row is pre-aimed ("[FOIL x1.25] →
+            // JUNKYARD TURBO"), so APPLY is the whole decision.
+            if (_vm.SpectralPackOpen)
+            {
+                foreach (SpectralVm pick in _vm.PackSpectrals)
+                    _offers.Add(BuildSpectral(pick));
+                _offerCount.text = "SPECTRAL — APPLY ONE";
+                return;
+            }
+
             IReadOnlyList<OfferVm> list = _vm.CrateOpen ? _vm.CrateContents : _vm.Offers;
             if (_sel >= list.Count) _sel = list.Count > 0 ? list.Count - 1 : 0;
 
@@ -446,6 +460,20 @@ namespace Shitboxer.UI.Views
                 _offers.Add(BuildOffer(list[i], i, _vm.CrateOpen));
 
             _offerCount.text = list.Count + (list.Count == 1 ? " OFFER" : " OFFERS");
+        }
+
+        private VisualElement BuildSpectral(SpectralVm pick)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("gx-owned-item");
+            var name = new Label { text = pick.Label };
+            name.AddToClassList("gx-owned-name");
+            row.Add(name);
+
+            var apply = new Button(() => _vm.TakeSpectral(pick)) { text = "APPLY" };
+            apply.AddToClassList("gx-sell");
+            row.Add(apply);
+            return row;
         }
 
         private VisualElement BuildOffer(OfferVm o, int index, bool isCrate)

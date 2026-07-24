@@ -56,6 +56,7 @@ namespace Shitboxer.Tests
         public bool TakeFromCrate(PartDef part) => Shop.TryTakeFromCrate(part, Run);
         public bool BuyPack(int packIndex) => Shop.TryBuyPack(packIndex, Pool, Run);
         public bool TakeComponent(CarComponent component) => Shop.TryTakeComponent(component, Run);
+        public bool TakeSpectral(PartDef part, PartEdition edition) => Shop.TryTakeSpectral(part, edition, Run);
         public bool BuyBlueprint(CarComponent component) => Shop.TryBuyBlueprint(component, Run);
         public bool BuyUpgrade(TeamUpgrade upgrade) => Shop.TryBuyUpgrade(upgrade, Run);
 

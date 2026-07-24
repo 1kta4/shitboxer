@@ -27,8 +27,13 @@ namespace Shitboxer.Meta
         /// <summary>
         /// Returns a modified deep copy of <paramref name="baseSpec"/> with every equipped
         /// Stat part's SpecMods applied. Non-stat parts and nulls are ignored.
+        /// <paramref name="editionOf"/> resolves each part's EFFECTIVE edition — pass
+        /// <see cref="RunState.EditionOf"/> so run-applied Spectral materials (doc 08 slice 13)
+        /// reach the bake; null falls back to the asset's authored edition, which keeps every
+        /// pre-slice-13 caller and test byte-for-byte identical.
         /// </summary>
-        public static VehicleSpec Apply(VehicleSpec baseSpec, IEnumerable<PartDef> equippedParts)
+        public static VehicleSpec Apply(VehicleSpec baseSpec, IEnumerable<PartDef> equippedParts,
+            System.Func<PartDef, PartEdition> editionOf = null)
         {
             VehicleSpec spec = Clone(baseSpec);
             if (equippedParts == null) return spec;
@@ -43,7 +48,7 @@ namespace Shitboxer.Meta
                 // Edition amplifies the MAGNITUDE of this part's effect (its deviation from
                 // identity), never its sign. Edition.None → edition == 1f → the branch below takes
                 // the exact original expression, so un-editioned parts bake byte-for-byte as before.
-                float edition = PartEditionInfo.StatMult(part.Edition);
+                float edition = PartEditionInfo.StatMult(editionOf != null ? editionOf(part) : part.Edition);
                 foreach (SpecMod mod in part.SpecMods)
                 {
                     float current = factor.TryGetValue(mod.Target, out float f) ? f : 1f;

@@ -68,6 +68,27 @@ namespace Shitboxer.Meta
         /// </summary>
         public List<string> componentLevels = new List<string>();
 
+        /// <summary>
+        /// Run-applied editions (doc 08 slice 13), stored as "partId:Edition" pairs — by-name, same
+        /// discipline as everything above. Only entries above None are written. Absent from an older
+        /// save deserializes to an empty list: no materials applied, the pre-Spectral car.
+        /// </summary>
+        public List<string> partEditions = new List<string>();
+
+        /// <summary>
+        /// An open Spectral pack's offers, verbatim in <see cref="SpectralOffer"/>'s own encoding
+        /// ("Edition:partId"). Persisted for the same reason the crate is: paid at buy time, saved
+        /// immediately — a quit-then-resume must not keep the spend and lose the draw.
+        /// </summary>
+        public List<string> packSpectralOffers = new List<string>();
+
+        /// <summary>
+        /// An open COMPONENTS pack's picks, by component NAME. This closes a save gap the crate and
+        /// the Spectral pack never had: the pack is paid for at buy time, so dropping it on a quit
+        /// silently ate the money. Absent from an older save = no open pack, as ever.
+        /// </summary>
+        public List<string> packComponents = new List<string>();
+
         /// <summary>Default absolute path of the save file.</summary>
         public static string DefaultPath => Path.Combine(Application.persistentDataPath, FileName);
 
@@ -102,6 +123,14 @@ namespace Shitboxer.Meta
                 if (level > CarComponentCatalog.MinLevel)
                     dto.componentLevels.Add($"{info.Component}:{level}");
             }
+            // Editions above None only — None is what EditionOf already reads for an absent entry.
+            foreach (KeyValuePair<string, PartEdition> entry in run.PartEditions)
+                if (!string.IsNullOrEmpty(entry.Key) && entry.Value != PartEdition.None)
+                    dto.partEditions.Add($"{entry.Key}:{entry.Value}");
+            dto.packSpectralOffers.AddRange(run.PackSpectrals);
+            foreach (int ordinal in run.PackComponents)
+                if (Enum.IsDefined(typeof(CarComponent), (CarComponent)ordinal))
+                    dto.packComponents.Add(((CarComponent)ordinal).ToString());
             return dto;
         }
 
@@ -166,6 +195,36 @@ namespace Shitboxer.Meta
                 if (id != null && index.TryGetValue(id, out PartDef part)
                     && run.OwnedParts.Contains(part) && !run.EquippedParts.Contains(part))
                     run.EquippedParts.Add(part);
+
+            // Run-applied editions: "partId:Edition", LAST colon split because part ids are free-form.
+            // An edition on a part no longer owned is dropped (RemovePart would have purged it live).
+            foreach (string entry in partEditions)
+            {
+                if (string.IsNullOrEmpty(entry)) continue;
+                int split = entry.LastIndexOf(':');
+                if (split <= 0 || split >= entry.Length - 1) continue;
+                string partId = entry.Substring(0, split);
+                if (!Enum.TryParse(entry.Substring(split + 1), out PartEdition edition)) continue;
+                if (!Enum.IsDefined(typeof(PartEdition), edition) || edition == PartEdition.None) continue;
+                if (!index.TryGetValue(partId, out PartDef part) || !run.OwnedParts.Contains(part)) continue;
+                run.PartEditions[partId] = edition;
+            }
+
+            // An open Spectral pack's offers: keep only lines that decode AND still aim at an owned
+            // part — if that empties the list the pack reads as closed rather than wedging the shelf.
+            foreach (string encoded in packSpectralOffers)
+                if (SpectralOffer.TryDecode(encoded, out _, out string targetId)
+                    && index.TryGetValue(targetId, out PartDef target) && run.OwnedParts.Contains(target)
+                    && !run.PackSpectrals.Contains(encoded))
+                    run.PackSpectrals.Add(encoded);
+
+            // An open components pack's picks, by name — junk drops out like everywhere else.
+            foreach (string name in packComponents)
+                if (!string.IsNullOrEmpty(name)
+                    && Enum.TryParse(name, out CarComponent component)
+                    && Enum.IsDefined(typeof(CarComponent), component)
+                    && !run.PackComponents.Contains((int)component))
+                    run.PackComponents.Add((int)component);
 
             return run;
         }

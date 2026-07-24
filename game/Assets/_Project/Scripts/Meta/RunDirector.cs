@@ -391,7 +391,7 @@ namespace Shitboxer.Meta
             if (!anyStatPart && !anyComponentLevel) return;
 
             VehicleSpec built = StatLedger.Bake(_playerCar.SpecAsset.Spec, components);
-            if (anyStatPart) built = SpecModApplier.Apply(built, Run.EquippedParts);
+            if (anyStatPart) built = SpecModApplier.Apply(built, Run.EquippedParts, Run.EditionOf);
 
             var asset = ScriptableObject.CreateInstance<VehicleSpecAsset>();
             asset.name = "PlayerSpec_Runtime";
@@ -1384,6 +1384,16 @@ namespace Shitboxer.Meta
         public bool TakeComponent(CarComponent component)
         {
             bool took = Shop.TryTakeComponent(component, Run);
+            if (took) { RebakeCar(); Save(); }
+            return took;
+        }
+
+        /// <summary>Takes one offer from an open Spectral pack (already paid for), stamping the
+        /// edition onto that fitted part for the rest of the run. Rebakes — the amplified SpecMods
+        /// must reach the car the player drives out with, not just the garage preview.</summary>
+        public bool TakeSpectral(PartDef part, PartEdition edition)
+        {
+            bool took = Shop.TryTakeSpectral(part, edition, Run);
             if (took) { RebakeCar(); Save(); }
             return took;
         }

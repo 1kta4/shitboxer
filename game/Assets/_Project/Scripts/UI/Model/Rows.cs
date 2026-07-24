@@ -127,6 +127,26 @@ namespace Shitboxer.UI.Model
     }
 
     /// <summary>
+    /// One pick from an open Spectral pack (doc 08 slice 13): an edition material pre-aimed at a
+    /// specific fitted part. Already paid for at pack-buy time, so the row carries no price — the
+    /// pick is the whole decision.
+    /// </summary>
+    public readonly struct SpectralVm
+    {
+        public readonly PartDef Part;
+        public readonly PartEdition Edition;
+        /// <summary>The full row text — "[FOIL x1.25] → JUNKYARD TURBO".</summary>
+        public readonly string Label;
+
+        public SpectralVm(PartDef part, PartEdition edition, string label)
+        {
+            Part = part;
+            Edition = edition;
+            Label = label;
+        }
+    }
+
+    /// <summary>
     /// One car component: what it is, what level it sits at, and what the next Blueprint costs. Serves
     /// all three places a component appears, which differ only in what the row lets you DO —
     ///
