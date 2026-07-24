@@ -3,8 +3,8 @@
 **Status: in progress, 2026-07-24.** Built by walking `Jokers.docx` (the Balatro-mapped collection
 spec) against the shipped physics. Decisions below are LOCKED unless re-litigated explicitly.
 Open questions are at the bottom — they are the live work. Slices 1–6 playtested 2026-07-23;
-slices 7–10 (damage rework, season/bot retune, actives, tuning harness) built 2026-07-24,
-**not yet played**.
+slices 7–12 (damage rework, season/bot retune, actives, tuning harness, The Brute, the boss
+rotation) built 2026-07-24, **not yet played**.
 
 Companion to `03-game-design.md`. Where the two disagree, this doc is newer; the one deliberate
 override is noted in decision 2.
@@ -798,6 +798,46 @@ next circuit's first race — no payout, no life, mirrors StartNextRace's transi
 nothing downstream can tell) and a **TIME ×4** fast-forward toggle (applied on resume; the frozen
 menu itself stays frozen). With FINISH RACE NOW these make "what does circuit 6 feel like"
 a two-click question.
+
+---
+
+## Slice 11 — The Brute (the 15-car list begins)
+
+Built 2026-07-24. The chassis-select stub from Wave 27 (id 2, greyed) is a real car, and the first
+chassis whose character lives in the decision-15 damage model: 1600 kg of RWD lug — 430 Nm at
+3200 rpm, the field's worst grip (µ 1.02–1.04), slow gentle steering, a brick's drag — with
+**WearExponent 0.4** (76% pace at half durability; a beating barely registers) and authored
+**DamageResistance 0.25**. Wired as `chassisSpecs[2]` in all three race scenes and the builder.
+Found and fixed along the way: the `chassis_brute` unlock flag existed only as a gate — nothing
+ever GRANTED it. Any season clear now unlocks it (`RecordRunEndToMeta`).
+
+---
+
+## Slice 12 — the boss rotation
+
+Built 2026-07-24. The keep-list called the boss list the best-designed section of the source doc;
+meanwhile the 8-circuit season was running the same unannounced top-3 gate eight times.
+`RaceRuleset.BossForCircuit` now rotates four bosses — each met twice a season, each on a lever
+that is actually **wired** (`ReverseGrid` is declared-but-unwired and pinned off live bosses):
+
+| Circuit %4 | Boss | Rule |
+|---|---|---|
+| 0 | **THE ENFORCER** | DamageAmplified — the shipped headline boss |
+| 1 | **DIRTY AIR** | new `RaceModifier.DirtyAir`: every `DraftSensor` disabled at bind — drafting, draft-charged actives, draft-leech and SLIPSTREAM tags all read dead air |
+| 2 | **THE TAXMAN** | new `RaceModifier.ActiveTaxed`: +$2 per active deploy (decision 14's promised per-use tax, on the same UseCost path PaidUse bills through), sweetened with DoublePayout |
+| 3 | **THE LONG HAUL** | 7 laps — the endurance exam decision 15 makes real |
+
+All four keep `NoRepairAfter` (boss damage riding into the garage is the shared identity). Rulesets
+carry a `Title`; the HUD status line announces the boss ("BOSS 3/3 — THE TAXMAN") and the
+race summaries name who beat you. **`bossRacesEnabled` is ON by default now** — the 24-race season
+is what boss variety was for; the old OFF default was a compatibility guard, not a design stance.
+
+**Deferred with a reason — editions-as-materials (the Spectral pack).** Editions (Foil/Holo/
+Polychrome) exist and bake correctly, but nothing ever grants one, and `PartDef.Edition` lives on
+the shared ScriptableObject asset — granting one at runtime would mutate the asset on disk. Making
+editions live content needs per-run edition state (RunState map, save format, sell pricing,
+`SpecModApplier` threading) — a full slice of its own, not a quick wire. The Spectral pack should
+open onto exactly that when it is built.
 
 ---
 
