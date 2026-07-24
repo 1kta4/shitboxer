@@ -1744,7 +1744,7 @@ MonoBehaviour:
   - RaceSpeedway
   rivalRoster: {fileID: 11400000, guid: d380532d68cda30449723257fd627fdf, type: 2}
   rivalMemoryEnabled: 0
-  bossRacesEnabled: 0
+  bossRacesEnabled: 1
   bossRewardBonus: 8
   draftLeechRate: 0.5
   draftLeechCapPerRace: 10

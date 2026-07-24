@@ -19,10 +19,18 @@ namespace Shitboxer.Race
         NoRepairAfter = 1 << 0,
         /// <summary>This race pays out double credits.</summary>
         DoublePayout = 1 << 1,
-        /// <summary>The grid is seeded in reverse championship order.</summary>
+        /// <summary>The grid is seeded in reverse championship order. Declared, NOT yet wired —
+        /// RaceManager's grid seeding ignores it today; don't put it on a live boss until it is.</summary>
         ReverseGrid = 1 << 2,
         /// <summary>Contact / attack damage is amplified for everyone on track.</summary>
         DamageAmplified = 1 << 3,
+        /// <summary>No slipstream this race: every DraftSensor is disabled at bind, so drafting,
+        /// draft-charged actives, draft-leech income and SLIPSTREAM sector tags all read dead air.</summary>
+        DirtyAir = 1 << 4,
+        /// <summary>Every active-item deploy is taxed an extra fee this race (doc 08 decision 14's
+        /// "cost-to-use is what makes the boss's per-use tax bite"). The fee lands on the same
+        /// UseCost path a PaidUse active bills through.</summary>
+        ActiveTaxed = 1 << 5,
     }
 
     /// <summary>
@@ -58,6 +66,9 @@ namespace Shitboxer.Race
         [Tooltip("Special rules layered on the standard format; None = shipped behaviour.")]
         public RaceModifier Modifiers;
 
+        [Tooltip("Display name for a boss/event race (\"THE TAXMAN\") — what the HUD status line and the race summary call it. Null/empty on Standard.")]
+        public string Title;
+
         /// <summary>
         /// The shipped race format: <see cref="StandardLaps"/> laps, a <see cref="StandardCutoffFraction"/>
         /// survival window, not a boss, no modifiers. Values match RaceManager's serialized defaults
@@ -72,17 +83,64 @@ namespace Shitboxer.Race
         };
 
         /// <summary>
-        /// Example headline boss race: a longer, damage-amplified duel with no post-race repair, held to
-        /// a tighter survival window. Data only — a ready template for the run director; nothing here
-        /// decides which race is a boss.
+        /// The headline boss template — THE ENFORCER, first entry of <see cref="BossForCircuit"/>'s
+        /// rotation: a longer, damage-amplified duel with no post-race repair, held to a tighter
+        /// survival window. Data only — nothing here decides which race is a boss.
         /// </summary>
-        public static RaceRuleset Boss => new RaceRuleset
+        public static RaceRuleset Boss => BossForCircuit(0);
+
+        /// <summary>
+        /// The per-circuit boss rotation (doc 08 slice 12): an 8-circuit season meets each boss
+        /// twice instead of the same top-3 gate eight times. Every boss withholds the interlude
+        /// repair (NoRepairAfter) — boss damage riding into the garage is the shared identity; the
+        /// rest is one distinct lever each, and every lever is one that is actually WIRED (which is
+        /// why there is no ReverseGrid boss yet). Cycles for any circuit index, so a longer season
+        /// never runs off the table.
+        /// </summary>
+        public static RaceRuleset BossForCircuit(int circuitIndex)
         {
-            Laps = 5,
-            CutoffFraction = 0.10f,
-            IsBoss = true,
-            Modifiers = RaceModifier.DamageAmplified | RaceModifier.NoRepairAfter,
-        };
+            int count = 4;
+            int slot = ((circuitIndex % count) + count) % count; // negatives wrap too
+            switch (slot)
+            {
+                default: // 0 — the shipped headline boss, unchanged
+                    return new RaceRuleset
+                    {
+                        Laps = 5,
+                        CutoffFraction = 0.10f,
+                        IsBoss = true,
+                        Modifiers = RaceModifier.DamageAmplified | RaceModifier.NoRepairAfter,
+                        Title = "THE ENFORCER",
+                    };
+                case 1: // no tows: drafting builds, Parasite income and SLIPSTREAM styles all die
+                    return new RaceRuleset
+                    {
+                        Laps = 5,
+                        CutoffFraction = 0.10f,
+                        IsBoss = true,
+                        Modifiers = RaceModifier.DirtyAir | RaceModifier.NoRepairAfter,
+                        Title = "DIRTY AIR",
+                    };
+                case 2: // your buttons cost money, but a clean finish pays double
+                    return new RaceRuleset
+                    {
+                        Laps = 5,
+                        CutoffFraction = 0.10f,
+                        IsBoss = true,
+                        Modifiers = RaceModifier.ActiveTaxed | RaceModifier.DoublePayout | RaceModifier.NoRepairAfter,
+                        Title = "THE TAXMAN",
+                    };
+                case 3: // endurance: with decision 15 live, seven laps of contact is a durability exam
+                    return new RaceRuleset
+                    {
+                        Laps = 7,
+                        CutoffFraction = 0.12f,
+                        IsBoss = true,
+                        Modifiers = RaceModifier.NoRepairAfter,
+                        Title = "THE LONG HAUL",
+                    };
+            }
+        }
 
         /// <summary>
         /// Example high-stakes event race: standard length but double pay on a reversed grid. Data only,

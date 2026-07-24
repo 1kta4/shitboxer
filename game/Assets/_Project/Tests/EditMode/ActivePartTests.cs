@@ -161,6 +161,36 @@ namespace Shitboxer.Tests
         }
 
         [Test]
+        public void ActiveTaxedBoss_RaisesTheEffectiveCost_AndBillsIt()
+        {
+            // THE TAXMAN (slice 12): the per-race surcharge rides the same UseCost path a PaidUse
+            // active bills through, so readiness, the HUD price and the wallet all agree.
+            var state = new ActivePartState();
+            state.Arm(Spec(ActiveCharge.PaidUse, useCost: 2), useTax: 2);
+
+            Assert.AreEqual(4, state.UseCost, "fee + tax is the price the HUD shows");
+            Assert.IsFalse(state.ReadyToDeploy(3), "affording the fee but not the tax is not ready");
+            Assert.IsTrue(state.ReadyToDeploy(4));
+
+            int spent = state.Tick(0.02f, default, activatePressed: true, money: 3);
+            Assert.AreEqual(0, spent, "an under-taxed press is refused, not partially billed");
+            Assert.IsFalse(state.Deployed);
+
+            spent = state.Tick(0.02f, default, activatePressed: true, money: 4);
+            Assert.AreEqual(4, spent, "the deploy bills fee AND tax exactly once");
+            Assert.IsTrue(state.Deployed);
+        }
+
+        [Test]
+        public void UntaxedRace_IsByteForByteTheShippedCost()
+        {
+            var state = new ActivePartState();
+            state.Arm(Spec(ActiveCharge.OncePerRace), useTax: 0);
+            Assert.AreEqual(0, state.UseCost, "no fee, no tax — a behaviour-charged active stays free to press");
+            Assert.IsTrue(state.ReadyToDeploy(0), "a broke player can still press a free button");
+        }
+
+        [Test]
         public void AddCharge_RejectsJunkAndClampsAtFull()
         {
             var model = new DraftBoostModel();

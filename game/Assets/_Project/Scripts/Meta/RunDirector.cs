@@ -79,8 +79,8 @@ namespace Shitboxer.Meta
         public bool RivalMemoryEnabled => rivalMemoryEnabled;
 
         [Header("Boss races (opt-in — default OFF reproduces today's sequence exactly)")]
-        [Tooltip("When ON, each circuit's final race runs under RaceRuleset.Boss and a clean boss finish pays the boss bonus (and any DoublePayout) and honours NoRepairAfter. OFF (default) makes NO SetRuleset call and no boss reward — the race sequence, rulesets, rewards and repairs are byte-for-byte as shipped.")]
-        [SerializeField] private bool bossRacesEnabled = false;
+        [Tooltip("When ON (default since slice 12), each circuit's final race runs under that circuit's boss from RaceRuleset.BossForCircuit — the rotation that keeps 8 boss races from being the same top-3 gate eight times — and a clean boss finish pays the boss bonus (and any DoublePayout) and honours NoRepairAfter. OFF makes NO SetRuleset call and no boss reward: every race runs the Standard format (the top-3 gate itself still applies — it lives on RunState, not the ruleset).")]
+        [SerializeField] private bool bossRacesEnabled = true;
 
         [Tooltip("Flat cash added to a clean boss-race finish when boss races are enabled. Only ever applied on a designated boss race, so its value never affects a run with boss races OFF.")]
         [SerializeField] private int bossRewardBonus = 8;
@@ -348,7 +348,9 @@ namespace Shitboxer.Meta
             // Active item (doc 08 decision 14): arm the first equipped active part's reservoir for
             // this race and refresh the ACTIVATE bind from settings, so a rebind made in the main
             // menu reaches a run already in flight at its next race. Inert for a loadout without one.
-            _activeItem.Bind(_raceManager, _playerCar, Run);
+            // Runs AFTER ApplyRuleset so the ActiveTaxed boss's per-deploy surcharge is known here.
+            int useTax = _raceManager.HasModifier(RaceModifier.ActiveTaxed) ? BossActiveUseTax : 0;
+            _activeItem.Bind(_raceManager, _playerCar, Run, useTax);
             _activateKey = ActivateKeyBinding.Parse(GameSettings.Load().activateKey);
             _activateKeyLabel = _activateKey.ToString(); // normalized: the HUD hint shows what actually works
         }
@@ -446,6 +448,21 @@ namespace Shitboxer.Meta
         public static float BotStrengthFor(int raceNumber, float baseScale, float perRace, float max) =>
             Mathf.Clamp(Mathf.Max(1f, baseScale) + Mathf.Max(0f, perRace) * Mathf.Max(0, raceNumber),
                         1f, Mathf.Max(1f, max));
+
+        /// <summary>
+        /// THE TAXMAN's per-deploy surcharge on active items (RaceModifier.ActiveTaxed, slice 12):
+        /// every press of the ACTIVATE bind costs this much extra for that race. Lands on the same
+        /// UseCost path a PaidUse active bills through, so the HUD hint shows the taxed price.
+        /// </summary>
+        public const int BossActiveUseTax = 2;
+
+        /// <summary>The live race's boss title for the summary lines ("THE TAXMAN demands top 3"),
+        /// falling back to a plain noun when the ruleset carries none (boss rulesets disabled).</summary>
+        private string BossName()
+        {
+            string title = _raceManager != null ? _raceManager.Ruleset.Title : null;
+            return string.IsNullOrEmpty(title) ? "the boss" : title;
+        }
 
         /// <summary>
         /// Durability floor applied to the carried wear when a race BEGINS (decision 15). With
@@ -668,8 +685,16 @@ namespace Shitboxer.Meta
         /// </summary>
         private void ApplyRuleset()
         {
-            if (!bossRacesEnabled) return; // shipped path: no ruleset call — the race stays on its Standard defaults
-            _raceManager.SetRuleset(RulesetForRace(bossRacesEnabled, Run.IsBossRace));
+            if (!bossRacesEnabled) return; // opt-out path: no ruleset call — the race stays on its Standard defaults
+            _raceManager.SetRuleset(RulesetForRace(bossRacesEnabled, Run.IsBossRace, Run.CircuitIndex));
+
+            // DIRTY AIR (slice 12): kill the slipstream at the source. Every downstream consumer —
+            // draft-charged actives, DraftBoost, draft-leech income, the SLIPSTREAM sector tag —
+            // polls DraftSensor.IsDrafting, so disabling the sensors is the one honest switch.
+            // A scene reload re-creates them enabled, so a normal race is untouched.
+            if (_raceManager.HasModifier(RaceModifier.DirtyAir))
+                foreach (DraftSensor sensor in FindObjectsByType<DraftSensor>(FindObjectsSortMode.None))
+                    sensor.enabled = false;
         }
 
         /// <summary>
@@ -681,13 +706,17 @@ namespace Shitboxer.Meta
             bossRacesEnabled && runIsBossRace;
 
         /// <summary>
-        /// The ruleset to apply to a race: <see cref="RaceRuleset.Boss"/> for a designated boss (see
-        /// <see cref="IsDesignatedBoss"/>), else <see cref="RaceRuleset.Standard"/>. Pure/static for unit
-        /// tests; SetRuleset(Standard) is itself a documented no-op, so an enabled non-boss race still
-        /// behaves as shipped.
+        /// The ruleset to apply to a race: the circuit's boss from <see cref="RaceRuleset.BossForCircuit"/>
+        /// for a designated boss (see <see cref="IsDesignatedBoss"/>), else <see cref="RaceRuleset.Standard"/>.
+        /// Pure/static for unit tests; SetRuleset(Standard) is itself a documented no-op, so an enabled
+        /// non-boss race still behaves as shipped.
         /// </summary>
+        public static RaceRuleset RulesetForRace(bool bossRacesEnabled, bool runIsBossRace, int circuitIndex) =>
+            IsDesignatedBoss(bossRacesEnabled, runIsBossRace) ? RaceRuleset.BossForCircuit(circuitIndex) : RaceRuleset.Standard;
+
+        /// <summary>Circuit-agnostic overload kept for existing callers/tests: circuit 0's boss (THE ENFORCER).</summary>
         public static RaceRuleset RulesetForRace(bool bossRacesEnabled, bool runIsBossRace) =>
-            IsDesignatedBoss(bossRacesEnabled, runIsBossRace) ? RaceRuleset.Boss : RaceRuleset.Standard;
+            RulesetForRace(bossRacesEnabled, runIsBossRace, 0);
 
         /// <summary>
         /// Stamps the configured season length onto a run, clamped to at least one circuit. Season shape is
@@ -1211,7 +1240,7 @@ namespace Shitboxer.Meta
                     ? $"P{me.Position} — RETIRED, car destroyed. +${totalPay}, -1 life. Repair before the retry."
                     : eliminated
                         ? $"P{me.Position} — ELIMINATED (missed the cutoff). +${totalPay}, -1 life."
-                        : $"P{me.Position} — boss race demands top {Run.BossTopN}. +${totalPay}, -1 life. Retry it.")
+                        : $"P{me.Position} — {BossName()} demands top {Run.BossTopN}. +${totalPay}, -1 life. Retry it.")
                     + fragileNote;
 
                 if (Run.Lives <= 0)
@@ -1254,7 +1283,7 @@ namespace Shitboxer.Meta
                     Run.CircuitIndex += 1;
                     Run.RaceIndex = 0;
                     LastRaceSummary =
-                        $"P{me.Position} — boss down. +${totalPay}. Circuit {Run.CircuitIndex + 1}/{Run.TotalCircuits} begins."
+                        $"P{me.Position} — {BossName()} down. +${totalPay}. Circuit {Run.CircuitIndex + 1}/{Run.TotalCircuits} begins."
                         + fragileNote;
                 }
                 else

@@ -178,7 +178,7 @@ namespace Shitboxer.UI.Views
         public void Refresh(IRunHost host, System.Func<int, int> payout)
         {
             if (host == null) return;
-            RefreshStatus(host.Run);
+            RefreshStatus(host.Run, host.CurrentRace);
 
             RaceManager m = host.CurrentRace;
             VehicleController player = host.PlayerCar;
@@ -381,12 +381,17 @@ namespace Shitboxer.UI.Views
             _flash.style.opacity = fade * fade * severity;
         }
 
-        private void RefreshStatus(RunState run)
+        private void RefreshStatus(RunState run, RaceManager race)
         {
             if (run == null) return;
             _sCash.text = $"$ {run.Money}   LIVES {run.Lives}";
+            // A boss race carries its ruleset's title (slice 12) so the player knows WHICH rule is
+            // in force — "BOSS 3/3 — THE TAXMAN" — not just that a gate exists.
+            string bossTitle = run.IsBossRace && race != null && !string.IsNullOrEmpty(race.Ruleset.Title)
+                ? $"  — {race.Ruleset.Title}"
+                : "";
             _sProgress.text = run.IsBossRace
-                ? $"C{run.CircuitIndex + 1}/{run.TotalCircuits}  BOSS {run.RaceIndex + 1}/{run.RacesPerCircuit}"
+                ? $"C{run.CircuitIndex + 1}/{run.TotalCircuits}  BOSS {run.RaceIndex + 1}/{run.RacesPerCircuit}{bossTitle}"
                 : $"C{run.CircuitIndex + 1}/{run.TotalCircuits}  R{run.RaceIndex + 1}/{run.RacesPerCircuit}";
         }
 

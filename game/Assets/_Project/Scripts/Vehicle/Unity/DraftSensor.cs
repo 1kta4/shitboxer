@@ -43,6 +43,11 @@ namespace Shitboxer.Vehicle
         public static DraftSensor GetOrAdd(GameObject go) =>
             go.TryGetComponent(out DraftSensor existing) ? existing : go.AddComponent<DraftSensor>();
 
+        // A disabled sensor stops running FixedUpdate, which would otherwise FREEZE IsDrafting at
+        // whatever it last read — and the DIRTY AIR boss (doc 08 slice 12) disables sensors as its
+        // whole mechanism. Dead air must read as dead air.
+        private void OnDisable() => IsDrafting = false;
+
         private void Awake()
         {
             _controller = GetComponent<VehicleController>();

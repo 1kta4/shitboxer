@@ -18,6 +18,7 @@ namespace Shitboxer.Meta
     {
         private readonly DraftBoostModel _model = new DraftBoostModel();
         private ActiveSpec _spec;
+        private int _useTax;
 
         /// <summary>True once a spec with a real charge condition is armed.</summary>
         public bool Armed => _spec != null && _spec.Charge != ActiveCharge.None;
@@ -26,25 +27,28 @@ namespace Shitboxer.Meta
         public bool Deployed => Armed && _model.Active;
         /// <summary>The multiplier the host should hold on the sim this step (1 = no boost).</summary>
         public float BoostMult => Armed ? _model.BoostMult : 1f;
-        /// <summary>Money each deploy costs (0 for behaviour-charged items with no tax).</summary>
-        public int UseCost => Armed ? _spec.UseCost : 0;
+        /// <summary>What one deploy actually costs: the part's authored fee plus any per-race tax
+        /// (the ActiveTaxed boss). This is the number the HUD shows and the wallet is billed.</summary>
+        public int UseCost => Armed ? _spec.UseCost + _useTax : 0;
 
         /// <summary>Charged enough and affordable — the moment the ACTIVATE key would actually bite.</summary>
         public bool ReadyToDeploy(int money) =>
             Armed && !_model.Active
             && _model.Charge01 >= MinCharge()
             && _model.Charge01 > 0f
-            && money >= _spec.UseCost;
+            && money >= UseCost;
 
         /// <summary>
         /// Arm this state with a part's authored spec (or null to disarm) and reset for a fresh race.
-        /// OncePerRace and PaidUse start FULL — one is its whole design, the other is gated by money
-        /// alone. Every tunable is clamped here so hand-edited YAML can't smuggle in an unbounded
-        /// boost; the model bounds BoostMult again to its absolute 1.5 ceiling.
+        /// <paramref name="useTax"/> is the race's per-deploy surcharge (the ActiveTaxed boss) — 0 on
+        /// every normal race. OncePerRace and PaidUse start FULL — one is its whole design, the other
+        /// is gated by money alone. Every tunable is clamped here so hand-edited YAML can't smuggle
+        /// in an unbounded boost; the model bounds BoostMult again to its absolute 1.5 ceiling.
         /// </summary>
-        public void Arm(ActiveSpec spec)
+        public void Arm(ActiveSpec spec, int useTax = 0)
         {
             _spec = spec != null && spec.Charge != ActiveCharge.None ? spec : null;
+            _useTax = Mathf.Max(0, useTax);
             _model.Reset();
             if (!Armed) return;
 
@@ -80,14 +84,15 @@ namespace Shitboxer.Meta
             if (_spec.Charge == ActiveCharge.PaidUse && !_model.Active)
                 _model.AddCharge(1f);
 
-            // The deploy gate: the model checks charge; money is ours to check, and the cost is spent
-            // exactly on the not-deployed -> deployed transition so holding the key never double-pays.
+            // The deploy gate: the model checks charge; money is ours to check, and the cost (fee +
+            // any boss tax) is spent exactly on the not-deployed -> deployed transition so holding
+            // the key never double-pays.
             bool wasActive = _model.Active;
-            bool activate = activatePressed && (!wasActive) && money >= _spec.UseCost;
+            bool activate = activatePressed && (!wasActive) && money >= UseCost;
             _model.Step(dt, FillingThisStep(signals), activate);
 
             bool deployStarted = !wasActive && _model.Active;
-            return deployStarted ? _spec.UseCost : 0;
+            return deployStarted ? UseCost : 0;
         }
 
         private float MinCharge() => Mathf.Clamp01(_spec.MinCharge01);

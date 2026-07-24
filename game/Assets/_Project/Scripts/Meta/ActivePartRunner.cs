@@ -46,10 +46,11 @@ namespace Shitboxer.Meta
 
         /// <summary>
         /// Bind to a freshly-loaded race: pick the first equipped active part, arm the reservoir for a
-        /// fresh race, and hook the sector line. Safe to call repeatedly — unbinds first, so a re-bind
-        /// can never double-charge.
+        /// fresh race, and hook the sector line. <paramref name="useTax"/> is this race's per-deploy
+        /// surcharge (the ActiveTaxed boss) — 0 on every normal race. Safe to call repeatedly —
+        /// unbinds first, so a re-bind can never double-charge.
         /// </summary>
-        public void Bind(RaceManager race, VehicleController player, RunState run)
+        public void Bind(RaceManager race, VehicleController player, RunState run, int useTax = 0)
         {
             Unbind();
             _race = race;
@@ -59,7 +60,7 @@ namespace Shitboxer.Meta
             _sensor = player != null ? player.GetComponent<DraftSensor>() : null;
 
             _part = FirstActivePart(run);
-            _state.Arm(_part != null ? _part.Active : null);
+            _state.Arm(_part != null ? _part.Active : null, useTax);
             _pendingEventCharge = 0f;
             _lastDurability = player != null && player.Sim != null ? player.Sim.Durability : 1f;
 
