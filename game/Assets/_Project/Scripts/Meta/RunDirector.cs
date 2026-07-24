@@ -857,7 +857,7 @@ namespace Shitboxer.Meta
             GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
 
 #if UNITY_EDITOR
-            const float w = 260f, h = 326f;   // room for the editor-only slice-test row
+            const float w = 260f, h = 394f;   // room for the editor-only slice-test row
 #else
             const float w = 240f, h = 138f;
 #endif
@@ -934,11 +934,31 @@ namespace Shitboxer.Meta
                 if (_raceManager != null) _raceManager.FinishRaceNow();
             }
 
+            // 24-race season tuning aids (doc 08 open question 6): jump a whole circuit ahead to
+            // sample late-season difficulty without driving there, and fast-forward the clock so a
+            // three-lap payout check doesn't take three real laps.
+            bool onLastCircuit = Run.IsFinalCircuit;
+            if (DevButton(new Rect(bx, panel.y + 276f, bw, 28f),
+                    onLastCircuit ? "NEXT CIRCUIT (AT LAST)" : $"NEXT CIRCUIT >> ({Run.CircuitIndex + 2}/{Run.TotalCircuits})",
+                    devBg, devFg) && !onLastCircuit)
+            {
+                _devMenuOpen = false;
+                DevJumpToNextCircuit();
+            }
+
+            if (DevButton(new Rect(bx, panel.y + 310f, bw, 28f),
+                    _devFastForward ? "TIME x4  (CLICK FOR x1)" : "TIME x1  (CLICK FOR x4)", devBg, devFg))
+            {
+                // Applied on resume: the menu itself holds timeScale 0 and restores _preMenuTimeScale.
+                _devFastForward = !_devFastForward;
+                _preMenuTimeScale = _devFastForward ? 4f : 1f;
+            }
+
             // Live sector-scoring readout, so a test drive can be verified without adding print
             // statements: what the parts have paid and what they've done to the car.
             var readout = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 10 };
             readout.normal.textColor = new Color(0.55f, 0.75f, 0.55f);
-            GUI.Label(new Rect(panel.x, panel.y + 278f, panel.width, 16f),
+            GUI.Label(new Rect(panel.x, panel.y + 346f, panel.width, 16f),
                 $"sector $ {_sectorParts.MoneyEarned}   grip x{_sectorParts.State.GripMult:0.00}   pow x{_sectorParts.State.PowerMult:0.00}",
                 readout);
 
@@ -947,9 +967,33 @@ namespace Shitboxer.Meta
             StatSummary.Stats stats = _playerCar != null && _playerCar.SpecAsset != null
                 ? StatSummary.Compute(_playerCar.SpecAsset.Spec)
                 : default;
-            GUI.Label(new Rect(panel.x, panel.y + 296f, panel.width, 16f),
+            GUI.Label(new Rect(panel.x, panel.y + 364f, panel.width, 16f),
                 $"parts {Run.EquippedParts.Count}/{Run.EffectiveEquipSlots}   " +
                 $"P{stats.Power:0} G{stats.Grip:0} W{stats.Weight:0} D{stats.Durability:0}", slots);
+        }
+
+        // Dev fast-forward toggle (x4). Lives on the director, not Time.timeScale directly, because the
+        // ESC menu freezes/restores timeScale around itself — the toggle just changes what "resumed" is.
+        private bool _devFastForward;
+
+        /// <summary>
+        /// EDITOR-ONLY: abandon the current race and start the NEXT circuit's first race, free of
+        /// charge — no payout, no life, no summary. Exists to sample circuit-6 difficulty without
+        /// driving fifteen races (doc 08 open question 6). Deliberately mirrors StartNextRace's
+        /// transition (phase + timeScale + save + scene reload) so nothing downstream can tell the
+        /// difference between arriving here honestly and jumping.
+        /// </summary>
+        private void DevJumpToNextCircuit()
+        {
+            if (Run.IsFinalCircuit) return;
+            Run.CircuitIndex += 1;
+            Run.RaceIndex = 0;
+            Run.InRaceEarnings = 0;      // the abandoned race's sector income does not bank
+            LastRaceSummary = $"DEV JUMP — circuit {Run.CircuitIndex + 1}/{Run.TotalCircuits}.";
+            SetPhase(RunPhase.Racing);
+            Time.timeScale = _devFastForward ? 4f : 1f;
+            Save();
+            ReloadRaceScene();
         }
 
         /// <summary>
@@ -1191,8 +1235,6 @@ namespace Shitboxer.Meta
             OpenGarage();
         }
 
-        // A car that finished the race within this band ABOVE the sim's durability floor took HEAVY
-        // damage — the signal that a Fragile part shook loose (see BreakOneFragilePartOnHeavyDamage).
         // The crippled line of decision 15: at durability 0.5 the default chassis runs at half pace.
         // Fragile parts break at or below it — the same threshold the Gold enhancement will read
         // ("removed if durability drops below 50%"), so "heavily damaged" means ONE thing everywhere.
