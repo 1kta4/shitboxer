@@ -38,6 +38,15 @@ namespace Shitboxer.UI.Views
         private readonly Label _sProgress = new Label();
         private readonly VisualElement _duraFill = new VisualElement();
         private readonly Label _duraVal = new Label();
+
+        // Active-item charge meter (doc 08 decision 14) — hidden without an equipped active.
+        private readonly VisualElement _activeRow = new VisualElement();
+        private readonly Label _activeName = new Label();
+        private readonly VisualElement _activeFill = new VisualElement();
+        private readonly Label _activeHint = new Label();
+        private bool _activeShown;
+        private string _activeLastName;
+        private int _activeLastState = -1;
         private readonly Label _countdown = new Label();
         private readonly VisualElement _flash = new VisualElement();
 
@@ -148,6 +157,7 @@ namespace Shitboxer.UI.Views
             br.Add(_sCash);
             br.Add(_sProgress);
             br.Add(BuildDura());
+            br.Add(BuildActive());
             screen.Add(br);
 
             // full-screen overlays: the 3-2-1 countdown and the on-hit CRUNCH flash (were IMGUI)
@@ -191,6 +201,7 @@ namespace Shitboxer.UI.Views
             RefreshVerdict(me);
             RefreshCues(player, me);
             RefreshDura(player);
+            RefreshActive(host.ActiveItem);
             RefreshCountdown(m);
             RefreshFlash(player);
         }
@@ -485,6 +496,47 @@ namespace Shitboxer.UI.Views
             _duraVal.text = dur.ToString("P0");
         }
 
+        /// <summary>
+        /// The active item's charge meter (doc 08 decision 14), under the durability bar. Hidden
+        /// entirely for a loadout without an active. Fill tracks the reservoir; the colour is the
+        /// state — cobalt while charging, green when the bind would bite, amber while deployed.
+        /// Text writes are change-detected: names change once a race, the hint only on state flips.
+        /// </summary>
+        private void RefreshActive(in ActiveReadout r)
+        {
+            if (!r.HasActive)
+            {
+                if (_activeShown) { _activeRow.style.display = DisplayStyle.None; _activeShown = false; }
+                return;
+            }
+            if (!_activeShown) { _activeRow.style.display = DisplayStyle.Flex; _activeShown = true; }
+
+            if (_activeLastName != r.Name)
+            {
+                _activeLastName = r.Name;
+                _activeName.text = r.Name;
+            }
+
+            _activeFill.style.width = Length.Percent(Mathf.Clamp01(r.Charge01) * 100f);
+
+            int state = r.Deployed ? 2 : r.Ready ? 1 : 0;
+            if (state != _activeLastState)
+            {
+                _activeLastState = state;
+                _activeFill.style.backgroundColor = state == 2
+                    ? new Color(1f, 0.72f, 0.25f)                       // deployed: amber burn
+                    : state == 1
+                        ? new Color(0.37f, 0.85f, 0.48f)                // ready: green, go
+                        : new Color(0.31f, 0.545f, 1f);                 // charging: cobalt
+                _activeHint.text = state == 2
+                    ? "LIVE"
+                    : r.UseCost > 0 ? $"[{r.KeyLabel}] ${r.UseCost}" : $"[{r.KeyLabel}]";
+                _activeHint.style.color = state == 1
+                    ? new Color(0.37f, 0.85f, 0.48f)                    // ready: the green says "press it"
+                    : new Color(0.62f, 0.69f, 0.78f);                   // charging/deployed: quiet ink
+            }
+        }
+
         // ---- element factories / helpers -------------------------------------------------------
 
         private VisualElement BuildDura()
@@ -502,6 +554,22 @@ namespace Shitboxer.UI.Views
             row.Add(track);
             row.Add(_duraVal);
             return row;
+        }
+
+        private VisualElement BuildActive()
+        {
+            _activeRow.AddToClassList("hud-active");
+            _activeRow.style.display = DisplayStyle.None;   // hidden until a loadout carries an active
+            _activeName.AddToClassList("hud-active__name");
+            _activeRow.Add(_activeName);
+            var track = new VisualElement();
+            track.AddToClassList("hud-active__track");
+            _activeFill.AddToClassList("hud-active__fill");
+            track.Add(_activeFill);
+            _activeRow.Add(track);
+            _activeHint.AddToClassList("hud-active__hint");
+            _activeRow.Add(_activeHint);
+            return _activeRow;
         }
 
         private static VisualElement Corner(string cls)

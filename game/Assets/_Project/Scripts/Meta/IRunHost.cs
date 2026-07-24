@@ -45,6 +45,13 @@ namespace Shitboxer.Meta
         /// </summary>
         SectorPartRunner SectorParts { get; }
 
+        /// <summary>
+        /// The equipped active item's live charge meter (doc 08 decision 14), flattened for the HUD.
+        /// <see cref="ActiveReadout.HasActive"/> false (the default struct) on a loadout without one —
+        /// the HUD hides the element entirely.
+        /// </summary>
+        ActiveReadout ActiveItem { get; }
+
         /// <summary>Raised on every run-phase transition; a retained-mode UI subscribes instead of polling.</summary>
         event Action<RunPhase> PhaseChanged;
 

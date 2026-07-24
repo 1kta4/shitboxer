@@ -35,6 +35,7 @@ namespace Shitboxer.Tests
         public RaceManager CurrentRace => null;
         public VehicleController PlayerCar => null;
         public SectorPartRunner SectorParts => null;   // no race, so nothing scores sectors
+        public ActiveReadout ActiveItem => default;    // no race, so no live charge meter either
 
         public event Action<RunPhase> PhaseChanged;
 

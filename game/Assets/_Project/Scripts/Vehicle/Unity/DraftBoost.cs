@@ -49,6 +49,18 @@ namespace Shitboxer.Vehicle
         }
 
         /// <summary>
+        /// Event-driven charge: add a bounded chunk to the reservoir, for conditions that pay in
+        /// discrete moments (a landed hit, a sector line, a once-per-race pre-charge) rather than per
+        /// second (doc 08 decision 14 — active items each declare their own charge condition). No-op
+        /// for non-positive or non-finite amounts; clamped so pulses can never overfill.
+        /// </summary>
+        public void AddCharge(float amount)
+        {
+            if (!(amount > 0f)) return; // rejects zero, negatives and NaN
+            Charge01 = Mathf.Clamp01(Charge01 + amount);
+        }
+
+        /// <summary>
         /// Advance the reservoir by <paramref name="dt"/> seconds. <paramref name="drafting"/> is whether the
         /// car is sitting in another's tow this step (fills the reservoir), <paramref name="activate"/> a
         /// momentary deploy request. Returns (and stores) the <see cref="BoostMult"/> the host should fold

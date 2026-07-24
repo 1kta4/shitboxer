@@ -128,6 +128,26 @@
 .hud-dura__fill { height: 100%; background-color: var(--green); }
 .hud-dura__val { font-size: 11px; color: #eef3fb; margin-left: 6px; }
 
+/* ── active item — charge-and-deploy meter (doc 08 decision 14) ─────────── */
+.hud-active { flex-direction: row; align-items: center; margin-top: 3px; }
+.hud-active__name { font-size: 11px; color: #9fb0c8; margin-right: 6px; }
+.hud-active__track {
+    width: 100px;
+    height: 9px;
+    background-color: rgba(11, 16, 26, 0.7);
+    border-width: 1px;
+    border-color: #313c4e;
+    overflow: hidden;
+}
+.hud-active__fill { height: 100%; background-color: var(--blue); }
+.hud-active__hint {
+    font-size: 11px;
+    margin-left: 6px;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+
 /* ── full-screen overlays: 3-2-1 countdown + on-hit CRUNCH flash ─────────── */
 .hud-countdown {
     position: absolute;

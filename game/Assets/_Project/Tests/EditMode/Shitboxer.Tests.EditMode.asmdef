@@ -7,7 +7,8 @@
         "Shitboxer.Vehicle",
         "Shitboxer.Race",
         "Shitboxer.Meta",
-        "Shitboxer.UI.Model"
+        "Shitboxer.UI.Model",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [
         "Editor"

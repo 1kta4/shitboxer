@@ -154,6 +154,21 @@ namespace Shitboxer.Meta
         /// <summary>Live sector-part scoring for the current race — read by the HUD.</summary>
         public SectorPartRunner SectorParts => _sectorParts;
 
+        /// <summary>
+        /// Joins the race to the player's equipped ACTIVE item (doc 08 decision 14). Same ownership
+        /// logic as the sector runner: the director knows both the race and the loadout. The single
+        /// ACTIVATE bind is read here (the host layer) from the settings file's key name.
+        /// </summary>
+        private readonly ActivePartRunner _activeItem = new ActivePartRunner();
+
+        // The parsed ACTIVATE key, refreshed from GameSettings at every scene bind so a rebind made
+        // in the main menu reaches a run already in flight at its next race.
+        private UnityEngine.InputSystem.Key _activateKey = UnityEngine.InputSystem.Key.Q;
+        private string _activateKeyLabel = ActivateKeyBinding.DefaultKey;
+
+        /// <summary>The equipped active item's live charge meter, flattened for the HUD (IRunHost).</summary>
+        public ActiveReadout ActiveItem => _activeItem.Readout(_activateKeyLabel);
+
         public RaceManager CurrentRace => _raceManager;
 
         /// <summary>The live player car, or null between scenes.</summary>
@@ -242,6 +257,7 @@ namespace Shitboxer.Meta
             // Drop the sector subscription before the director goes away — RaceManager outlives it on a
             // scene teardown, and a dangling handler on a destroyed director would keep scoring.
             _sectorParts.Unbind();
+            _activeItem.Unbind();
             if (Instance == this) Instance = null;
         }
 
@@ -328,6 +344,13 @@ namespace Shitboxer.Meta
             // Bind() unhooks any previous race first, so a scene reload can never double-subscribe and
             // score every sector twice. Inert for a loadout with no sector rules.
             _sectorParts.Bind(_raceManager, _playerCar, Run);
+
+            // Active item (doc 08 decision 14): arm the first equipped active part's reservoir for
+            // this race and refresh the ACTIVATE bind from settings, so a rebind made in the main
+            // menu reaches a run already in flight at its next race. Inert for a loadout without one.
+            _activeItem.Bind(_raceManager, _playerCar, Run);
+            _activateKey = ActivateKeyBinding.Parse(GameSettings.Load().activateKey);
+            _activateKeyLabel = _activateKey.ToString(); // normalized: the HUD hint shows what actually works
         }
 
         /// <summary>
@@ -811,6 +834,14 @@ namespace Shitboxer.Meta
             // sim mid-race, which resets those fields to 1; re-asserting here means a bonus earned
             // earlier survives that recovery instead of quietly disappearing.
             _sectorParts.Reassert();
+
+            // Active item (decision 14): gather this frame's charge, read the single ACTIVATE bind,
+            // and hold any live boost on the sim (its write doubles as the watchdog re-assert).
+            // While the dev pause is open Update still runs but Time.deltaTime is 0, and the model
+            // treats a zero-dt step as a no-op — so a key pressed into a frozen menu neither charges
+            // nor deploys anything.
+            bool activatePressed = Keyboard.current != null && Keyboard.current[_activateKey].wasPressedThisFrame;
+            _activeItem.Tick(Time.deltaTime, activatePressed);
 
             if (_raceManager == null) return;
 

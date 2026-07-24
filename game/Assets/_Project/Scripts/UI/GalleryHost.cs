@@ -30,6 +30,7 @@ namespace Shitboxer.UI
         public RaceManager CurrentRace => null;
         public VehicleController PlayerCar => null;
         public SectorPartRunner SectorParts => null;   // gallery preview, never a live race
+        public ActiveReadout ActiveItem => default;    // no live race, so no charge meter either
         public event Action<RunPhase> PhaseChanged { add { } remove { } }
 
         public GalleryHost()

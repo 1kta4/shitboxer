@@ -736,6 +736,96 @@ namespace Shitboxer.Editor
                     p.Price = 12;
                     p.SectorRules = Rules(OnStyle(SectorStyle.Clean, SectorEffectKind.Retrigger, 1f));
                 }),
+
+                // ---- Active items (doc 08 slice 9, decision 14) ----------------------------------
+                // One archetype per charge condition, so the slice tests the whole shape: an active is
+                // defined partly by HOW it is earned, and each of these asks for a different way to
+                // drive. All deploy through the single ACTIVATE bind (default Q, rebindable). Boost
+                // magnitudes sit inside DraftBoostModel's hard 1.5x ceiling; durations are
+                // charge/drain, so ~2 s of burst from a full reservoir at drain 0.5.
+                EnsurePart("Part_TowCell", p =>
+                {
+                    p.Id = "tow_cell";
+                    p.DisplayName = "Tow Cell";
+                    p.Description = "Sit in a rival's wake to wind it up; Q for a +15% power slingshot. The classic drafting battery.";
+                    p.Category = PartCategory.Stat;
+                    p.Price = 7;
+                    p.Active = ActiveOf(ActiveCharge.Drafting, boost: 1.15f, drain: 0.5f,
+                        fillPerSecond: 0.35f, minCharge: 0.25f);
+                }),
+                EnsurePart("Part_ZenBattery", p =>
+                {
+                    p.Id = "zen_battery";
+                    p.DisplayName = "Zen Battery";
+                    p.Description = "Charges only while nobody is touching you. Eleven clean seconds buys a +12% power exhale.";
+                    p.Category = PartCategory.Stat;
+                    p.Price = 7;
+                    p.Active = ActiveOf(ActiveCharge.CleanRunning, boost: 1.12f, drain: 0.5f,
+                        fillPerSecond: 0.09f);
+                }),
+                EnsurePart("Part_HaymakerCell", p =>
+                {
+                    p.Id = "haymaker_cell";
+                    p.DisplayName = "Haymaker Cell";
+                    p.Description = "Every hit YOU land winds the spring a third turn. Three punches, one +18% power counter.";
+                    p.Category = PartCategory.Attack;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 9;
+                    p.Active = ActiveOf(ActiveCharge.ContactDealt, boost: 1.18f, drain: 0.7f,
+                        chargePerEvent: 0.34f);
+                }),
+                EnsurePart("Part_PaybackCoil", p =>
+                {
+                    p.Id = "payback_coil";
+                    p.DisplayName = "Payback Coil";
+                    p.Description = "Feeds on the beating you take: damage becomes charge, charge becomes a +20% power answer.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 8;
+                    p.Active = ActiveOf(ActiveCharge.DamageTaken, boost: 1.2f, drain: 0.6f,
+                        chargePerEvent: 0.25f, minCharge: 0.5f);
+                }),
+                EnsurePart("Part_CheckpointCharge", p =>
+                {
+                    p.Id = "checkpoint_charge";
+                    p.DisplayName = "Checkpoint Charge";
+                    p.Description = "Ticks a third fuller at every sector line, wherever you are in the field. Metronomic +12% power.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 8;
+                    p.Active = ActiveOf(ActiveCharge.SectorLine, boost: 1.12f, drain: 0.5f,
+                        chargePerEvent: 0.34f);
+                }),
+                EnsurePart("Part_OneBigPush", p =>
+                {
+                    p.Id = "one_big_push";
+                    p.DisplayName = "One Big Push";
+                    p.Description = "Starts every race armed and never recharges: one +30% power moment. Spend it like you mean it.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 8;
+                    p.Active = ActiveOf(ActiveCharge.OncePerRace, boost: 1.3f, drain: 0.5f);
+                }),
+                EnsurePart("Part_SlowReactor", p =>
+                {
+                    p.Id = "slow_reactor";
+                    p.DisplayName = "Slow Reactor";
+                    p.Description = "Charges itself on a 25-second clock, no questions asked. Reliable, unhurried, +15% power.";
+                    p.Category = PartCategory.Stat;
+                    p.Price = 6;
+                    p.Active = ActiveOf(ActiveCharge.Cooldown, boost: 1.15f, drain: 0.5f,
+                        fillPerSecond: 0.04f);
+                }),
+                EnsurePart("Part_PushToPass", p =>
+                {
+                    p.Id = "push_to_pass";
+                    p.DisplayName = "Push To Pass";
+                    p.Description = "Always ready — the button just costs $2 a press. A +15% power habit with a running tab.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 9;
+                    p.Active = ActiveOf(ActiveCharge.PaidUse, boost: 1.15f, drain: 0.8f, useCost: 2);
+                }),
             };
 
             // The pool is refreshed every run so new parts always show up.
@@ -937,6 +1027,23 @@ namespace Shitboxer.Editor
             configure(part);
             AssetDatabase.CreateAsset(part, path);
             return part;
+        }
+
+        /// <summary>One active-item spec (doc 08 decision 14), with the unused knobs left at their
+        /// class defaults — the state clamps everything again at runtime.</summary>
+        private static ActiveSpec ActiveOf(ActiveCharge charge, float boost, float drain,
+            float fillPerSecond = 0.35f, float chargePerEvent = 0.34f, float minCharge = 1f, int useCost = 0)
+        {
+            return new ActiveSpec
+            {
+                Charge = charge,
+                BoostMult = boost,
+                DrainPerSecond = drain,
+                FillPerSecond = fillPerSecond,
+                ChargePerEvent = chargePerEvent,
+                MinCharge01 = minCharge,
+                UseCost = useCost,
+            };
         }
 
         private static List<SpecMod> Mods(params (SpecModTarget target, float multiplier)[] entries)

@@ -120,5 +120,12 @@ namespace Shitboxer.Meta
 
         /// <summary>True if this part scores off sectors at all — the cheap gate the runner filters on.</summary>
         public bool HasSectorRules => SectorRules != null && SectorRules.Count > 0;
+
+        [Header("Active item — charge-and-deploy boost (doc 08 decision 14)")]
+        [Tooltip("Charge == None (default) means this is not an active item and the block is ignored, so every existing part is unchanged. Anything else makes equipping this part arm the single ACTIVATE bind (default Q) with this charge condition and boost.")]
+        public ActiveSpec Active = new ActiveSpec();
+
+        /// <summary>True if equipping this part arms the ACTIVATE bind — the runner's cheap filter gate.</summary>
+        public bool IsActive => Active != null && Active.Charge != ActiveCharge.None;
     }
 }

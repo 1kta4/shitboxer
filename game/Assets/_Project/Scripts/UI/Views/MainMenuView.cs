@@ -222,9 +222,32 @@ namespace Shitboxer.UI.Views
             scroll.Add(Check("SCREEN SHAKE", _settings.screenShake, v => { _settings.screenShake = v; ApplySettings(); }));
             scroll.Add(Check("DAMAGE FLASH", _settings.damageFlash, v => { _settings.damageFlash = v; ApplySettings(); }));
 
+            scroll.Add(GroupLabel("CONTROLS"));
+            scroll.Add(ActivateKeyDropdown());
+
             section.Add(scroll);
             section.Add(BackFoot());
             return section;
+        }
+
+        /// <summary>
+        /// The single ACTIVATE bind (doc 08 decision 14): deploys the equipped active item in a race.
+        /// A curated choice list rather than free listening — every entry is guaranteed reachable and
+        /// parseable (ActivateKeyBinding), and a stale settings value falls back to Q.
+        /// </summary>
+        private VisualElement ActivateKeyDropdown()
+        {
+            var names = new List<string>(ActivateKeyBinding.Choices);
+            int current = names.FindIndex(n =>
+                string.Equals(n, _settings.activateKey, StringComparison.OrdinalIgnoreCase));
+            var dd = new DropdownField("ACTIVATE KEY", names, Mathf.Clamp(current, 0, names.Count - 1));
+            dd.AddToClassList("menu-field");
+            dd.RegisterValueChangedCallback(evt =>
+            {
+                _settings.activateKey = evt.newValue;
+                ApplySettings();
+            });
+            return dd;
         }
 
         private void ApplySettings()

@@ -27,6 +27,10 @@ namespace Shitboxer.Meta
         // gameplay
         public bool screenShake = true;
         public bool damageFlash = true;
+        // The single ACTIVATE bind for the equipped active item (doc 08 decision 14) — a key NAME
+        // (InputSystem Key member, parsed by ActivateKeyBinding.Parse, unknown values fall back to Q)
+        // so the JSON stays readable and hand-editable.
+        public string activateKey = ActivateKeyBinding.DefaultKey;
 
         public static string DefaultPath => Path.Combine(Application.persistentDataPath, FileName);
 
