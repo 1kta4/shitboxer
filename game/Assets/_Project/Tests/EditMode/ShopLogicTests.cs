@@ -234,22 +234,333 @@ namespace Shitboxer.Tests
         }
 
         [Test]
-        public void TakeFromCrate_AutoEquipsOnlyWhileASlotIsFree()
+        public void APackIsNotSoldWhenTheCarIsAlreadyFull()
         {
+            // A pack's prize is always equipped, so selling one whose contents can't be taken would be
+            // taking money for nothing. Refuse at buy time instead.
             var shop = new ShopLogic(seed: 7);
             var run = new RunState { Money = 99, MaxEquipSlots = 1 };
             shop.BeginVisit(Pool(12), run);
 
-            shop.TryBuyCrate(Pool(12), run, CratePrice, CrateDraw);
+            Assert.IsTrue(shop.TryBuyCrate(Pool(12), run, CratePrice, CrateDraw));
             PartDef first = run.CrateContents[0];
-            shop.TryTakeFromCrate(first, run);
-            Assert.IsTrue(run.IsEquipped(first), "a free slot auto-equips, matching TryBuy");
+            Assert.IsTrue(shop.TryTakeFromCrate(first, run));
+            Assert.IsTrue(run.IsEquipped(first), "a bought part is always equipped");
 
-            shop.TryBuyCrate(Pool(12), run, CratePrice, CrateDraw);
-            PartDef second = run.CrateContents[0];
-            shop.TryTakeFromCrate(second, run);
-            Assert.IsTrue(run.Owns(second), "slots full still OWNS the part...");
-            Assert.IsFalse(run.IsEquipped(second), "...but cannot slot it — equip it manually in the garage");
+            int money = run.Money;
+            Assert.IsFalse(shop.TryBuyCrate(Pool(12), run, CratePrice, CrateDraw),
+                "car is full — the pack must not be sold");
+            Assert.AreEqual(money, run.Money, "a refused pack charges nothing");
+        }
+
+        [Test]
+        public void SellingFreesASlotAndRefundsHalf()
+        {
+            var shop = new ShopLogic(seed: 21);
+            var run = new RunState { Money = 100, MaxEquipSlots = 1 };
+            shop.BeginVisit(Pool(6), run);
+
+            PartDef bought = shop.Offers[0];
+            shop.TryBuy(bought, run);
+            int afterBuy = run.Money;
+
+            Assert.IsTrue(shop.TrySell(bought, run));
+            Assert.AreEqual(afterBuy + shop.SellValueOf(bought), run.Money);
+            Assert.IsFalse(run.Owns(bought), "a sold part leaves the run entirely — it is not benched");
+            Assert.IsTrue(run.HasFreeSlot);
+        }
+
+        [Test]
+        public void SellValueIsHalfPriceFlooredAtOne()
+        {
+            var shop = new ShopLogic(seed: 22);
+            Assert.AreEqual(3, shop.SellValueOf(Part(6)));
+            Assert.AreEqual(1, shop.SellValueOf(Part(1)), "nothing is ever worthless");
+            Assert.AreEqual(0, shop.SellValueOf(null));
+        }
+
+        [Test]
+        public void CannotBuyWhenEveryPartSlotIsFull()
+        {
+            var shop = new ShopLogic(seed: 23);
+            var run = new RunState { Money = 100, MaxEquipSlots = 1 };
+            shop.BeginVisit(Pool(6), run);
+
+            Assert.IsTrue(shop.TryBuy(shop.Offers[0], run));
+            int money = run.Money;
+            Assert.IsFalse(shop.TryBuy(shop.Offers[0], run), "car is full");
+            Assert.AreEqual(money, run.Money, "a refused buy charges nothing");
+        }
+
+        // ---- consecutive-reroll escalation -------------------------------------------------------
+
+        [Test]
+        public void ConsecutiveRerollsEscalate()
+        {
+            var shop = new ShopLogic(seed: 24);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+
+            Assert.AreEqual(ShopLogic.BaseRerollCost, shop.RerollCost);
+            shop.TryReroll(Pool(20), run);
+            Assert.AreEqual(ShopLogic.BaseRerollCost + ShopLogic.RerollCostStep, shop.RerollCost);
+            shop.TryReroll(Pool(20), run);
+            Assert.AreEqual(ShopLogic.BaseRerollCost + 2 * ShopLogic.RerollCostStep, shop.RerollCost);
+        }
+
+        [Test]
+        public void BuyingResetsTheRerollEscalation()
+        {
+            // The escalation punishes FISHING, not shopping: a player who engages with the shelf gets a
+            // cheap reroll again, while one who only spins pays more each time.
+            var shop = new ShopLogic(seed: 25);
+            var run = new RunState { Money = 200 };
+            shop.BeginVisit(Pool(20), run);
+
+            shop.TryReroll(Pool(20), run);
+            shop.TryReroll(Pool(20), run);
+            Assert.Greater(shop.RerollCost, ShopLogic.BaseRerollCost);
+
+            shop.TryBuy(shop.Offers[0], run);
+            Assert.AreEqual(ShopLogic.BaseRerollCost, shop.RerollCost, "a purchase breaks the streak");
+        }
+
+        [Test]
+        public void SellingAlsoBreaksTheRerollStreak()
+        {
+            var shop = new ShopLogic(seed: 26);
+            var run = new RunState { Money = 200 };
+            shop.BeginVisit(Pool(20), run);
+
+            PartDef bought = shop.Offers[0];
+            shop.TryBuy(bought, run);
+            shop.TryReroll(Pool(20), run);
+            shop.TryReroll(Pool(20), run);
+            Assert.Greater(shop.RerollCost, ShopLogic.BaseRerollCost);
+
+            shop.TrySell(bought, run);
+            Assert.AreEqual(ShopLogic.BaseRerollCost, shop.RerollCost);
+        }
+
+        // ---- packs ---------------------------------------------------------------------------------
+
+        [Test]
+        public void EveryVisitOffersTwoPacks()
+        {
+            var shop = new ShopLogic(seed: 27);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+            Assert.AreEqual(ShopLogic.PacksPerVisit, shop.Packs.Count);
+        }
+
+        [Test]
+        public void SpectralPacksAreNeverStocked_BecauseTheyHaveNoContentYet()
+        {
+            // A pack that opened onto an empty pick screen would take the player's money and hand back
+            // nothing. Give Spectral a weight the day spectrals exist.
+            Assert.AreEqual(0, ShopPackCatalog.Weight(ShopPackKind.Spectral));
+
+            var shop = new ShopLogic(seed: 28);
+            var run = new RunState { Money = 100 };
+            for (int visit = 0; visit < 40; visit++)
+            {
+                shop.BeginVisit(Pool(20), run);
+                foreach (ShopPack pack in shop.Packs)
+                    Assert.AreNotEqual(ShopPackKind.Spectral, pack.Kind);
+            }
+        }
+
+        [Test]
+        public void AComponentsPackLevelsThePickedComponent()
+        {
+            var shop = new ShopLogic(seed: 29);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+
+            int index = FindPack(shop, ShopPackKind.Components);
+            if (index < 0) Assert.Ignore("this seed rolled no components pack");
+
+            int price = shop.Packs[index].Price;
+            Assert.IsTrue(shop.TryBuyPack(index, Pool(20), run));
+            Assert.AreEqual(100 - price, run.Money);
+            Assert.IsTrue(run.ComponentPackOpen);
+
+            var picked = (CarComponent)run.PackComponents[0];
+            int before = run.LevelOf(picked);
+            Assert.IsTrue(shop.TryTakeComponent(picked, run));
+            Assert.AreEqual(before + 1, run.LevelOf(picked));
+            Assert.IsFalse(run.ComponentPackOpen, "the pack closes on the pick");
+        }
+
+        // --- Blueprints: component levels are ROLLED, not browsed ----------------------------------
+
+        [Test]
+        public void BeginVisit_StocksDistinctBlueprints()
+        {
+            var shop = new ShopLogic(seed: 40);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+
+            Assert.AreEqual(ShopLogic.BlueprintOfferCount, shop.Blueprints.Count);
+            CollectionAssert.AllItemsAreUnique(shop.Blueprints);
+        }
+
+        [Test]
+        public void BuyingABlueprintChargesLevelsAndLeavesTheShelf()
+        {
+            var shop = new ShopLogic(seed: 41);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+
+            CarComponent offered = shop.Blueprints[0];
+            int price = run.BlueprintPriceFor(offered);
+            int level = run.LevelOf(offered);
+
+            Assert.IsTrue(shop.TryBuyBlueprint(offered, run));
+            Assert.AreEqual(100 - price, run.Money);
+            Assert.AreEqual(level + 1, run.LevelOf(offered));
+            CollectionAssert.DoesNotContain(shop.Blueprints, offered,
+                "a bought Blueprint is consumed — the next level has to turn up again");
+        }
+
+        [Test]
+        public void ABlueprintNotOnTheShelfIsRefused()
+        {
+            // The load-bearing rule of the rework: with the ten-row list demoted to a read-out, the shelf
+            // check is the ONLY thing standing between the player and buying any component at will.
+            var shop = new ShopLogic(seed: 42);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+
+            CarComponent unstocked = FirstUnstocked(shop);
+            int level = run.LevelOf(unstocked);
+
+            Assert.IsFalse(shop.TryBuyBlueprint(unstocked, run));
+            Assert.AreEqual(100, run.Money, "a refused buy charges nothing");
+            Assert.AreEqual(level, run.LevelOf(unstocked));
+        }
+
+        [Test]
+        public void ARerollRestocksTheBlueprintRow()
+        {
+            var shop = new ShopLogic(seed: 43);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+
+            Assert.IsTrue(shop.TryBuyBlueprint(shop.Blueprints[0], run));
+            Assert.AreEqual(ShopLogic.BlueprintOfferCount - 1, shop.Blueprints.Count);
+
+            Assert.IsTrue(shop.TryReroll(Pool(20), run));
+            Assert.AreEqual(ShopLogic.BlueprintOfferCount, shop.Blueprints.Count,
+                "one reroll buys a whole new shelf, Blueprints included");
+        }
+
+        [Test]
+        public void MaxedComponentsAreNeverStocked()
+        {
+            // Late in a run the row legitimately runs short rather than offering a level that would do
+            // nothing. Everything maxed except Tyres, so there is exactly one legal draw left.
+            var shop = new ShopLogic(seed: 44);
+            var run = new RunState { Money = 100 };
+            foreach (CarComponentInfo info in CarComponentCatalog.All)
+                run.ComponentLevels[(int)info.Component] = CarComponentCatalog.MaxLevel;
+            run.ComponentLevels[(int)CarComponent.Tyres] = CarComponentCatalog.MinLevel;
+
+            shop.BeginVisit(Pool(20), run);
+
+            Assert.AreEqual(1, shop.Blueprints.Count);
+            Assert.AreEqual(CarComponent.Tyres, shop.Blueprints[0]);
+        }
+
+        [Test]
+        public void BuyingABlueprintBreaksTheRerollStreak()
+        {
+            // Blueprints are a purchase like any other, so they end the escalating-reroll streak — a
+            // player engaging with the shelf gets a cheap reroll back.
+            var shop = new ShopLogic(seed: 45);
+            var run = new RunState { Money = 200 };
+            shop.BeginVisit(Pool(20), run);
+
+            Assert.IsTrue(shop.TryReroll(Pool(20), run));
+            Assert.AreEqual(ShopLogic.BaseRerollCost + ShopLogic.RerollCostStep, shop.RerollCost);
+
+            Assert.IsTrue(shop.TryBuyBlueprint(shop.Blueprints[0], run));
+            Assert.AreEqual(ShopLogic.BaseRerollCost, shop.RerollCost);
+        }
+
+        /// <summary>A component this visit did not stock — with 10 in the catalogue and two on the
+        /// shelf there is always one.</summary>
+        private static CarComponent FirstUnstocked(ShopLogic shop)
+        {
+            foreach (CarComponentInfo info in CarComponentCatalog.All)
+                if (!ListHas(shop.Blueprints, info.Component)) return info.Component;
+            Assert.Fail("every component was stocked — this test can no longer say anything");
+            return default;
+        }
+
+        private static bool ListHas(IReadOnlyList<CarComponent> list, CarComponent component)
+        {
+            for (int i = 0; i < list.Count; i++)
+                if (list[i] == component) return true;
+            return false;
+        }
+
+        [Test]
+        public void OnlyOnePackCanBeOpenAtATime()
+        {
+            var shop = new ShopLogic(seed: 30);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+
+            Assert.IsTrue(shop.TryBuyPack(0, Pool(20), run));
+            int money = run.Money;
+            Assert.IsFalse(shop.TryBuyPack(0, Pool(20), run), "one pack at a time");
+            Assert.AreEqual(money, run.Money);
+        }
+
+        [Test]
+        public void ABoughtPackLeavesTheShelf()
+        {
+            var shop = new ShopLogic(seed: 31);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+
+            int before = shop.Packs.Count;
+            Assert.IsTrue(shop.TryBuyPack(0, Pool(20), run));
+            Assert.AreEqual(before - 1, shop.Packs.Count);
+        }
+
+        [Test]
+        public void BuyingAPackBreaksTheRerollStreak()
+        {
+            var shop = new ShopLogic(seed: 32);
+            var run = new RunState { Money = 200 };
+            shop.BeginVisit(Pool(20), run);
+
+            shop.TryReroll(Pool(20), run);
+            shop.TryReroll(Pool(20), run);
+            Assert.Greater(shop.RerollCost, ShopLogic.BaseRerollCost);
+
+            Assert.IsTrue(shop.TryBuyPack(0, Pool(20), run));
+            Assert.AreEqual(ShopLogic.BaseRerollCost, shop.RerollCost);
+        }
+
+        [Test]
+        public void AnOutOfRangePackIndexIsRejected()
+        {
+            var shop = new ShopLogic(seed: 33);
+            var run = new RunState { Money = 100 };
+            shop.BeginVisit(Pool(20), run);
+            Assert.IsFalse(shop.TryBuyPack(-1, Pool(20), run));
+            Assert.IsFalse(shop.TryBuyPack(99, Pool(20), run));
+            Assert.AreEqual(100, run.Money);
+        }
+
+        private static int FindPack(ShopLogic shop, ShopPackKind kind)
+        {
+            for (int i = 0; i < shop.Packs.Count; i++)
+                if (shop.Packs[i].Kind == kind) return i;
+            return -1;
         }
 
         [Test]

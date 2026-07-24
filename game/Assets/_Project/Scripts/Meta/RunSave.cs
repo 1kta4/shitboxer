@@ -59,6 +59,15 @@ namespace Shitboxer.Meta
         /// </summary>
         public List<string> teamUpgradeIds = new List<string>();
 
+        /// <summary>
+        /// Component levels, stored as "Name:Level" pairs rather than a positional array — the same
+        /// "stable id, never an index" rule the part and upgrade lists follow. Inserting a new
+        /// <see cref="CarComponent"/> member therefore cannot silently reinterpret an existing save's
+        /// levels as belonging to different components. Absent from an older save's JSON deserializes
+        /// to an empty list, which restores as all-baseline: exactly the pre-component car.
+        /// </summary>
+        public List<string> componentLevels = new List<string>();
+
         /// <summary>Default absolute path of the save file.</summary>
         public static string DefaultPath => Path.Combine(Application.persistentDataPath, FileName);
 
@@ -85,6 +94,14 @@ namespace Shitboxer.Meta
                 if (part && !string.IsNullOrEmpty(part.Id)) dto.crateContentIds.Add(part.Id);
             foreach (TeamUpgrade upgrade in run.OwnedUpgrades)
                 dto.teamUpgradeIds.Add(upgrade.ToString());
+            // Only components ABOVE the baseline are written: level 1 is the default a fresh set
+            // restores to, so recording it would be noise in every save file.
+            foreach (CarComponentInfo info in CarComponentCatalog.All)
+            {
+                int level = run.LevelOf(info.Component);
+                if (level > CarComponentCatalog.MinLevel)
+                    dto.componentLevels.Add($"{info.Component}:{level}");
+            }
             return dto;
         }
 
@@ -118,6 +135,20 @@ namespace Shitboxer.Meta
                     && Enum.IsDefined(typeof(TeamUpgrade), upgrade)
                     && !run.OwnedUpgrades.Contains(upgrade))
                     run.OwnedUpgrades.Add(upgrade);
+
+            // Component levels, same by-name discipline: an unparseable component or a junk level is
+            // dropped rather than throwing, and anything absent stays at the baseline the fresh
+            // RunState already holds.
+            foreach (string entry in componentLevels)
+            {
+                if (string.IsNullOrEmpty(entry)) continue;
+                int split = entry.LastIndexOf(':');
+                if (split <= 0 || split >= entry.Length - 1) continue;
+                if (!Enum.TryParse(entry.Substring(0, split), out CarComponent component)) continue;
+                if (!Enum.IsDefined(typeof(CarComponent), component)) continue;
+                if (!int.TryParse(entry.Substring(split + 1), out int level)) continue;
+                run.ComponentLevels[(int)component] = CarComponentCatalog.ClampLevel(level);
+            }
 
             foreach (string id in ownedPartIds)
                 if (id != null && index.TryGetValue(id, out PartDef part) && !run.OwnedParts.Contains(part))

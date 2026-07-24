@@ -128,5 +128,36 @@ namespace Shitboxer.Tests
             // Leading, "what winning pays" IS what you're banking — the comparison would be noise.
             Assert.AreEqual("BANKING $7 — LEADING", RaceDisplay.FormatPayoutPreview(1, 7, 7));
         }
+
+        // ---- sector timing strip ---------------------------------------------------------------
+
+        [Test]
+        public void FormatSectorTime_NotSetYet_IsAPlaceholder()
+        {
+            // The -1 sentinel means "this lap hasn't reached that sector", which must read as blank
+            // rather than as a suspiciously fast 0.00.
+            Assert.AreEqual("--.--", RaceDisplay.FormatSectorTime(-1f));
+        }
+
+        [Test]
+        public void FormatSectorTime_IsSecondsToTwoDecimals_NoMinutesField()
+        {
+            // Finer than the race clock on purpose: a sector time is written once and then sits still,
+            // so hundredths are readable rather than shimmering — and they're the granularity that makes
+            // a purple/green split feel earned.
+            Assert.AreEqual("23.41", RaceDisplay.FormatSectorTime(23.413f));
+            Assert.AreEqual("8.70", RaceDisplay.FormatSectorTime(8.7f));
+            Assert.AreEqual("0.00", RaceDisplay.FormatSectorTime(0f));
+        }
+
+        [Test]
+        public void FormatSectorName_IsOneBasedForDrivers()
+        {
+            // Every rule in the Race layer works in 0-based indices; this is the only place that
+            // converts to the names a driver actually uses.
+            Assert.AreEqual("S1", RaceDisplay.FormatSectorName(0));
+            Assert.AreEqual("S2", RaceDisplay.FormatSectorName(1));
+            Assert.AreEqual("S3", RaceDisplay.FormatSectorName(2));
+        }
     }
 }

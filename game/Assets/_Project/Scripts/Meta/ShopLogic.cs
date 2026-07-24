@@ -8,11 +8,23 @@ namespace Shitboxer.Meta
     /// lives for the whole run; BeginVisit when the garage opens resets the reroll cost to
     /// Balatro's curve shape (doc 03: $5 base, +$1 per reroll, resets next shop). Every part
     /// is treated as a unique for now — owned parts never reappear in offers.
+    ///
+    /// Everything buyable here is ROLLED, never browsed: parts, packs and Blueprints alike have to
+    /// turn up on the shelf before they can be bought. That is why <see cref="TryBuyBlueprint"/>
+    /// exists rather than the garage calling <see cref="RunState.BuyBlueprint"/> directly.
     /// </summary>
     public class ShopLogic
     {
         /// <summary>Base shelf size, before any Overstock upgrade — see <see cref="EffectiveOfferCount"/>.</summary>
         public const int OfferCount = 3;
+
+        /// <summary>
+        /// Blueprints stocked per visit. Component levels are NOT an always-open menu of all ten
+        /// (re-litigated 2026-07-22): a Blueprint has to SHOW UP — on the shelf here, or as a pick out
+        /// of a components pack. Two at a time keeps the shelf a choice between what turned up rather
+        /// than a checklist you work down, which is the whole reason the shop is rolled and not browsed.
+        /// </summary>
+        public const int BlueprintOfferCount = 2;
 
         /// <summary>Base first-reroll cost, before any Reroll Surplus — see <see cref="EffectiveRerollBase"/>.</summary>
         public const int BaseRerollCost = 5;
@@ -52,11 +64,27 @@ namespace Shitboxer.Meta
         /// </summary>
         public float[] FamilyPriceMult;
 
+        /// <summary>Fraction of a part's price refunded when sold. Balatro's half, floored at $1.</summary>
+        public const float SellFraction = 0.5f;
+
+        /// <summary>Packs offered every visit, drawn from <see cref="ShopPackKind"/>.</summary>
+        public const int PacksPerVisit = 2;
+
         private Random _rng;
         private readonly List<PartDef> _offers = new List<PartDef>();
+        private readonly List<ShopPack> _packs = new List<ShopPack>(PacksPerVisit);
+        private readonly List<CarComponent> _blueprints = new List<CarComponent>(BlueprintOfferCount);
 
-        /// <summary>How many rerolls have been bought so far this visit (drives the escalating cost).</summary>
-        private int _rerollsThisVisit;
+        /// <summary>Reused by <see cref="RollBlueprints"/> so rolling the shelf allocates nothing.</summary>
+        private readonly List<int> _drawScratch = new List<int>(BlueprintOfferCount);
+
+        /// <summary>
+        /// How many rerolls have been bought BACK TO BACK, with no purchase in between — the escalating
+        /// cost keys off this rather than a visit total. Buying anything resets it, so a player who
+        /// engages with the shelf gets a cheap reroll again while one who only spins pays more each
+        /// time. That is the point: the escalation punishes fishing, not shopping.
+        /// </summary>
+        private int _consecutiveRerolls;
 
         /// <summary>The parts currently on the shelf (bought ones are removed in place).</summary>
         public IReadOnlyList<PartDef> Offers => _offers;
@@ -84,12 +112,34 @@ namespace Shitboxer.Meta
         /// </summary>
         public void Reseed(int seed) => _rng = new Random(seed);
 
-        /// <summary>Opens a shop visit: resets the reroll cost and rolls fresh stock.</summary>
+        /// <summary>The packs on offer this visit. Bought packs are removed in place.</summary>
+        public IReadOnlyList<ShopPack> Packs => _packs;
+
+        /// <summary>
+        /// The Blueprints that turned up this visit — the ONLY way to buy a component level outright.
+        /// Bought ones are removed in place; a reroll replaces the whole row.
+        /// </summary>
+        public IReadOnlyList<CarComponent> Blueprints => _blueprints;
+
+        /// <summary>Opens a shop visit: resets the reroll cost and rolls fresh stock, Blueprints and packs.</summary>
         public void BeginVisit(IReadOnlyList<PartDef> pool, RunState run)
         {
-            _rerollsThisVisit = 0;
+            _consecutiveRerolls = 0;
             RerollCost = EffectiveRerollBase(run);
             Roll(pool, run);
+            RollBlueprints(run);
+            RollPacks();
+        }
+
+        /// <summary>
+        /// Ends a consecutive-reroll streak. Called by every purchase, so the escalating cost measures
+        /// back-to-back spinning rather than a visit total, and re-derives the next reroll price
+        /// immediately so the shop shows the reset rather than making the player guess.
+        /// </summary>
+        private void BreakRerollStreak(RunState run)
+        {
+            _consecutiveRerolls = 0;
+            RerollCost = EffectiveRerollBase(run);
         }
 
         /// <summary>
@@ -103,36 +153,66 @@ namespace Shitboxer.Meta
             BeginVisit(pool, run);
         }
 
-        /// <summary>Pays the escalating reroll cost and rerolls the shelf. False if unaffordable.</summary>
+        /// <summary>
+        /// Pays the escalating reroll cost and rerolls the shelf — parts AND Blueprints, since one
+        /// reroll buys a whole new shelf. Packs deliberately stay: they are the visit's fixed offer,
+        /// and rerolling into a better pack table would make the reroll the only button worth pressing.
+        /// False if unaffordable.
+        /// </summary>
         public bool TryReroll(IReadOnlyList<PartDef> pool, RunState run)
         {
             if (run.Money < RerollCost) return false;
             run.Money -= RerollCost;
-            // Advance the per-visit counter and recompute the next cost through ShopEconomy. The
-            // effective per-reroll step is the shipped RerollCostStep plus any extra depth tuning;
-            // with RerollCostIncrement = 0 this is byte-for-byte today's +$1/reroll curve.
-            _rerollsThisVisit++;
+            // Advance the CONSECUTIVE counter and recompute the next cost. Any purchase resets this
+            // (see BreakRerollStreak), so the +$1 curve escalates only across back-to-back rerolls.
+            _consecutiveRerolls++;
             RerollCost = ShopEconomy.RerollCost(
-                EffectiveRerollBase(run), _rerollsThisVisit, RerollCostStep + RerollCostIncrement);
+                EffectiveRerollBase(run), _consecutiveRerolls, RerollCostStep + RerollCostIncrement);
             Roll(pool, run);
+            RollBlueprints(run);
             return true;
         }
 
+        /// <summary>What selling a part refunds: half its shop price, floored at $1 so nothing is worthless.</summary>
+        public int SellValueOf(PartDef part) =>
+            part == null ? 0 : Math.Max(1, (int)(PriceOf(part) * SellFraction));
+
         /// <summary>
-        /// Buys an offered part: deducts the price, moves it into the run inventory, and
-        /// auto-equips it when a slot is free (no-op otherwise — equip later in the garage).
+        /// Buys an offered part. A bought part is ALWAYS equipped — there is no owned-but-benched state
+        /// for shelf purchases — which is why this refuses when the car is full rather than quietly
+        /// selling something the player can't use. Sell a part to make room.
         /// </summary>
         public bool TryBuy(PartDef part, RunState run)
         {
             int price = PriceOf(part);
             // The Owns guard is the backstop against duplicate ownership: parts are uniques, and a part can
-            // now reach the inventory by two routes (shelf and crate). Without it, any path that leaves a
+            // now reach the inventory by two routes (shelf and pack). Without it, any path that leaves a
             // now-owned part on the shelf would let it be bought a second time.
             if (part == null || !_offers.Contains(part) || run.Owns(part) || run.Money < price) return false;
+            if (!run.HasFreeSlot) return false; // full car — sell something first
+
             run.Money -= price;
             _offers.Remove(part);
             run.OwnedParts.Add(part);
             run.Equip(part);
+            BreakRerollStreak(run);
+            return true;
+        }
+
+        /// <summary>
+        /// Sells an owned part back for <see cref="SellValueOf"/>, freeing its slot. The part leaves the
+        /// run entirely — it is not benched — matching the "bought means equipped" rule above.
+        ///
+        /// Deliberately allowed even while a pack is open: with buying gated on a free slot, a player who
+        /// filled their last slot and then opened a pack would otherwise be stuck with nothing to do.
+        /// </summary>
+        public bool TrySell(PartDef part, RunState run)
+        {
+            if (part == null || run == null || !run.Owns(part)) return false;
+            int refund = SellValueOf(part);
+            run.RemovePart(part);
+            run.Money += refund;
+            BreakRerollStreak(run);
             return true;
         }
 
@@ -167,8 +247,9 @@ namespace Shitboxer.Meta
 
             run.Money -= price;
             run.OwnedUpgrades.Add(upgrade);
-            RerollCost = ShopEconomy.RerollCost(
-                EffectiveRerollBase(run), _rerollsThisVisit, RerollCostStep + RerollCostIncrement);
+            // Also ends the reroll streak, like every other purchase. Reroll Surplus therefore bites on
+            // THIS visit's next reroll rather than making the player wait for the next garage.
+            BreakRerollStreak(run);
             return true;
         }
 
@@ -222,9 +303,164 @@ namespace Shitboxer.Meta
         /// the pool has no unowned candidates left. That last guard matters: selling an empty crate would
         /// take the money and hand back a pick screen with nothing in it.
         /// </summary>
+        /// <summary>
+        /// Rolls this visit's two packs from the weighted kind table. Duplicates are allowed — two parts
+        /// packs is a legitimate (if unlucky) shelf, and forcing variety would make the second slot
+        /// predictable once you'd seen the first.
+        /// </summary>
+        private void RollPacks()
+        {
+            _packs.Clear();
+
+            int totalWeight = 0;
+            foreach (ShopPackKind kind in ShopPackCatalog.All) totalWeight += ShopPackCatalog.Weight(kind);
+            if (totalWeight <= 0) return; // nothing implemented to stock
+
+            for (int i = 0; i < PacksPerVisit; i++)
+            {
+                int roll = _rng.Next(totalWeight);
+                ShopPackKind picked = ShopPackCatalog.All[0];
+                foreach (ShopPackKind kind in ShopPackCatalog.All)
+                {
+                    roll -= ShopPackCatalog.Weight(kind);
+                    if (roll < 0) { picked = kind; break; }
+                }
+                _packs.Add(ShopPackCatalog.Make(picked));
+            }
+        }
+
+        /// <summary>
+        /// Buys one of this visit's packs and opens its pick-one draw. Refuses — charging nothing —
+        /// when another pack is already open, the money isn't there, or the pack would open onto
+        /// nothing to choose from.
+        /// </summary>
+        public bool TryBuyPack(int packIndex, IReadOnlyList<PartDef> pool, RunState run)
+        {
+            if (run == null || run.PackOpen) return false;
+            if (packIndex < 0 || packIndex >= _packs.Count) return false;
+
+            ShopPack pack = _packs[packIndex];
+            if (run.Money < pack.Price) return false;
+
+            switch (pack.Kind)
+            {
+                case ShopPackKind.Parts:
+                {
+                    // A parts pack hands over a part, and a bought part is always equipped — so refuse
+                    // rather than sell a pack whose prize cannot be taken.
+                    if (!run.HasFreeSlot) return false;
+
+                    var drawn = new List<PartDef>();
+                    DrawParts(pool, run, pack.DrawCount, drawn, _offers);
+                    if (drawn.Count == 0) return false; // don't sell an empty box
+
+                    run.Money -= pack.Price;
+                    run.CrateContents.AddRange(drawn);
+                    break;
+                }
+
+                case ShopPackKind.Components:
+                {
+                    var drawn = new List<int>();
+                    DrawComponents(run, pack.DrawCount, drawn);
+                    if (drawn.Count == 0) return false; // every component already maxed
+
+                    run.Money -= pack.Price;
+                    run.PackComponents.AddRange(drawn);
+                    break;
+                }
+
+                default:
+                    return false; // Spectral: declared, not implemented — never stocked, never sold
+            }
+
+            _packs.RemoveAt(packIndex);
+            BreakRerollStreak(run);
+            return true;
+        }
+
+        /// <summary>
+        /// Draws distinct, still-levellable components — for a components pack and for the shelf's
+        /// Blueprint row alike. A component already at the ceiling is excluded, so a late-run draw
+        /// never offers a pick that would do nothing.
+        /// Unweighted: every component is equally worth offering, and rarity is a parts concept.
+        /// </summary>
+        private void DrawComponents(RunState run, int count, List<int> into)
+        {
+            if (run == null || into == null || count <= 0) return;
+
+            var candidates = new List<int>(CarComponentCatalog.Count);
+            for (int i = 0; i < CarComponentCatalog.Count; i++)
+                if (CarComponentCatalog.CanLevel(run.LevelOf((CarComponent)i)))
+                    candidates.Add(i);
+
+            int draws = Math.Min(count, candidates.Count);
+            for (int i = 0; i < draws; i++)
+            {
+                int pick = _rng.Next(candidates.Count);
+                into.Add(candidates[pick]);
+                candidates.RemoveAt(pick);
+            }
+        }
+
+        /// <summary>
+        /// Rolls this visit's Blueprint row: <see cref="BlueprintOfferCount"/> distinct, still-levellable
+        /// components, drawn by the same rules a components pack uses — so "what can turn up" means one
+        /// thing everywhere, and a maxed component is never offered a level it cannot take.
+        ///
+        /// Rolls off the same seeded stream as the parts shelf, so a resumed run reproduces the whole
+        /// visit. Late in a run this can legitimately come back SHORT (or empty) once most components
+        /// are maxed — the garage just shows fewer, which is the honest read of a nearly-finished car.
+        /// </summary>
+        private void RollBlueprints(RunState run)
+        {
+            _blueprints.Clear();
+            _drawScratch.Clear();
+            DrawComponents(run, BlueprintOfferCount, _drawScratch);
+            for (int i = 0; i < _drawScratch.Count; i++)
+                _blueprints.Add((CarComponent)_drawScratch[i]);
+        }
+
+        /// <summary>
+        /// Buys a Blueprint OFF THE SHELF, raising that component one level. The shelf check is the
+        /// whole point of this method: <see cref="RunState.BuyBlueprint"/> will happily level anything
+        /// it can afford, and routing every caller through here is what makes a component level
+        /// something that has to turn up rather than something you pick off a list of all ten.
+        ///
+        /// Refuses — charging nothing — for a component that isn't stocked, is maxed, or costs more
+        /// than the player has. Consumes the offer on success, so the same Blueprint can't be bought
+        /// twice off one shelf; the next level of that component has to turn up again.
+        /// </summary>
+        public bool TryBuyBlueprint(CarComponent component, RunState run)
+        {
+            if (run == null || !_blueprints.Contains(component)) return false;
+            if (!run.BuyBlueprint(component)) return false;   // charges, levels, or refuses outright
+
+            _blueprints.Remove(component);
+            BreakRerollStreak(run);
+            return true;
+        }
+
+        /// <summary>
+        /// Takes one component from an open components pack, raising it a level. Already paid for at
+        /// buy time, so this costs nothing; the options not chosen are gone, which is what makes the
+        /// pick a decision.
+        /// </summary>
+        public bool TryTakeComponent(CarComponent component, RunState run)
+        {
+            if (run == null || !run.PackComponents.Contains((int)component)) return false;
+
+            run.PackComponents.Clear();
+            int index = (int)component;
+            run.ComponentLevels[index] =
+                CarComponentCatalog.ClampLevel(run.LevelOf(component) + 1);
+            return true;
+        }
+
         public bool TryBuyCrate(IReadOnlyList<PartDef> pool, RunState run, int price, int drawCount)
         {
-            if (run == null || run.CrateOpen || run.Money < price) return false;
+            if (run == null || run.PackOpen || run.Money < price) return false;
+            if (!run.HasFreeSlot) return false; // its prize is always equipped — see TryBuy
 
             // Exclude what's already on the shelf: the same part appearing in both places reads as a bug,
             // and it would open a duplicate-ownership path (take it from the crate, then buy the shelf copy).
@@ -234,17 +470,23 @@ namespace Shitboxer.Meta
 
             run.Money -= price;
             run.CrateContents.AddRange(drawn);
+            BreakRerollStreak(run);
             return true;
         }
 
         /// <summary>
-        /// Takes one part from the open crate: it joins the run inventory (auto-equipped when a slot is
-        /// free, exactly like <see cref="TryBuy"/>) and the crate closes — the parts not chosen are gone,
-        /// which is what makes the pick a decision. Already paid for at buy time, so this costs nothing.
+        /// Takes one part from the open pack: it joins the run inventory and is equipped, exactly like
+        /// <see cref="TryBuy"/>, and the pack closes — the parts not chosen are gone, which is what
+        /// makes the pick a decision. Already paid for at buy time, so this costs nothing.
+        ///
+        /// Refuses if the car has filled up since the pack was bought (the player sold nothing and
+        /// bought elsewhere). The pack stays open rather than consuming the pick, so selling a part
+        /// then taking again works.
         /// </summary>
         public bool TryTakeFromCrate(PartDef part, RunState run)
         {
             if (part == null || run == null || !run.CrateContents.Contains(part)) return false;
+            if (!run.HasFreeSlot) return false; // pack stays open — sell something, then take
 
             run.CrateContents.Clear();
             run.OwnedParts.Add(part);

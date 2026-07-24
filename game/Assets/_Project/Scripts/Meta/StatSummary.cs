@@ -19,16 +19,28 @@ namespace Shitboxer.Meta
     /// </summary>
     public static class StatSummary
     {
-        /// <summary>The two headline bars, each 0..100.</summary>
+        /// <summary>
+        /// The four headline bars, each 0..100 (doc 08 decision 2). Weight and Durability were added
+        /// when the collection turned out to modify them constantly — nine of the fifteen planned
+        /// chassis are DEFINED by them, as are the enhancements and seals — which a two-bar UI
+        /// physically cannot show. Higher is always better on every bar, so Weight is INVERTED: a light
+        /// car reads high.
+        /// </summary>
         public readonly struct Stats
         {
             public readonly float Grip;
             public readonly float Power;
+            /// <summary>Lightness, not mass: 100 = feather, 0 = barge. Inverted so "up is good" holds on every bar.</summary>
+            public readonly float Weight;
+            /// <summary>Toughness: how much impact damage the car shrugs off.</summary>
+            public readonly float Durability;
 
-            public Stats(float grip, float power)
+            public Stats(float grip, float power, float weight = 0f, float durability = 0f)
             {
                 Grip = grip;
                 Power = power;
+                Weight = weight;
+                Durability = durability;
             }
         }
 
@@ -50,6 +62,15 @@ namespace Shitboxer.Meta
         private const float TorqueMin = 150f, TorqueMax = 450f;
         private const float P2WMin = 60f, P2WMax = 170f;            // kW per tonne
         private const float KwPerNmRpm = 9549f;                     // kW = Nm * rpm / 9549
+
+        // --- WEIGHT: shown as LIGHTNESS so up is good on every bar ---
+        // Anchored on the measured usable band (PhysicsCeilings.MinMassKg .. a heavy road car), which
+        // puts the two starters at a readable spread: GripBox 1050 kg -> 61, PowerBox 1350 kg -> 28.
+        private const float MassLightKg = PhysicsCeilings.MinMassKg;  // 100 on the bar
+        private const float MassHeavyKg = 1600f;                      // 0 on the bar
+
+        // --- DURABILITY: the spec's damage-resistance fraction, straight onto the bar ---
+        private const float ResistanceMax = 0.75f;
 
         public static Stats Compute(VehicleSpec spec)
         {
@@ -79,7 +100,19 @@ namespace Shitboxer.Meta
 
             float power = 100f * (WPowerTorque * torqueN + WPowerToWeight * p2wN);
 
-            return new Stats(Mathf.Clamp(grip, 0f, 100f), Mathf.Clamp(power, 0f, 100f));
+            // WEIGHT ---------------------------------------------------------------
+            // Inverted: the LIGHT end of the band is 100, so a lower mass reads as a taller bar and
+            // "up is good" holds across all four stats.
+            float weight = 100f * (1f - Normalize(mass, MassLightKg, MassHeavyKg));
+
+            // DURABILITY -----------------------------------------------------------
+            float durability = 100f * Normalize(spec.DamageResistance, 0f, ResistanceMax);
+
+            return new Stats(
+                Mathf.Clamp(grip, 0f, 100f),
+                Mathf.Clamp(power, 0f, 100f),
+                Mathf.Clamp(weight, 0f, 100f),
+                Mathf.Clamp(durability, 0f, 100f));
         }
 
         /// <summary>Clamped 0..1 position of <paramref name="value"/> within [min, max].</summary>

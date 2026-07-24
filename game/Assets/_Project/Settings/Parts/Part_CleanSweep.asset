@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_CleanSweep
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: clean_sweep
+  DisplayName: Clean Sweep
+  Description: 'Three flawless sectors back to back and the engine wakes up: x1.25
+    power for the rest of the race. Break the run and you can earn it again.'
+  Category: 0
+  Rarity: 2
+  Price: 11
+  Condition: 0
+  Edition: 0
+  SpecMods: []
+  MoneyPerPositionHeld: 0
+  DraftLeech: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0
+  SectorRules:
+  - Trigger: 2
+    StyleTag: 1
+    TimingColour: 0
+    StreakLength: 3
+    PaceToleranceS: 0
+    Effect: 3
+    Op: 0
+    Amount: 1.25
+    DurationSectors: 0
+    ScaleByCount: 0

@@ -33,6 +33,16 @@ namespace Shitboxer.Vehicle
         /// layer, and RebuildSim (a fresh car each race) resets it to 1. Falls back to 1 before the sim exists.</summary>
         public float Durability => Sim != null ? Sim.Durability : 1f;
 
+        /// <summary>
+        /// Lowest surface-grip multiplier under any GROUNDED wheel as of the last contact gather —
+        /// 1 while every wheel is on tarmac (or the track marks no <see cref="SurfaceZone"/> at all),
+        /// lower with a wheel on grass/dirt/gravel. Read-only telemetry: the value is already folded into
+        /// the tyre friction circle inside the sim, and this simply surfaces it so an observation layer
+        /// can tell that a car ran wide without duplicating the surface lookup.
+        /// Defaults to 1, so a car that has never stepped reads as fully on-surface.
+        /// </summary>
+        public float SurfaceGripMult { get; private set; } = 1f;
+
         private readonly GroundContact[] _contacts = new GroundContact[VehicleSim.WheelCount];
         private readonly float[] _visualSpin = new float[VehicleSim.WheelCount];
 
@@ -153,6 +163,11 @@ namespace Shitboxer.Vehicle
             float probeRadius = Mathf.Max(0f, contactProbeRadius);
             float castDistance = Mathf.Max(0f, rayLength + RayStartLiftM - probeRadius);
 
+            // Tracked across the wheel loop below and published for the observation layer. Starts at 1
+            // (full tarmac) so an airborne car — no grounded wheel to sample — reads as on-surface
+            // rather than as having run wide.
+            float lowestSurfaceGrip = 1f;
+
             for (int i = 0; i < VehicleSim.WheelCount; i++)
             {
                 Vector3 attach = transform.TransformPoint(Sim.WheelLocalPosition(i));
@@ -184,6 +199,7 @@ namespace Shitboxer.Vehicle
                     if (!zone) zone = hitInfo.collider.GetComponentInParent<SurfaceZone>();
                     if (zone) surfaceGrip = zone.GripMultiplier;
                 }
+                if (hit && surfaceGrip < lowestSurfaceGrip) lowestSurfaceGrip = surfaceGrip;
 
                 _contacts[i] = new GroundContact
                 {
@@ -202,6 +218,8 @@ namespace Shitboxer.Vehicle
                     SurfaceGripMult = surfaceGrip,
                 };
             }
+
+            SurfaceGripMult = lowestSurfaceGrip;
         }
 
         private void Update()

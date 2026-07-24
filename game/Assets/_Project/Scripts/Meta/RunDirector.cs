@@ -144,6 +144,16 @@ namespace Shitboxer.Meta
         }
 
         /// <summary>The live race manager, or null between scenes / while paused in the garage.</summary>
+        /// <summary>
+        /// Joins race sector events to the player's sector-scoring parts (doc 08). Owned here because
+        /// RunDirector is what knows about both the race and the loadout; it holds no Unity state of its
+        /// own, so it is a plain field rather than a component.
+        /// </summary>
+        private readonly SectorPartRunner _sectorParts = new SectorPartRunner();
+
+        /// <summary>Live sector-part scoring for the current race — read by the HUD.</summary>
+        public SectorPartRunner SectorParts => _sectorParts;
+
         public RaceManager CurrentRace => _raceManager;
 
         /// <summary>The live player car, or null between scenes.</summary>
@@ -229,6 +239,9 @@ namespace Shitboxer.Meta
 
         private void OnDestroy()
         {
+            // Drop the sector subscription before the director goes away — RaceManager outlives it on a
+            // scene teardown, and a dangling handler on a destroyed director would keep scoring.
+            _sectorParts.Unbind();
             if (Instance == this) Instance = null;
         }
 
@@ -306,12 +319,30 @@ namespace Shitboxer.Meta
             // RunDirector reads its total at race end ONLY for a player who owns a DraftLeech part, so a car
             // without one is entirely unaffected.
             DraftReward.GetOrAdd(_playerCar.gameObject).Reset();
+
+            // Sector-scoring parts (doc 08): join this race's sector events to the player's loadout.
+            // Bind() unhooks any previous race first, so a scene reload can never double-subscribe and
+            // score every sector twice. Inert for a loadout with no sector rules.
+            _sectorParts.Bind(_raceManager, _playerCar, Run);
         }
 
         /// <summary>
         /// Bakes equipped stat parts into a deep copy of the player's spec, wraps it in a
         /// throwaway runtime VehicleSpecAsset, and swaps it onto the controller. Skipped when
         /// no stat parts are equipped so the authored asset keeps driving the car.
+        /// </summary>
+        /// <summary>
+        /// Bakes the player's build onto the car: component levels through the stat ledger first, then
+        /// equipped stat parts over the top.
+        ///
+        /// Order is deliberate. Components are the car's own specification — what it IS — so they set
+        /// the baseline; parts are bolt-ons that modify whatever is underneath. Doing it the other way
+        /// round would make a part's percentage apply to the bare chassis and then be diluted by
+        /// component levels, which is backwards from how a player reads it.
+        ///
+        /// Skips the whole rebuild only when there is genuinely nothing to apply — no stat part AND
+        /// every component still at its baseline — because rebuilding the sim mid-run is not free
+        /// (SetSpec reconstructs it, and the caller re-applies carried durability afterwards).
         /// </summary>
         private void ApplyEquippedParts()
         {
@@ -324,12 +355,18 @@ namespace Shitboxer.Meta
                     break;
                 }
             }
-            if (!anyStatPart) return;
 
-            VehicleSpec modified = SpecModApplier.Apply(_playerCar.SpecAsset.Spec, Run.EquippedParts);
+            BuildLedger components = Run.ComponentLedger();
+            bool anyComponentLevel = components.Power != 0f || components.Grip != 0f
+                                     || components.Weight != 0f || components.Durability != 0f;
+            if (!anyStatPart && !anyComponentLevel) return;
+
+            VehicleSpec built = StatLedger.Bake(_playerCar.SpecAsset.Spec, components);
+            if (anyStatPart) built = SpecModApplier.Apply(built, Run.EquippedParts);
+
             var asset = ScriptableObject.CreateInstance<VehicleSpecAsset>();
             asset.name = "PlayerSpec_Runtime";
-            asset.Spec = modified;
+            asset.Spec = built;
             _playerCar.SetSpec(asset);
         }
 
@@ -751,6 +788,12 @@ namespace Shitboxer.Meta
                 ToggleDevMenu();
 
             if (Phase != RunPhase.Racing || _raceResolved) return;
+
+            // Hold the sector-part bonuses on the sim. The car's out-of-world watchdog can rebuild the
+            // sim mid-race, which resets those fields to 1; re-asserting here means a bonus earned
+            // earlier survives that recovery instead of quietly disappearing.
+            _sectorParts.Reassert();
+
             if (_raceManager == null || !_raceManager.RaceComplete) return;
             ResolveRace();
         }
@@ -783,7 +826,11 @@ namespace Shitboxer.Meta
             GUI.color = new Color(0.02f, 0.03f, 0.05f, 0.72f);
             GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
 
+#if UNITY_EDITOR
+            const float w = 260f, h = 326f;   // room for the editor-only slice-test row
+#else
             const float w = 240f, h = 138f;
+#endif
             var panel = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
             GUI.color = new Color(0.11f, 0.137f, 0.188f, 0.98f);
             GUI.DrawTexture(panel, Texture2D.whiteTexture);
@@ -813,7 +860,120 @@ namespace Shitboxer.Meta
                 _devMenuOpen = false;
                 StartNewRun(); // fresh seed at the same stake; saves + reloads to racing (restores timeScale)
             }
+
+#if UNITY_EDITOR
+            DrawSliceTestTools(panel, bx, bw);
+#endif
         }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// EDITOR-ONLY tuning shortcuts for the doc-08 sector slice. A 24-race season makes "shop for
+        /// the right part, then drive three laps" far too slow a loop to answer "is this fun", which is
+        /// the question the slice exists to settle — so these collapse the setup to one click.
+        /// Compiled out of player builds; a dev cheat must never ship.
+        /// </summary>
+        private void DrawSliceTestTools(Rect panel, float bx, float bw)
+        {
+            var caption = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 10,
+            };
+            caption.normal.textColor = new Color(0.45f, 0.52f, 0.62f);
+            GUI.Label(new Rect(panel.x, panel.y + 120f, panel.width, 16f), "— EDITOR ONLY —", caption);
+
+            var devBg = new Color(0.17f, 0.20f, 0.26f);
+            var devFg = new Color(0.79f, 0.85f, 0.93f);
+
+            if (DevButton(new Rect(bx, panel.y + 140f, bw, 28f), "EQUIP SECTOR PARTS", devBg, devFg))
+                DevEquipSectorParts();
+
+            if (DevButton(new Rect(bx, panel.y + 174f, bw, 28f), "+ $50", devBg, devFg))
+                Run.Money += 50;
+
+            // Components have no garage UI yet, so without this every component would sit at level 1
+            // forever and the whole ledger would be untestable in play.
+            if (DevButton(new Rect(bx, panel.y + 208f, bw, 28f), "+5 LEVELS, ALL COMPONENTS", devBg, devFg))
+                DevLevelAllComponents(5);
+
+            if (DevButton(new Rect(bx, panel.y + 242f, bw, 28f), "FINISH RACE NOW", devBg, devFg))
+            {
+                _devMenuOpen = false;
+                Time.timeScale = _preMenuTimeScale;
+                if (_raceManager != null) _raceManager.DevFinishRaceNow();
+            }
+
+            // Live sector-scoring readout, so a test drive can be verified without adding print
+            // statements: what the parts have paid and what they've done to the car.
+            var readout = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 10 };
+            readout.normal.textColor = new Color(0.55f, 0.75f, 0.55f);
+            GUI.Label(new Rect(panel.x, panel.y + 278f, panel.width, 16f),
+                $"sector $ {_sectorParts.MoneyEarned}   grip x{_sectorParts.State.GripMult:0.00}   pow x{_sectorParts.State.PowerMult:0.00}",
+                readout);
+
+            var slots = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 10 };
+            slots.normal.textColor = new Color(0.45f, 0.52f, 0.62f);
+            StatSummary.Stats stats = _playerCar != null && _playerCar.SpecAsset != null
+                ? StatSummary.Compute(_playerCar.SpecAsset.Spec)
+                : default;
+            GUI.Label(new Rect(panel.x, panel.y + 296f, panel.width, 16f),
+                $"parts {Run.EquippedParts.Count}/{Run.EffectiveEquipSlots}   " +
+                $"P{stats.Power:0} G{stats.Grip:0} W{stats.Weight:0} D{stats.Durability:0}", slots);
+        }
+
+        /// <summary>
+        /// EDITOR-ONLY: raises every component by <paramref name="levels"/>, free, and re-bakes the car
+        /// so the change is felt immediately rather than at the next scene load. Bypasses the shop
+        /// deliberately — Blueprints now have to be ROLLED before they can be bought, so reaching a
+        /// deep build in play means shopping for it; this gets there in one click for physics testing.
+        /// Re-applies the run's carried durability afterwards, since re-baking rebuilds the sim.
+        /// </summary>
+        private void DevLevelAllComponents(int levels)
+        {
+            foreach (CarComponentInfo info in CarComponentCatalog.All)
+            {
+                int index = (int)info.Component;
+                Run.ComponentLevels[index] =
+                    CarComponentCatalog.ClampLevel(Run.LevelOf(info.Component) + levels);
+            }
+
+            if (_playerCar != null)
+            {
+                ApplyEquippedParts();
+                if (_playerCar.Sim != null) _playerCar.Sim.SetDurability(Run.CarDurability);
+                _sectorParts.Reassert();   // the rebuilt sim lost the race-scoped sector bonuses
+            }
+            Debug.Log($"[RunDirector] Components +{levels}. Engine L{Run.LevelOf(CarComponent.Engine)}, " +
+                      $"Tyres L{Run.LevelOf(CarComponent.Tyres)}.", this);
+        }
+
+        /// <summary>
+        /// Grants and slots every sector-rule part in the pool, up to the run's free slots. Deliberately
+        /// does NOT re-bake the spec: sector parts carry no SpecMods, and calling ApplyEquippedParts
+        /// mid-race would rebuild the sim and wipe the car's accumulated damage. The runner reads
+        /// <see cref="RunState.EquippedParts"/> fresh at every sector line, so parts slotted mid-race
+        /// simply start scoring at the next one.
+        /// </summary>
+        private void DevEquipSectorParts()
+        {
+            if (partPool == null || partPool.Parts == null)
+            {
+                Debug.LogWarning("[RunDirector] No part pool — run Shitboxer/Build Meta Assets first.", this);
+                return;
+            }
+
+            int slotted = 0;
+            foreach (PartDef part in partPool.Parts)
+            {
+                if (part == null || !part.HasSectorRules) continue;
+                if (!Run.Owns(part)) Run.OwnedParts.Add(part);
+                if (!Run.IsEquipped(part) && Run.HasFreeSlot && Run.Equip(part)) slotted++;
+            }
+            Debug.Log($"[RunDirector] Slotted {slotted} sector part(s); " +
+                      $"{Run.EquippedParts.Count}/{Run.EffectiveEquipSlots} slots used.", this);
+        }
+#endif
 
         /// <summary>A flat v3-style IMGUI button: solid fill + a lit top edge + centred bold text.</summary>
         private static bool DevButton(Rect rect, string label, Color bg, Color fg)
@@ -924,8 +1084,16 @@ namespace Shitboxer.Meta
                 leechBonus = DraftLeechPayout(draftSeconds, draftLeechRate, draftLeechCapPerRace);
             }
 
-            Run.Money += payout + leechBonus;
-            int totalPay = payout + leechBonus;
+            // Sector-part income (doc 08 decision 9): banked whatever the finish, because it was earned
+            // sector by sector during the race rather than awarded for the result. That is the whole
+            // point of the channel — it lets a build pay off without the player having to finish well,
+            // so a strong car is no longer punished by the inverted position payout. Stays exactly 0
+            // for a run that owns no sector-rule parts, so the shipped economy is untouched.
+            int sectorEarnings = Run.InRaceEarnings;
+            Run.InRaceEarnings = 0;
+
+            Run.Money += payout + leechBonus + sectorEarnings;
+            int totalPay = payout + leechBonus + sectorEarnings;
 
             if (failed)
             {
@@ -1046,8 +1214,74 @@ namespace Shitboxer.Meta
         public bool BuyOffer(PartDef part)
         {
             bool bought = Shop.TryBuy(part, Run);
+            if (bought) { RebakeCar(); Save(); }
+            return bought;
+        }
+
+        /// <summary>Garage SELL button: half the price back, and the slot with it.</summary>
+        public bool SellPart(PartDef part)
+        {
+            bool sold = Shop.TrySell(part, Run);
+            if (sold) { RebakeCar(); Save(); }
+            return sold;
+        }
+
+        /// <summary>
+        /// Garage Buy-pack button. Saves on success for the same reason the crate does: the money is
+        /// gone the moment this returns true, so the pending pick must survive a quit.
+        /// </summary>
+        public bool BuyPack(int packIndex)
+        {
+            bool bought = Shop.TryBuyPack(packIndex, partPool ? partPool.Parts : null, Run);
             if (bought) Save();
             return bought;
+        }
+
+        /// <summary>Takes one component from an open components pack (already paid for).</summary>
+        public bool TakeComponent(CarComponent component)
+        {
+            bool took = Shop.TryTakeComponent(component, Run);
+            if (took) { RebakeCar(); Save(); }
+            return took;
+        }
+
+        /// <summary>
+        /// Garage Blueprint button: buy one component level off the shelf. Goes through the shop, not
+        /// straight to the run — a Blueprint is only buyable if it turned up in this visit's roll.
+        /// </summary>
+        public bool BuyBlueprint(CarComponent component)
+        {
+            bool bought = Shop.TryBuyBlueprint(component, Run);
+            if (bought) { RebakeCar(); Save(); }
+            return bought;
+        }
+
+        /// <summary>
+        /// Re-bakes the player's spec after the build changes in the garage, so the stat bars and the
+        /// car itself agree with what was just bought or sold without waiting for the next scene load.
+        ///
+        /// Re-applies the run's carried durability afterwards: <see cref="ApplyEquippedParts"/> goes
+        /// through SetSpec, which constructs a fresh sim at full durability, and a battered car must
+        /// stay battered until it is paid for. No-op between scenes, when there is no car to bake onto.
+        /// </summary>
+        private void RebakeCar()
+        {
+            if (_playerCar == null || _playerCar.SpecAsset == null || BaseSpec == null) return;
+
+            // Bake from the ORIGINAL authored spec, never from the currently-baked one — otherwise
+            // every purchase would compound on top of the last bake and a sold part's bonus would
+            // never come back off.
+            _playerCar.SetSpec(NewRuntimeSpecAsset(BaseSpec));
+            ApplyEquippedParts();
+            if (_playerCar.Sim != null) _playerCar.Sim.SetDurability(Run.CarDurability);
+        }
+
+        private static VehicleSpecAsset NewRuntimeSpecAsset(VehicleSpec spec)
+        {
+            var asset = ScriptableObject.CreateInstance<VehicleSpecAsset>();
+            asset.name = "PlayerSpec_Runtime";
+            asset.Spec = SpecModApplier.Clone(spec);
+            return asset;
         }
 
         /// <summary>Garage Reroll button — escalating cost handled by ShopLogic.</summary>

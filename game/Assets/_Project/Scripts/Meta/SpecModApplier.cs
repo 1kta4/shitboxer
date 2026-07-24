@@ -16,9 +16,13 @@ namespace Shitboxer.Meta
     /// </summary>
     public static class SpecModApplier
     {
-        /// <summary>Deep copy of a spec — JsonUtility round-trip, no Vehicle-assembly changes needed.</summary>
-        public static VehicleSpec Clone(VehicleSpec source) =>
-            JsonUtility.FromJson<VehicleSpec>(JsonUtility.ToJson(source));
+        /// <summary>
+        /// Deep copy of a spec. Delegates to <see cref="VehicleSpec.Clone"/>, which replaced the old
+        /// JsonUtility round-trip: that allocated an intermediate string, silently dropped any
+        /// non-serialized field, and — the reason it changed — only worked inside the Unity player
+        /// loop, so every test of the spec-baking layer skipped instead of running. Null in, null out.
+        /// </summary>
+        public static VehicleSpec Clone(VehicleSpec source) => source?.Clone();
 
         /// <summary>
         /// Returns a modified deep copy of <paramref name="baseSpec"/> with every equipped
@@ -56,6 +60,12 @@ namespace Shitboxer.Meta
 
             foreach (KeyValuePair<SpecModTarget, float> entry in factor)
                 BakeTarget(spec, entry.Key, entry.Value);
+
+            // Final physics clamp (doc 08 decision 1). Stat parts stack multiplicatively, so a loadout
+            // CAN already exceed what the car can physically do — six +10% grip parts put GripBox at
+            // µ2.34, past the µ2.2 rollover ceiling. The clamp is a no-op for any loadout that stays
+            // inside the bands, so ordinary builds bake exactly as before.
+            PhysicsCeilings.Clamp(spec);
             return spec;
         }
 

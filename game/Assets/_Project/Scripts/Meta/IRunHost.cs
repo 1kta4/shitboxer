@@ -39,13 +39,30 @@ namespace Shitboxer.Meta
         /// <summary>The live player car, or null between scenes.</summary>
         VehicleController PlayerCar { get; }
 
+        /// <summary>
+        /// Live sector-part scoring for the current race (doc 08) — what the last sector paid and how it
+        /// was driven. The HUD reads it to show in-race earnings; null on a host that doesn't run races.
+        /// </summary>
+        SectorPartRunner SectorParts { get; }
+
         /// <summary>Raised on every run-phase transition; a retained-mode UI subscribes instead of polling.</summary>
         event Action<RunPhase> PhaseChanged;
 
         bool BuyOffer(PartDef part);
+        /// <summary>Sells a fitted part back for half its price, freeing its slot.</summary>
+        bool SellPart(PartDef part);
         bool RerollShop();
         bool BuyCrate();
         bool TakeFromCrate(PartDef part);
+        /// <summary>Buys one of this visit's two booster packs by shelf index.</summary>
+        bool BuyPack(int packIndex);
+        /// <summary>Takes one component from an open components pack, raising it a level.</summary>
+        bool TakeComponent(CarComponent component);
+        /// <summary>
+        /// Buys one of the Blueprints ON THIS VISIT'S SHELF (<see cref="ShopLogic.Blueprints"/>),
+        /// raising that component a level. False for anything not stocked.
+        /// </summary>
+        bool BuyBlueprint(CarComponent component);
         bool BuyUpgrade(TeamUpgrade upgrade);
         bool RepairCar();
         void StartNextRace();

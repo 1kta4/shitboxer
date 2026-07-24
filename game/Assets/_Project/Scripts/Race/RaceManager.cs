@@ -46,6 +46,65 @@ namespace Shitboxer.Race
 
         /// <summary>Laps completed by guarded net forward progress around the loop — the gate the finish counts.</summary>
         internal int ValidatedLaps;
+
+        // ---------------------------------------------------------------- sectors (readout only)
+        // Every field below is derived from the SAME guarded TotalDistanceM the lap gate above trusts.
+        // Nothing here validates anything or feeds the finish — see SectorProgress for why that matters.
+
+        /// <summary>0-based sector-within-the-lap the car is currently driving.</summary>
+        public int CurrentSector { get; internal set; }
+
+        /// <summary>0-based index of the most recently completed sector; negative until the first completes.</summary>
+        public int LastSectorIndex { get; internal set; } = -1;
+
+        /// <summary>Seconds of the most recently completed sector; negative until the first completes.</summary>
+        public float LastSectorTimeS { get; internal set; } = -1f;
+
+        /// <summary>How the most recently completed sector was DRIVEN (doc 08's poker-hand analog).</summary>
+        public SectorStyle LastSectorStyle { get; internal set; }
+
+        /// <summary>Timing-screen colour of the most recently completed sector.</summary>
+        public SectorColour LastSectorColour { get; internal set; }
+
+        /// <summary>This car's best time for each sector index; negative where none is set yet.</summary>
+        public IReadOnlyList<float> BestSectorTimesS => BestSectorTimes;
+
+        /// <summary>
+        /// This car's time for each sector of the CURRENT lap; negative where not yet set. Cleared as each
+        /// new lap's first sector completes, so the strip fills in across a lap exactly like a broadcast
+        /// timing graphic rather than showing a stale mixture of laps.
+        /// </summary>
+        public IReadOnlyList<float> LapSectorTimesS => LapSectorTimes;
+
+        /// <summary>Timing colour for each sector of the current lap, parallel to <see cref="LapSectorTimesS"/>.</summary>
+        public IReadOnlyList<SectorColour> LapSectorColours => LapColours;
+
+        /// <summary>Total sectors completed this race — a monotonic counter a UI can watch to detect a crossing.</summary>
+        public int CompletedSectors => ValidatedSectors;
+
+        /// <summary>Backing array for <see cref="BestSectorTimesS"/>, sized by the referee at registration.</summary>
+        internal float[] BestSectorTimes = System.Array.Empty<float>();
+
+        /// <summary>Backing array for <see cref="LapSectorTimesS"/>.</summary>
+        internal float[] LapSectorTimes = System.Array.Empty<float>();
+
+        /// <summary>Backing array for <see cref="LapSectorColours"/>.</summary>
+        internal SectorColour[] LapColours = System.Array.Empty<SectorColour>();
+
+        /// <summary>Sectors completed by guarded net forward progress, counting continuously across laps.</summary>
+        internal int ValidatedSectors;
+
+        /// <summary>Race clock at which the current sector's timing began.</summary>
+        internal float SectorStartTimeS;
+
+        /// <summary>Leaderboard position when the current sector began, for the gained/lost evidence.</summary>
+        internal int PositionAtSectorStart;
+
+        /// <summary>Seconds so far this sector with a rival close enough behind to be a threat.</summary>
+        internal float PressureSecondsThisSector;
+
+        /// <summary>This car's car-local evidence accumulator; null on a car the referee never registered.</summary>
+        internal SectorObserver Observer;
     }
 
     /// <summary>
@@ -75,6 +134,42 @@ namespace Shitboxer.Race
         /// N*lapLength = N laps.</summary>
         public static int CompletedLaps(float totalDistanceM, float lapLengthM) =>
             lapLengthM <= 0f ? 0 : Mathf.Max(0, Mathf.FloorToInt(totalDistanceM / lapLengthM));
+    }
+
+    /// <summary>
+    /// One car finishing one sector — the payload of <see cref="RaceManager.SectorCompleted"/>, and the
+    /// hook parts will score off (doc 08). Carries the timing facts AND the driven style, because a part
+    /// that pays for a CLEAN sector and a HUD that colours a purple one want the same event, and firing
+    /// two would let them disagree about what just happened.
+    /// </summary>
+    public readonly struct SectorCompletion
+    {
+        /// <summary>The car that completed it. Never null.</summary>
+        public readonly RaceCarStatus Car;
+        /// <summary>0-based sector-within-the-lap that just ended.</summary>
+        public readonly int SectorIndex;
+        /// <summary>1-based lap the sector belonged to.</summary>
+        public readonly int Lap;
+        /// <summary>Seconds the sector took.</summary>
+        public readonly float TimeS;
+        /// <summary>How it was driven.</summary>
+        public readonly SectorStyle Style;
+        /// <summary>Timing-screen colour, judged against the bests as they stood before this time.</summary>
+        public readonly SectorColour Colour;
+        /// <summary>The raw evidence the style was derived from, for tuning and debug readouts.</summary>
+        public readonly SectorEvidence Evidence;
+
+        public SectorCompletion(RaceCarStatus car, int sectorIndex, int lap, float timeS,
+            SectorStyle style, SectorColour colour, in SectorEvidence evidence)
+        {
+            Car = car;
+            SectorIndex = sectorIndex;
+            Lap = lap;
+            TimeS = timeS;
+            Style = style;
+            Colour = colour;
+            Evidence = evidence;
+        }
     }
 
     /// <summary>
@@ -115,6 +210,10 @@ namespace Shitboxer.Race
         [Tooltip("ON (default): cars are dealt to the scene's grid slots by a seeded shuffle, so the player doesn't start on pole every single race — which would make winning the default and gut the push-to-win-vs-hang-back-to-farm decision. Turn OFF to pin the scene's authored grid (player on pole) when you want a repeatable slot for debugging. Only ever applies when the run layer pushes a seed via SetGridSeed; a bare race scene is unaffected either way.")]
         [SerializeField] private bool shuffleGrid = true;
 
+        [Tooltip("Sectors each lap is split into, by equal DISTANCE (metres), not equal time. Three is the F1 convention. The whole sector layer is pure readout derived from the same guarded distance the lap gate uses, so changing this can never affect lap validation, the finish, or the economy.")]
+        [Range(1, 6)]
+        [SerializeField] private int sectorsPerLap = SectorProgress.DefaultSectorsPerLap;
+
         private readonly List<RaceCarStatus> _statuses = new List<RaceCarStatus>();
         private readonly List<RaceCarStatus> _leaderboard = new List<RaceCarStatus>();
         private float _raceTime;
@@ -123,6 +222,9 @@ namespace Shitboxer.Race
 
         /// <summary>Grid seed pushed by the run layer; null means nobody set one — leave the grid alone.</summary>
         private int? _gridSeed;
+
+        /// <summary>Fastest time anyone has set per sector index this session; negative where unset. Sized at Start.</summary>
+        private float[] _sessionBestSector = System.Array.Empty<float>();
         // Boss / special-race state applied by SetRuleset. Default false / None reproduces the standard
         // race exactly, so a race left on the standard ruleset behaves byte-for-byte as before it existed.
         private bool _isBoss;
@@ -151,6 +253,29 @@ namespace Shitboxer.Race
 
         public float RaceTimeS => _raceTime;
         public float TrackLengthM => trackPath ? trackPath.TotalLength : 0f;
+
+        // ------------------------------------------------------------------ sectors
+
+        /// <summary>Sectors each lap is split into (equal distance).</summary>
+        public int SectorsPerLap => sectorsPerLap;
+
+        /// <summary>Length of one sector in metres; 0 before a track is wired.</summary>
+        public float SectorLengthM => SectorProgress.SectorLength(TrackLengthM, sectorsPerLap);
+
+        /// <summary>Fastest time ANY car has set for each sector index this session — the purple table. Negative where unset.</summary>
+        public IReadOnlyList<float> SessionBestSectorsS => _sessionBestSector;
+
+        /// <summary>
+        /// Raised once per sector a car completes, carrying the time, the timing colour and — the point
+        /// of the whole layer — HOW it was driven. This is the seam parts hook to score off sectors
+        /// (doc 08, decisions 7 and 9); nothing in the referee itself reads it.
+        /// </summary>
+        public event System.Action<SectorCompletion> SectorCompleted;
+
+        // How close behind a rival must sit to count as applying pressure. Generous enough that a car
+        // genuinely looking for a way past registers, tight enough that merely being on the same stretch
+        // of track does not.
+        private const float PressureRangeM = 15f;
 
         /// <summary>
         /// Elapsed seconds of <paramref name="status"/>'s CURRENT (in-progress) lap: the race clock now
@@ -286,6 +411,9 @@ namespace Shitboxer.Race
                 VehicleCombat.GetOrAdd(car.gameObject);
                 // Every racer can also slipstream the car ahead — guarantee the draft sensor the same way.
                 DraftSensor.GetOrAdd(car.gameObject);
+                // ...and accumulate its own sector evidence. Same GetOrAdd pattern, so no scene or prefab
+                // authored before the sector layer existed has to change.
+                SectorObserver observer = SectorObserver.GetOrAdd(car.gameObject);
                 float progress = line.ProjectPosition(car.transform.position);
                 _statuses.Add(new RaceCarStatus
                 {
@@ -295,13 +423,65 @@ namespace Shitboxer.Race
                     // just before the line, so cars start slightly negative and reach distance 0 as
                     // they cross into lap 1; lap N completes when forward distance reaches N*loop.
                     TotalDistanceM = line.SignedDelta(0f, progress),
+                    Observer = observer,
+                    BestSectorTimes = NewUnsetTimes(sectorsPerLap),
+                    LapSectorTimes = NewUnsetTimes(sectorsPerLap),
+                    LapColours = new SectorColour[Mathf.Max(1, sectorsPerLap)],
                 });
             }
 
+            _sessionBestSector = NewUnsetTimes(sectorsPerLap);
             _leaderboard.AddRange(_statuses);
             _raceTime = -countdownS;
             _running = true;
             SetDriversEnabled(false);
+
+            // Seed the running order from the grid. Without this every car's Position is still 0 at the
+            // green flag, so the first sector's positions-gained evidence would be measured against a
+            // position nobody ever held.
+            SortLeaderboard();
+        }
+
+        /// <summary>An unset best-time table: every entry negative, matching the "negative = none yet"
+        /// convention <see cref="LapTiming.Fold"/> and the lap bests already use.</summary>
+        private static float[] NewUnsetTimes(int count)
+        {
+            var times = new float[Mathf.Max(1, count)];
+            for (int i = 0; i < times.Length; i++) times[i] = -1f;
+            return times;
+        }
+
+        /// <summary>
+        /// Green-flag reset for the sector layer: start every car's first sector clock now and clear the
+        /// evidence accumulated while the field sat on the grid. Contact during the countdown formation
+        /// is discarded rather than charged to the opening sector.
+        /// </summary>
+        private void ArmSectorObservers()
+        {
+            foreach (RaceCarStatus status in _statuses)
+            {
+                status.SectorStartTimeS = _raceTime;
+                status.PressureSecondsThisSector = 0f;
+                status.PositionAtSectorStart = status.Position;
+                if (status.Observer != null) status.Observer.Arm();
+            }
+        }
+
+        /// <summary>
+        /// True while some still-racing rival sits within <see cref="PressureRangeM"/> BEHIND this car on
+        /// total distance — the input behind a DEFENSIVE sector. Distance-based rather than a physical
+        /// proximity query so it reads the same number the running order does, and so a car alongside on
+        /// an adjacent straight can't register as pressure.
+        /// </summary>
+        private bool IsUnderPressure(RaceCarStatus status)
+        {
+            foreach (RaceCarStatus other in _statuses)
+            {
+                if (other == status || other.State != CarRaceState.Racing) continue;
+                float gap = status.TotalDistanceM - other.TotalDistanceM;
+                if (gap > 0f && gap <= PressureRangeM) return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -360,12 +540,20 @@ namespace Shitboxer.Race
             {
                 _greenFlag = true;
                 SetDriversEnabled(true);
+                ArmSectorObservers();
             }
             RacingLine line = trackPath.Line;
+            float dt = Time.fixedDeltaTime;
 
             foreach (RaceCarStatus status in _statuses)
             {
                 if (status.State != CarRaceState.Racing || !status.Car) continue;
+
+                // Sector evidence accrues from the car's own telemetry and from the field, every step,
+                // regardless of what the projection guard below decides about distance. A teleported car
+                // still spent this step drafting or sideways.
+                if (status.Observer != null) status.Observer.Sample(dt);
+                if (IsUnderPressure(status)) status.PressureSecondsThisSector += dt;
 
                 float prev = status.LastProgressM;
                 float progress = line.ProjectPosition(status.Car.transform.position);
@@ -382,6 +570,9 @@ namespace Shitboxer.Race
                 }
 
                 status.TotalDistanceM += step;
+                // Sectors are credited BEFORE laps so the final sector of the race registers while the
+                // car is still Racing — CreditLaps can finish it and flip its state.
+                CreditSectors(status, line);
                 CreditLaps(status, line);
                 status.Lap = Mathf.Clamp(status.ValidatedLaps + 1, 1, totalLaps);
             }
@@ -432,6 +623,86 @@ namespace Shitboxer.Race
                 OnCarCrossedFinish(status);
         }
 
+        /// <summary>
+        /// Credits sectors by the same monotonic net forward progress the lap gate uses, with a smaller
+        /// divisor — every whole sector-length boundary crossed is one completed sector. Bounded by the
+        /// race's total sector count and by the &lt;= MaxPlausibleStepM step upstream, so it credits at
+        /// most one sector per call.
+        ///
+        /// Purely a readout: nothing here validates a lap, gates the finish, or touches the economy. It
+        /// exists so a car can be told HOW it drove the last stretch of track (see
+        /// <see cref="SectorStyleClassifier"/>), which is the trigger the parts layer scores off.
+        /// </summary>
+        private void CreditSectors(RaceCarStatus status, RacingLine line)
+        {
+            float sectorLength = SectorProgress.SectorLength(line.TotalLength, sectorsPerLap);
+            if (sectorLength <= 0f) return;
+
+            int completed = SectorProgress.CompletedSectors(status.TotalDistanceM, sectorLength);
+            int total = SectorProgress.TotalSectors(totalLaps, sectorsPerLap);
+            while (status.ValidatedSectors < total && status.ValidatedSectors < completed)
+                ValidateSector(status);
+
+            status.CurrentSector = SectorProgress.SectorIndex(status.ValidatedSectors, sectorsPerLap);
+        }
+
+        /// <summary>
+        /// Closes one sector: times it, merges the car-local evidence with the field-local half only the
+        /// referee can see, classifies the driven style, colours it against the bests as they stood
+        /// BEFORE this time, folds the time into both best tables, and re-arms for the next sector.
+        /// </summary>
+        private void ValidateSector(RaceCarStatus status)
+        {
+            int index = SectorProgress.SectorIndex(status.ValidatedSectors, sectorsPerLap);
+            int lap = status.ValidatedSectors / Mathf.Max(1, sectorsPerLap) + 1;
+            float time = SectorTiming.Elapsed(_raceTime, status.SectorStartTimeS);
+
+            // The observer knows what happened TO this car; only the referee knows what happened to it
+            // relative to everyone else. Merge the two halves into one evidence record.
+            SectorEvidence evidence = status.Observer != null ? status.Observer.TakeAndReset() : default;
+            evidence.DurationS = time;
+            evidence.PressureSeconds = status.PressureSecondsThisSector;
+            int positionDelta = status.PositionAtSectorStart - status.Position; // + = moved up the order
+            evidence.PositionsGained = Mathf.Max(0, positionDelta);
+            evidence.PositionsLost = Mathf.Max(0, -positionDelta);
+
+            SectorStyle style = SectorStyleClassifier.Classify(evidence);
+
+            // Judge the colour against the PRE-fold bests, then fold. Doing it the other way round would
+            // compare the time against itself and nothing would ever be purple or green.
+            float personalBest = index < status.BestSectorTimes.Length ? status.BestSectorTimes[index] : -1f;
+            float sessionBest = index < _sessionBestSector.Length ? _sessionBestSector[index] : -1f;
+            SectorColour colour = SectorTiming.Classify(time, personalBest, sessionBest);
+
+            if (index < status.BestSectorTimes.Length)
+                status.BestSectorTimes[index] = SectorTiming.Fold(personalBest, time);
+            if (index < _sessionBestSector.Length)
+                _sessionBestSector[index] = SectorTiming.Fold(sessionBest, time);
+
+            status.LastSectorIndex = index;
+            status.LastSectorTimeS = time;
+            status.LastSectorStyle = style;
+            status.LastSectorColour = colour;
+
+            // Completing sector 0 is the first sector of a NEW lap, so the per-lap strip starts over.
+            // Without this the strip would show a stale mixture of laps and the "am I up on this lap"
+            // read — the whole reason a driver looks at it — would be meaningless.
+            if (index == 0)
+            {
+                for (int i = 0; i < status.LapSectorTimes.Length; i++) status.LapSectorTimes[i] = -1f;
+                for (int i = 0; i < status.LapColours.Length; i++) status.LapColours[i] = SectorColour.None;
+            }
+            if (index < status.LapSectorTimes.Length) status.LapSectorTimes[index] = time;
+            if (index < status.LapColours.Length) status.LapColours[index] = colour;
+
+            status.ValidatedSectors++;
+            status.SectorStartTimeS = _raceTime;
+            status.PressureSecondsThisSector = 0f;
+            status.PositionAtSectorStart = status.Position;
+
+            SectorCompleted?.Invoke(new SectorCompletion(status, index, lap, time, style, colour, evidence));
+        }
+
         private void OnCarCrossedFinish(RaceCarStatus status)
         {
             status.FinishTimeS = _raceTime;
@@ -463,6 +734,45 @@ namespace Shitboxer.Race
                 status.Car.Input = default;
             }
         }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// EDITOR-ONLY tuning aid: end the race right now, finishing every still-racing car in the
+        /// standing it currently holds. Exists because a 24-race season (doc 08 decision 12) makes
+        /// waiting out three laps to check one payout an absurd iteration cost.
+        ///
+        /// Order is preserved deliberately. The leaderboard sorts finishers by finish TIME, so stamping
+        /// every car with the same clock value would make the sort arbitrary and scramble the standings
+        /// at the moment the payout reads them. Cars are therefore stamped in current running order with
+        /// a hair's separation between them.
+        ///
+        /// Compiled out of player builds entirely — this must never be reachable in a shipped game.
+        /// </summary>
+        public void DevFinishRaceNow()
+        {
+            if (!_running || RaceComplete) return;
+
+            SortLeaderboard(); // establish the running order BEFORE anyone is marked finished
+            float stamp = Mathf.Max(0f, _raceTime);
+            foreach (RaceCarStatus status in _leaderboard)
+            {
+                if (status.State != CarRaceState.Racing) continue;
+                status.FinishTimeS = stamp;
+                stamp += 0.001f; // keeps the finisher sort agreeing with the standing we just took
+                status.PassedCutoff = true;
+                status.State = CarRaceState.Finished;
+                ReleaseBot(status);
+            }
+
+            if (!WinnerFinished)
+            {
+                WinnerFinished = true;
+                WinnerFinishTimeS = Mathf.Max(0f, _raceTime);
+            }
+            SortLeaderboard();
+            RaceComplete = true;
+        }
+#endif
 
         private bool AllCarsDone()
         {

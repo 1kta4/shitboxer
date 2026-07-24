@@ -203,6 +203,30 @@ namespace Shitboxer.Vehicle
         /// </summary>
         public float BoostMult = 1f;
 
+        // ------------------------------------------------------------------ race-scoped build bonuses
+
+        /// <summary>
+        /// Multiplier on peak tyre grip that a HOST holds for the rest of a race, 1 = nominal. This is the
+        /// channel sector-scoring parts land their grip rewards on (doc 08): unlike
+        /// <see cref="GripEffectMult"/> — the combat sap, which the sim itself decays back toward 1 — this
+        /// is a bare host-owned field the sim never touches, so a bonus earned in sector 2 is still there
+        /// at the flag. Cleared only by rebuilding the sim, which the run layer does per race.
+        ///
+        /// Left at its default of 1 it is a perfect no-op: the friction circle sees the byte-for-byte
+        /// un-bonused value, so a car with no sector parts drives exactly as it always did. A plain field
+        /// (not decayed here) keeps the core engine-loop-independent — a headless server folds an
+        /// identical multiplier the host hands it.
+        /// </summary>
+        public float BonusGripMult = 1f;
+
+        /// <summary>
+        /// Engine-torque analogue of <see cref="BonusGripMult"/>. Composes multiplicatively alongside
+        /// <see cref="PowerEffectMult"/> (the sap), <see cref="DurabilityMult"/> (wear) and
+        /// <see cref="BoostMult"/> (KERS), so the four channels stack cleanly and none has to know about
+        /// the others. Defaults to 1 — an exact no-op.
+        /// </summary>
+        public float BonusPowerMult = 1f;
+
         // ------------------------------------------------------------------ persistent damage / durability
 
         /// <summary>Floor Durability can never drop below — even a total wreck still drives, just badly.</summary>
@@ -490,7 +514,8 @@ namespace Shitboxer.Vehicle
                 // Transient power sap, persistent wear AND the host's overtake boost all scale the
                 // delivered engine torque. BoostMult defaults to 1 (a host raises it during a deployed
                 // boost), so with no boost this is byte-for-byte the original power * sap * wear expression.
-                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle * PowerEffectMult * DurabilityMult * BoostMult;
+                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle
+                               * PowerEffectMult * DurabilityMult * BoostMult * BonusPowerMult;
                 // Rev limiter: no more torque at the wall.
                 if (EngineRpm >= Spec.Engine.RedlineRpm - 10f) engineTorque = 0f;
             }
@@ -642,7 +667,7 @@ namespace Shitboxer.Vehicle
             // Combat grip sap, persistent wear AND the ground surface (grass/dirt vs tarmac) all fold
             // straight into the friction circle. SurfaceGripMult reads 1 for an unset contact, so this
             // is a no-op until a track marks a low-grip zone.
-            float mu = TyreMu(tyre, rho, load) * GripEffectMult * DurabilityMult * c.SurfaceGripMult;
+            float mu = TyreMu(tyre, rho, load) * GripEffectMult * DurabilityMult * c.SurfaceGripMult * BonusGripMult;
             if (TyreWearEnabled)
             {
                 // Warm/wear the tyre from this substep's slip and load, then fold its thermal+wear grip

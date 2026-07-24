@@ -40,14 +40,19 @@ namespace Shitboxer.UI.Model
         public readonly PartEdition Edition;
         public readonly string EditionTag;
         public readonly string Description;
+        /// <summary>True only when the part can ACTUALLY be bought — money AND a free slot, since a
+        /// bought part is always fitted. The screen reads <c>GarageViewModel.CarIsFull</c> to say which
+        /// of the two is blocking, or "I have money and it won't let me buy" reads as a bug.</summary>
         public readonly bool Affordable;
         public readonly bool HasStatPreview;
         public readonly StatDelta Grip;
         public readonly StatDelta Power;
+        public readonly StatDelta Weight;
+        public readonly StatDelta Durability;
 
         public OfferVm(PartDef part, string name, PartCategory category, int price, PartEdition edition,
             string editionTag, string description, bool affordable, bool hasStatPreview,
-            StatDelta grip, StatDelta power)
+            StatDelta grip, StatDelta power, StatDelta weight = default, StatDelta durability = default)
         {
             Part = part;
             Name = name;
@@ -60,11 +65,17 @@ namespace Shitboxer.UI.Model
             HasStatPreview = hasStatPreview;
             Grip = grip;
             Power = power;
+            Weight = weight;
+            Durability = durability;
         }
     }
 
-    /// <summary>An owned part as the equip list needs it. <see cref="CanEquip"/> mirrors the EQUIP
-    /// gate (not already equipped AND a free slot); UNEQUIP is always allowed when equipped.</summary>
+    /// <summary>
+    /// A part fitted to the car. Since a bought part is always equipped there is no benched state and
+    /// no EQUIP action — the only thing you can do to a fitted part is SELL it, which frees its slot.
+    /// <see cref="Equipped"/> is kept because a Fragile part can be destroyed mid-run, leaving a brief
+    /// owned-but-unfitted window the list still has to render honestly.
+    /// </summary>
     public readonly struct OwnedPartVm
     {
         public readonly PartDef Part;
@@ -73,10 +84,11 @@ namespace Shitboxer.UI.Model
         public readonly PartEdition Edition;
         public readonly string EditionTag;
         public readonly bool Equipped;
-        public readonly bool CanEquip;
+        /// <summary>What selling refunds — half the shop price, floored at $1.</summary>
+        public readonly int SellValue;
 
         public OwnedPartVm(PartDef part, string name, PartCategory category, PartEdition edition,
-            string editionTag, bool equipped, bool canEquip)
+            string editionTag, bool equipped, int sellValue)
         {
             Part = part;
             Name = name;
@@ -84,8 +96,75 @@ namespace Shitboxer.UI.Model
             Edition = edition;
             EditionTag = editionTag;
             Equipped = equipped;
-            CanEquip = canEquip;
+            SellValue = sellValue;
         }
+    }
+
+    /// <summary>One of the visit's two booster packs, as the shelf needs it.</summary>
+    public readonly struct PackVm
+    {
+        /// <summary>Index into <c>ShopLogic.Packs</c> — what the buy command takes.</summary>
+        public readonly int Index;
+        public readonly ShopPackKind Kind;
+        public readonly string Name;
+        public readonly int Price;
+        public readonly int DrawCount;
+        public readonly bool Affordable;
+        /// <summary>False when the pack cannot be opened right now (a full car for a parts pack).</summary>
+        public readonly bool Buyable;
+
+        public PackVm(int index, ShopPackKind kind, string name, int price, int drawCount,
+            bool affordable, bool buyable)
+        {
+            Index = index;
+            Kind = kind;
+            Name = name;
+            Price = price;
+            DrawCount = drawCount;
+            Affordable = affordable;
+            Buyable = buyable;
+        }
+    }
+
+    /// <summary>
+    /// One car component: what it is, what level it sits at, and what the next Blueprint costs. Serves
+    /// all three places a component appears, which differ only in what the row lets you DO —
+    ///
+    /// <list type="bullet">
+    /// <item>the ten-row status list, where the row is a read-out and nothing is buyable;</item>
+    /// <item>a Blueprint on the shelf, bought at <see cref="Price"/> if <see cref="Affordable"/>;</item>
+    /// <item>a pick from an open components pack, where <see cref="Price"/> is 0 — already paid for.</item>
+    /// </list>
+    /// </summary>
+    public readonly struct ComponentVm
+    {
+        public readonly CarComponent Component;
+        public readonly string Name;
+        public readonly string Description;
+        /// <summary>Which stat bar it belongs to — decision 5's "families ARE the stats".</summary>
+        public readonly BuildStat Family;
+        public readonly int Level;
+        public readonly int MaxLevel;
+        public readonly int Price;
+        public readonly bool Affordable;
+        /// <summary>False once the component is at its ceiling.</summary>
+        public readonly bool CanLevel;
+
+        public ComponentVm(CarComponent component, string name, string description, BuildStat family,
+            int level, int maxLevel, int price, bool affordable, bool canLevel)
+        {
+            Component = component;
+            Name = name;
+            Description = description;
+            Family = family;
+            Level = level;
+            MaxLevel = maxLevel;
+            Price = price;
+            Affordable = affordable;
+            CanLevel = canLevel;
+        }
+
+        public string LevelLabel => $"L{Level}/{MaxLevel}";
     }
 
     /// <summary>A permanent team upgrade offer (name/description/price + affordability).</summary>

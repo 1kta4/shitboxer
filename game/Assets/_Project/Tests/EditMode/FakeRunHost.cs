@@ -34,6 +34,7 @@ namespace Shitboxer.Tests
 
         public RaceManager CurrentRace => null;
         public VehicleController PlayerCar => null;
+        public SectorPartRunner SectorParts => null;   // no race, so nothing scores sectors
 
         public event Action<RunPhase> PhaseChanged;
 
@@ -49,8 +50,12 @@ namespace Shitboxer.Tests
 
         public bool BuyOffer(PartDef part) => Shop.TryBuy(part, Run);
         public bool RerollShop() => Shop.TryReroll(Pool, Run);
+        public bool SellPart(PartDef part) => Shop.TrySell(part, Run);
         public bool BuyCrate() => Shop.TryBuyCrate(Pool, Run, CratePrice, CrateDrawCount);
         public bool TakeFromCrate(PartDef part) => Shop.TryTakeFromCrate(part, Run);
+        public bool BuyPack(int packIndex) => Shop.TryBuyPack(packIndex, Pool, Run);
+        public bool TakeComponent(CarComponent component) => Shop.TryTakeComponent(component, Run);
+        public bool BuyBlueprint(CarComponent component) => Shop.TryBuyBlueprint(component, Run);
         public bool BuyUpgrade(TeamUpgrade upgrade) => Shop.TryBuyUpgrade(upgrade, Run);
 
         public bool RepairCar()

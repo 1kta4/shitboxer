@@ -30,10 +30,18 @@ namespace Shitboxer.UI.Views
         private readonly Label _next = new Label();
         private readonly StatBar _grip = new StatBar();
         private readonly StatBar _power = new StatBar();
+        private readonly StatBar _weight = new StatBar();
+        private readonly StatBar _durability = new StatBar();
         private readonly Label _slots = new Label();
         private readonly VisualElement _owned = new VisualElement();
         private readonly Label _offerCount = new Label();
         private readonly VisualElement _offers = new VisualElement();
+        private readonly VisualElement _packs = new VisualElement();
+        private readonly VisualElement _components = new VisualElement();
+        private readonly VisualElement _blueprints = new VisualElement();
+        private readonly Label _packsTitle = new Label { text = "PACKS" };
+        private readonly Label _blueprintsTitle = new Label { text = "BLUEPRINTS" };
+        private readonly Label _componentsTitle = new Label { text = "COMPONENTS" };
 
         private int _sel;   // selected shop row (expands its detail)
 
@@ -116,15 +124,19 @@ namespace Shitboxer.UI.Views
             _next.AddToClassList("gx-next");
             rail.Add(_next);
 
+            // Four bars now (doc 08 decision 2). Weight reads as LIGHTNESS so "up is good" holds on
+            // every bar, which is the only way four stats stay glanceable.
             var stats = new VisualElement();
             stats.AddToClassList("gx-stats");
-            stats.Add(_grip);
             stats.Add(_power);
+            stats.Add(_grip);
+            stats.Add(_weight);
+            stats.Add(_durability);
             rail.Add(stats);
 
             var ownedHead = new VisualElement();
             ownedHead.AddToClassList("gx-ownedh");
-            var ownedTitle = new Label { text = "OWNED" };
+            var ownedTitle = new Label { text = "FITTED" };
             ownedTitle.AddToClassList("gx-railh-txt");
             _slots.AddToClassList("gx-slots");
             ownedHead.Add(ownedTitle);
@@ -152,6 +164,29 @@ namespace Shitboxer.UI.Views
 
             _offers.AddToClassList("gx-offers");
             main.Add(_offers);
+
+            // Packs and components sit BELOW the shelf rather than in tabs: everything you can spend on
+            // should be visible at once, or the shop stops being a comparison and becomes a menu.
+            _packsTitle.AddToClassList("gx-railh-txt");
+            _packsTitle.AddToClassList("gx-subhead");
+            main.Add(_packsTitle);
+            _packs.AddToClassList("gx-packs");
+            main.Add(_packs);
+
+            // Blueprints are STOCK, so they sit up here with the other things you can spend on. The
+            // component list below is the read-out of what you own — the split is deliberate, and it
+            // is the whole reason a component level now has to turn up rather than be picked off a menu.
+            _blueprintsTitle.AddToClassList("gx-railh-txt");
+            _blueprintsTitle.AddToClassList("gx-subhead");
+            main.Add(_blueprintsTitle);
+            _blueprints.AddToClassList("gx-components");
+            main.Add(_blueprints);
+
+            _componentsTitle.AddToClassList("gx-railh-txt");
+            _componentsTitle.AddToClassList("gx-subhead");
+            main.Add(_componentsTitle);
+            _components.AddToClassList("gx-components");
+            main.Add(_components);
             return main;
         }
 
@@ -197,7 +232,147 @@ namespace Shitboxer.UI.Views
             _slots.text = $"{_vm.SlotsUsed}/{_vm.SlotsTotal} SLOTS";
             RefreshOwned();
             RefreshOffers();
+            RefreshPacks();
+            RefreshBlueprints();
+            RefreshComponents();
             RefreshStatPreview();
+        }
+
+        /// <summary>
+        /// The visit's two booster packs. Hidden entirely while a pack is open, because the pick
+        /// replaces the shelf — buying a second pack mid-pick is not a thing.
+        /// </summary>
+        private void RefreshPacks()
+        {
+            bool show = !_vm.PackOpen && _vm.Packs.Count > 0;
+            _packs.style.display = show ? DisplayStyle.Flex : DisplayStyle.None;
+            _packsTitle.style.display = show ? DisplayStyle.Flex : DisplayStyle.None;
+            _packs.Clear();
+            if (!show) return;
+
+            foreach (PackVm p in _vm.Packs)
+            {
+                var card = new VisualElement();
+                card.AddToClassList("gx-pack");
+                if (!p.Buyable) card.AddToClassList("off");
+
+                var name = new Label { text = p.Name };
+                name.AddToClassList("gx-pack-name");
+                var sub = new Label { text = $"pick 1 of {p.DrawCount}" };
+                sub.AddToClassList("gx-pack-sub");
+
+                int index = p.Index;
+                var buy = new Button(() => _vm.BuyPack(index)) { text = $"${p.Price}" };
+                buy.AddToClassList("gx-buy");
+                buy.SetEnabled(p.Buyable);
+
+                card.Add(name);
+                card.Add(sub);
+                card.Add(buy);
+                _packs.Add(card);
+            }
+        }
+
+        /// <summary>
+        /// This visit's Blueprint stock — the only place a component level can be bought outright.
+        /// Hidden while a pack is open (the pick replaces the shelf) and when the roll came back
+        /// empty, which happens legitimately once nearly every component is maxed; a "BLUEPRINTS"
+        /// header over nothing would read as a bug rather than as a finished car.
+        /// </summary>
+        private void RefreshBlueprints()
+        {
+            bool show = !_vm.PackOpen && _vm.Blueprints.Count > 0;
+            _blueprints.style.display = show ? DisplayStyle.Flex : DisplayStyle.None;
+            _blueprintsTitle.style.display = show ? DisplayStyle.Flex : DisplayStyle.None;
+            _blueprints.Clear();
+            if (!show) return;
+
+            foreach (ComponentVm c in _vm.Blueprints)
+                _blueprints.Add(BuildComponentRow(c, CompRow.Blueprint));
+        }
+
+        /// <summary>
+        /// The ten components — a read-out of the car, with no BUY on any row: levels are bought from
+        /// the Blueprint shelf above or picked out of a pack. While a components pack is open this
+        /// shows only its offered picks, so the pick reads as "these three, choose one" rather than as
+        /// a modal on top of a list you can still shop from.
+        /// </summary>
+        private void RefreshComponents()
+        {
+            _components.Clear();
+            bool picking = _vm.ComponentPackOpen;
+            _componentsTitle.text = picking ? "PICK A COMPONENT" : "COMPONENTS";
+
+            IReadOnlyList<ComponentVm> list = picking ? _vm.PackComponents : _vm.Components;
+            foreach (ComponentVm c in list)
+                _components.Add(BuildComponentRow(c, picking ? CompRow.Pick : CompRow.Status));
+        }
+
+        /// <summary>What a component row lets you DO — the only thing that differs between its three uses.</summary>
+        private enum CompRow
+        {
+            /// <summary>A row in the ten-component read-out: level only, nothing to press.</summary>
+            Status,
+            /// <summary>Stock on the shelf: buy this component's next level at its price.</summary>
+            Blueprint,
+            /// <summary>A pick from an open components pack — already paid for, so it costs nothing.</summary>
+            Pick,
+        }
+
+        private VisualElement BuildComponentRow(ComponentVm c, CompRow mode)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("gx-comp");
+            if (mode == CompRow.Pick) row.AddToClassList("pick");
+            if (!c.CanLevel) row.AddToClassList("maxed");
+
+            // The family tag IS the stat bar it feeds (decision 5), so the grouping needs no explaining.
+            var fam = new Label { text = c.Family.ToString().ToUpperInvariant() };
+            fam.AddToClassList("gx-comp-fam");
+            fam.AddToClassList("fam-" + c.Family.ToString().ToLowerInvariant());
+
+            var name = new Label { text = c.Name };
+            name.AddToClassList("gx-comp-name");
+
+            var level = new Label { text = c.LevelLabel };
+            level.AddToClassList("gx-comp-lvl");
+
+            row.Add(fam);
+            row.Add(name);
+            row.Add(level);
+
+            CarComponent component = c.Component;
+            switch (mode)
+            {
+                case CompRow.Pick:
+                {
+                    var take = new Button(() => _vm.TakeComponent(component)) { text = "TAKE" };
+                    take.AddToClassList("gx-buy");
+                    row.Add(take);
+                    break;
+                }
+
+                case CompRow.Blueprint:
+                {
+                    var buy = new Button(() => _vm.BuyBlueprint(component)) { text = $"+1  ${c.Price}" };
+                    buy.AddToClassList("gx-buy");
+                    buy.SetEnabled(c.Affordable);
+                    row.Add(buy);
+                    break;
+                }
+
+                // Status: nothing to press. A maxed component still says so — it is the one piece of
+                // news the read-out carries beyond the level number.
+                default:
+                {
+                    if (c.CanLevel) break;
+                    var maxed = new Label { text = "MAX" };
+                    maxed.AddToClassList("gx-comp-max");
+                    row.Add(maxed);
+                    break;
+                }
+            }
+            return row;
         }
 
         /// <summary>Rail GRIP/POWER bars: the current equipped stats, or — when a Stat part is selected in
@@ -205,21 +380,28 @@ namespace Shitboxer.UI.Views
         private void RefreshStatPreview()
         {
             bool has = _vm.HasStatPreview;
-            _grip.style.display = has ? DisplayStyle.Flex : DisplayStyle.None;
-            _power.style.display = has ? DisplayStyle.Flex : DisplayStyle.None;
+            DisplayStyle display = has ? DisplayStyle.Flex : DisplayStyle.None;
+            _power.style.display = display;
+            _grip.style.display = display;
+            _weight.style.display = display;
+            _durability.style.display = display;
             if (!has) return;
 
             IReadOnlyList<OfferVm> list = _vm.CrateOpen ? _vm.CrateContents : _vm.Offers;
             if (_sel >= 0 && _sel < list.Count && list[_sel].HasStatPreview)
             {
                 OfferVm o = list[_sel];
-                _grip.SetPreview("GRIP", o.Grip.Before, o.Grip.After);
                 _power.SetPreview("POWER", o.Power.Before, o.Power.After);
+                _grip.SetPreview("GRIP", o.Grip.Before, o.Grip.After);
+                _weight.SetPreview("LIGHTNESS", o.Weight.Before, o.Weight.After);
+                _durability.SetPreview("DURABILITY", o.Durability.Before, o.Durability.After);
             }
             else
             {
-                _grip.Set("GRIP", _vm.Current.Grip);
                 _power.Set("POWER", _vm.Current.Power);
+                _grip.Set("GRIP", _vm.Current.Grip);
+                _weight.Set("LIGHTNESS", _vm.Current.Weight);
+                _durability.Set("DURABILITY", _vm.Current.Durability);
             }
         }
 
@@ -230,6 +412,13 @@ namespace Shitboxer.UI.Views
                 _owned.Add(BuildOwned(p));
         }
 
+        /// <summary>
+        /// A fitted part. There is no EQUIP action any more — a bought part is always fitted — so the
+        /// only thing you can do here is SELL, which refunds half and frees the slot. That is also the
+        /// only way to make room once the car is full, so the button carries real weight and is
+        /// deliberately an explicit button rather than a click-anywhere-on-the-row (which would make
+        /// selling a build-defining part an easy misclick).
+        /// </summary>
         private VisualElement BuildOwned(OwnedPartVm p)
         {
             var row = new VisualElement();
@@ -241,12 +430,9 @@ namespace Shitboxer.UI.Views
             row.Add(name);
 
             PartDef part = p.Part;
-            bool equipped = p.Equipped;
-            row.RegisterCallback<ClickEvent>(_ =>
-            {
-                if (equipped) _vm.Unequip(part);
-                else _vm.Equip(part);
-            });
+            var sell = new Button(() => _vm.Sell(part)) { text = $"SELL ${p.SellValue}" };
+            sell.AddToClassList("gx-sell");
+            row.Add(sell);
             return row;
         }
 
@@ -301,11 +487,15 @@ namespace Shitboxer.UI.Views
             detail.Add(info);
 
             PartDef part = o.Part;
+            // "CAR FULL" vs "NO FUNDS": a bought part is always fitted, so a full car blocks the buy
+            // just as surely as an empty wallet — and a button that says nothing while the player is
+            // holding money reads as a bug rather than as a rule.
+            string blocked = _vm.CarIsFull ? "CAR FULL — SELL ONE" : "NO FUNDS";
             Button buy = isCrate
-                ? new Button(() => _vm.TakeFromCrate(part)) { text = "KEEP" }
-                : new Button(() => _vm.Buy(part)) { text = o.Affordable ? "BUY" : "NO FUNDS" };
+                ? new Button(() => _vm.TakeFromCrate(part)) { text = o.Affordable ? "KEEP" : blocked }
+                : new Button(() => _vm.Buy(part)) { text = o.Affordable ? "BUY" : blocked };
             buy.AddToClassList("gx-btn");
-            if (!isCrate) buy.SetEnabled(o.Affordable);
+            buy.SetEnabled(o.Affordable);
             detail.Add(buy);
             offer.Add(detail);
 
@@ -337,8 +527,12 @@ namespace Shitboxer.UI.Views
 
             var wrap = new VisualElement();
             wrap.AddToClassList("gx-delta");
-            AddDeltaPart(wrap, "GRIP", o.Grip);
+            // All four, but only the ones that actually MOVE — AddDeltaPart's 0.5-point deadband keeps
+            // a part that touches nothing but grip from printing three "no change" columns.
             AddDeltaPart(wrap, "POWER", o.Power);
+            AddDeltaPart(wrap, "GRIP", o.Grip);
+            AddDeltaPart(wrap, "LIGHT", o.Weight);
+            AddDeltaPart(wrap, "DURA", o.Durability);
             return wrap;
         }
 

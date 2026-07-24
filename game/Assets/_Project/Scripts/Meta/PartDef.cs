@@ -113,5 +113,12 @@ namespace Shitboxer.Meta
         public float AuraRadiusM;
         [Tooltip("Grip fraction stripped each step from rivals inside the aura (and behind you). 0.2 = -20%.")]
         [Range(0f, 0.9f)] public float AuraGripSap;
+
+        [Header("Sector rules — score off HOW a sector was driven (doc 08)")]
+        [Tooltip("Clauses evaluated each time the player closes a sector. Empty (the default) means this part ignores sectors entirely, so every existing part is unchanged. Per doc 08 decision 9 sectors pay nothing on their own — owning a part with rules here is what unlocks in-race income.")]
+        public List<SectorRule> SectorRules = new List<SectorRule>();
+
+        /// <summary>True if this part scores off sectors at all — the cheap gate the runner filters on.</summary>
+        public bool HasSectorRules => SectorRules != null && SectorRules.Count > 0;
     }
 }

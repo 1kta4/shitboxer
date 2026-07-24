@@ -383,3 +383,109 @@
     margin-top: 16px;
 }
 .end-cta:hover { background-color: #5f97ff; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   PACKS + COMPONENTS  (doc 08 slices 3-4)
+   Both sit below the shelf rather than behind tabs: everything you can spend
+   on should be visible at once, or the shop stops being a comparison and
+   becomes a menu.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.gx-subhead { margin-top: 12px; margin-bottom: 5px; }
+
+/* ── booster packs: two side-by-side cards ──────────────────────────────── */
+.gx-packs { flex-direction: row; }
+
+.gx-pack {
+    flex-grow: 1;
+    flex-basis: 0;
+    align-items: center;
+    padding: 9px 8px;
+    margin-right: 6px;
+    background-color: var(--plate-hi);
+    border-width: 1px;
+    border-color: var(--line);
+}
+.gx-pack:hover { border-color: #5a7096; }
+.gx-pack.off { opacity: 0.45; }
+.gx-pack-name {
+    font-size: var(--size-body);
+    color: var(--blue-lt);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+}
+.gx-pack-sub { font-size: var(--size-label); color: var(--ink-mute); margin-top: 2px; margin-bottom: 6px; }
+
+/* ── components: one row each, family-tagged ────────────────────────────── */
+.gx-components { flex-direction: column; }
+
+.gx-comp {
+    flex-direction: row;
+    align-items: center;
+    padding: 5px 8px;
+    margin-bottom: 3px;
+    background-color: var(--panel);
+    border-width: 1px;
+    border-color: var(--line);
+}
+.gx-comp:hover { border-color: #5a7096; }
+.gx-comp.maxed { opacity: 0.55; }
+/* A pack pick is a decision, not a list — lift it so it reads as "choose one". */
+.gx-comp.pick {
+    background-color: #17202e;
+    border-color: var(--blue);
+    padding: 8px;
+    margin-bottom: 5px;
+}
+
+/* The family tag IS the stat bar it feeds, so it is colour-coded to match. */
+.gx-comp-fam {
+    width: 62px;
+    font-size: var(--size-label);
+    letter-spacing: 1px;
+    -unity-font-style: bold;
+}
+.fam-power { color: var(--amber); }
+.fam-grip { color: var(--green); }
+.fam-weight { color: var(--blue-lt); }
+.fam-durability { color: #d08a6a; }
+
+.gx-comp-name { flex-grow: 1; font-size: var(--size-body); color: var(--ink); }
+.gx-comp-lvl {
+    font-size: var(--size-val);
+    color: var(--ink-dim);
+    margin-right: 10px;
+    -unity-font-style: bold;
+}
+.gx-comp-max { font-size: var(--size-label); color: var(--ink-mute); letter-spacing: 1px; }
+
+/* ── the compact buy button shared by packs and components ──────────────── */
+.gx-buy {
+    -unity-font-definition: var(--font-sys);
+    font-size: var(--size-label);
+    color: var(--ink);
+    background-color: #223049;
+    border-width: 1px;
+    border-color: var(--edge);
+    padding: 3px 9px;
+    margin: 0;
+}
+.gx-buy:hover { background-color: #2b3c5a; border-color: var(--blue); }
+.gx-buy:disabled { opacity: 0.4; }
+
+/* ── SELL, on a fitted part ─────────────────────────────────────────────────
+   Deliberately an explicit button rather than a click-anywhere row: with
+   buying gated on a free slot this is the ONLY way to make room, so selling a
+   build-defining part must never be a misclick. */
+.gx-sell {
+    -unity-font-definition: var(--font-sys);
+    font-size: var(--size-label);
+    color: var(--amber);
+    background-color: #2a2418;
+    border-width: 1px;
+    border-color: #4a3f28;
+    padding: 2px 7px;
+    margin: 0;
+    margin-left: 6px;
+}
+.gx-sell:hover { background-color: #3a3120; border-color: var(--amber); }

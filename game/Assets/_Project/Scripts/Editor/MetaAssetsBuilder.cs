@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Shitboxer.Meta;
+using Shitboxer.Race;   // SectorStyle / SectorColour, used by the sector-part definitions below
 using Shitboxer.UI;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -588,6 +589,153 @@ namespace Shitboxer.Editor
                     p.Price = 6;
                     p.DraftLeech = true;
                 }),
+
+                // ---- Sector parts (doc 08 slice 1) -----------------------------------------------
+                // The test set that answers "is sector-style scoring fun". Deliberately spread across
+                // all six style tags plus the timing colours, a retrigger and an economy inversion, so
+                // the slice tests the whole shape rather than one archetype. Magnitudes are sized
+                // against 9 sectors a race and a $5–13 position payout: a part that fires most sectors
+                // pays ~$1–2, one that fires rarely pays more. Sectors pay NOTHING without one of these
+                // equipped (doc 08 decision 9).
+
+                EnsurePart("Part_BruisersLedger", p =>
+                {
+                    p.Id = "bruisers_ledger";
+                    p.DisplayName = "Bruiser's Ledger";
+                    p.Description = "A promoter who pays by the dent. $2 for every sector you land a hit or take a place.";
+                    p.Category = PartCategory.Economy;
+                    p.Price = 6;
+                    p.SectorRules = Rules(OnStyle(SectorStyle.Aggressive, SectorEffectKind.Money, 2f));
+                }),
+                EnsurePart("Part_CowardsPurse", p =>
+                {
+                    p.Id = "cowards_purse";
+                    p.DisplayName = "Coward's Purse";
+                    p.Description = "Paid to conserve. $3 for every sector you spend off the pedals — the time it costs you is the price.";
+                    p.Category = PartCategory.Economy;
+                    p.Price = 7;
+                    p.SectorRules = Rules(OnStyle(SectorStyle.Patient, SectorEffectKind.Money, 3f));
+                }),
+                EnsurePart("Part_Parasite", p =>
+                {
+                    p.Id = "parasite";
+                    p.DisplayName = "Parasite";
+                    p.Description = "Bills for the tow. $2 for every sector spent in someone else's slipstream.";
+                    p.Category = PartCategory.Economy;
+                    p.Price = 6;
+                    p.SectorRules = Rules(OnStyle(SectorStyle.Slipstream, SectorEffectKind.Money, 2f));
+                }),
+                EnsurePart("Part_TitheCollector", p =>
+                {
+                    p.Id = "tithe_collector";
+                    p.DisplayName = "Tithe Collector";
+                    p.Description = "Every rival who touches you owes you. $1 per contact taken, per sector. Being rammed has never been so lucrative.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 7;
+                    p.SectorRules = Rules(OnTrigger(SectorTriggerKind.ContactTaken,
+                        SectorEffectKind.Money, 1f, scaleByCount: true));
+                }),
+                EnsurePart("Part_Metronome", p =>
+                {
+                    p.Id = "metronome";
+                    p.DisplayName = "Metronome";
+                    p.Description = "Rewards a driver who repeats. $2 whenever you run a sector within 0.25s of your last lap through it.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 8;
+                    p.SectorRules = Rules(OnTrigger(SectorTriggerKind.ConsistentPace,
+                        SectorEffectKind.Money, 2f, paceToleranceS: 0.25f));
+                }),
+                EnsurePart("Part_RearGuard", p =>
+                {
+                    p.Id = "rear_guard";
+                    p.DisplayName = "Rear Guard";
+                    p.Description = "Grows a spine under pressure. +3% grip for the rest of the race every sector you hold position with a rival on your gearbox. Stacks.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 8;
+                    p.SectorRules = Rules(OnStyle(SectorStyle.Defensive, SectorEffectKind.Grip, 0.03f));
+                }),
+                EnsurePart("Part_CleanSweep", p =>
+                {
+                    p.Id = "clean_sweep";
+                    p.DisplayName = "Clean Sweep";
+                    p.Description = "Three flawless sectors back to back and the engine wakes up: x1.25 power for the rest of the race. Break the run and you can earn it again.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 11;
+                    p.SectorRules = Rules(OnStreak(SectorStyle.Clean, 3,
+                        SectorEffectKind.Power, 1.25f, SpecModOp.Multiply));
+                }),
+                EnsurePart("Part_PurpleStreak", p =>
+                {
+                    p.Id = "purple_streak";
+                    p.DisplayName = "Purple Streak";
+                    p.Description = "Momentum feeds itself. Take the FIELD'S fastest sector and the next one runs on +12% grip. Rare, because the bots are quick.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 10;
+                    // Deliberately aspirational: purple is the fastest sector ANYONE has set, and bots
+                    // start the season at x1.4 grip and power, so this is near-dead until the player's
+                    // build crosses over late in a season (doc 08 decision 13). Priced and sized for
+                    // that. Benchmark below is the reachable half of the colour axis.
+                    p.SectorRules = Rules(OnColour(SectorColour.Purple,
+                        SectorEffectKind.Grip, 0.12f, SpecModOp.Add, durationSectors: 1));
+                }),
+                EnsurePart("Part_Benchmark", p =>
+                {
+                    p.Id = "benchmark";
+                    p.DisplayName = "Benchmark";
+                    p.Description = "Paid to improve on yourself. $1 every time a sector beats your own best for it.";
+                    p.Category = PartCategory.Economy;
+                    p.Price = 5;
+                    // The reachable colour trigger: your first run at each sector is automatically a
+                    // personal best, so this pays 3 times on lap one and then only when you genuinely
+                    // improve — a gentle, self-limiting drip rather than a flat per-sector wage.
+                    p.SectorRules = Rules(OnColour(SectorColour.Green, SectorEffectKind.Money, 1f));
+                }),
+                EnsurePart("Part_SectorNine", p =>
+                {
+                    p.Id = "sector_nine";
+                    p.DisplayName = "Sector Nine";
+                    p.Description = "Saves everything for the run to the flag: x1.6 power through the final sector of the final lap.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 10;
+                    p.SectorRules = Rules(OnTrigger(SectorTriggerKind.FinalSector,
+                        SectorEffectKind.Power, 1.6f, SpecModOp.Multiply, durationSectors: 1));
+                }),
+                EnsurePart("Part_FairWeatherFriend", p =>
+                {
+                    p.Id = "fair_weather_friend";
+                    p.DisplayName = "Fair Weather Friend";
+                    p.Description = "Loves a winner. Take a place and the next two sectors carry +6% grip.";
+                    p.Category = PartCategory.Stat;
+                    p.Price = 7;
+                    p.SectorRules = Rules(OnTrigger(SectorTriggerKind.PositionGained,
+                        SectorEffectKind.Grip, 0.06f, SpecModOp.Add, durationSectors: 2));
+                }),
+                EnsurePart("Part_PanelBeater", p =>
+                {
+                    p.Id = "panel_beater";
+                    p.DisplayName = "Panel Beater";
+                    p.Description = "Travels with a hammer. Every sector that goes wrong beats 4% of the damage back out.";
+                    p.Category = PartCategory.Stat;
+                    p.Rarity = Rarity.Uncommon;
+                    p.Price = 8;
+                    p.SectorRules = Rules(OnStyle(SectorStyle.Ragged, SectorEffectKind.Durability, 0.04f));
+                }),
+                EnsurePart("Part_ConsistencyBonus", p =>
+                {
+                    p.Id = "consistency_bonus";
+                    p.DisplayName = "Consistency Bonus";
+                    p.Description = "Keep it tidy and everything counts twice: a CLEAN sector scores every one of your sector parts a second time.";
+                    p.Category = PartCategory.Economy;
+                    p.Rarity = Rarity.Rare;
+                    p.Price = 12;
+                    p.SectorRules = Rules(OnStyle(SectorStyle.Clean, SectorEffectKind.Retrigger, 1f));
+                }),
             };
 
             // The pool is refreshed every run so new parts always show up.
@@ -798,6 +946,62 @@ namespace Shitboxer.Editor
                 mods.Add(new SpecMod { Target = target, Multiplier = multiplier });
             return mods;
         }
+
+        // ---- sector-rule builders (doc 08) ------------------------------------------------------
+        // One tiny factory per trigger kind rather than a single many-argument one, so a rule reads as
+        // a sentence at the call site and an unused field can't be silently set to the wrong thing.
+
+        private static List<SectorRule> Rules(params SectorRule[] rules) => new List<SectorRule>(rules);
+
+        /// <summary>Fires whenever the sector carried <paramref name="tag"/>.</summary>
+        private static SectorRule OnStyle(SectorStyle tag, SectorEffectKind effect, float amount,
+            SpecModOp op = SpecModOp.Add, int durationSectors = 0) => new SectorRule
+        {
+            Trigger = SectorTriggerKind.Style,
+            StyleTag = tag,
+            Effect = effect,
+            Op = op,
+            Amount = amount,
+            DurationSectors = durationSectors,
+        };
+
+        /// <summary>Fires the moment <paramref name="tag"/> has held for exactly <paramref name="length"/> sectors.</summary>
+        private static SectorRule OnStreak(SectorStyle tag, int length, SectorEffectKind effect,
+            float amount, SpecModOp op = SpecModOp.Add, int durationSectors = 0) => new SectorRule
+        {
+            Trigger = SectorTriggerKind.StyleStreak,
+            StyleTag = tag,
+            StreakLength = length,
+            Effect = effect,
+            Op = op,
+            Amount = amount,
+            DurationSectors = durationSectors,
+        };
+
+        /// <summary>Fires on a timing colour (purple / green).</summary>
+        private static SectorRule OnColour(SectorColour colour, SectorEffectKind effect, float amount,
+            SpecModOp op = SpecModOp.Add, int durationSectors = 0) => new SectorRule
+        {
+            Trigger = SectorTriggerKind.Colour,
+            TimingColour = colour,
+            Effect = effect,
+            Op = op,
+            Amount = amount,
+            DurationSectors = durationSectors,
+        };
+
+        private static SectorRule OnTrigger(SectorTriggerKind trigger, SectorEffectKind effect, float amount,
+            SpecModOp op = SpecModOp.Add, int durationSectors = 0, bool scaleByCount = false,
+            float paceToleranceS = 0f) => new SectorRule
+        {
+            Trigger = trigger,
+            Effect = effect,
+            Op = op,
+            Amount = amount,
+            DurationSectors = durationSectors,
+            ScaleByCount = scaleByCount,
+            PaceToleranceS = paceToleranceS,
+        };
 
         // For parts that mix additive anchors with multiplicative payoffs on one target, spell
         // the ops out per-entry so slot order reads clearly (SpecModApplier resolves left-to-right).

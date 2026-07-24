@@ -123,23 +123,182 @@ namespace Shitboxer.Tests
         // --- Owned parts + equip gating ------------------------------------------------------------
 
         [Test]
-        public void OwnedPart_EquipGate_RespectsFreeSlots()
+        public void FittedPartsOfferASellValue()
         {
+            // There is no EQUIP action any more — a bought part is always fitted, so the only thing the
+            // list can do to a part is sell it, which is also the only way to free a slot.
             var host = new FakeRunHost();
             host.Run.MaxEquipSlots = 1;
             PartDef a = Part(PartCategory.Economy, "A");
-            PartDef b = Part(PartCategory.Economy, "B");
             host.Run.OwnedParts.Add(a);
-            host.Run.OwnedParts.Add(b);
-            host.Run.Equip(a); // fills the single slot
+            host.Run.Equip(a);
 
             var vm = new GarageViewModel(host);
-            OwnedPartVm rowA = Find(vm.OwnedParts, a);
-            OwnedPartVm rowB = Find(vm.OwnedParts, b);
+            OwnedPartVm row = Find(vm.OwnedParts, a);
 
-            Assert.That(rowA.Equipped, Is.True);
-            Assert.That(rowB.Equipped, Is.False);
-            Assert.That(rowB.CanEquip, Is.False, "no free slot, so the un-equipped part can't be equipped");
+            Assert.That(row.Equipped, Is.True);
+            Assert.That(row.SellValue, Is.EqualTo(host.Shop.SellValueOf(a)));
+            Assert.That(row.SellValue, Is.GreaterThan(0), "nothing is ever worthless");
+        }
+
+        [Test]
+        public void SellingFreesTheSlotAndRefunds()
+        {
+            var host = new FakeRunHost();
+            host.Run.MaxEquipSlots = 1;
+            host.Run.Money = 0;
+            PartDef a = Part(PartCategory.Economy, "A");
+            host.Run.OwnedParts.Add(a);
+            host.Run.Equip(a);
+
+            var vm = new GarageViewModel(host);
+            int refund = Find(vm.OwnedParts, a).SellValue;
+
+            Assert.That(vm.Sell(a), Is.True);
+            Assert.That(vm.Money, Is.EqualTo(refund));
+            Assert.That(vm.SlotsUsed, Is.EqualTo(0));
+            Assert.That(vm.CarIsFull, Is.False);
+        }
+
+        [Test]
+        public void AFullCarBlocksBuyingAndSaysSo()
+        {
+            // "I have money and it won't let me buy" reads as a bug unless the screen says which of the
+            // two gates is closed. Stocks a real shelf first — asserting over an empty offer list would
+            // pass vacuously and prove nothing.
+            FakeRunHost host = HostWithShelf(out _, money: 999);
+            host.Run.MaxEquipSlots = 1;
+            PartDef a = Part(PartCategory.Economy, "A");
+            host.Run.OwnedParts.Add(a);
+            host.Run.Equip(a);
+
+            var vm = new GarageViewModel(host);
+            Assert.That(vm.Offers.Count, Is.GreaterThan(0), "the shelf must actually be stocked");
+            Assert.That(vm.CarIsFull, Is.True);
+            foreach (OfferVm offer in vm.Offers)
+                Assert.That(offer.Affordable, Is.False, "a full car blocks every buy, however rich you are");
+        }
+
+        [Test]
+        public void ComponentsAreListedWithLevelAndBlueprintPrice()
+        {
+            var host = new FakeRunHost();
+            host.Run.Money = 999;
+            var vm = new GarageViewModel(host);
+
+            Assert.That(vm.Components.Count, Is.EqualTo(CarComponentCatalog.Count));
+            foreach (ComponentVm c in vm.Components)
+            {
+                Assert.That(c.Level, Is.EqualTo(CarComponentCatalog.MinLevel));
+                Assert.That(c.MaxLevel, Is.EqualTo(CarComponentCatalog.MaxLevel));
+                Assert.That(c.Price, Is.GreaterThan(0));
+                Assert.That(c.CanLevel, Is.True);
+                Assert.That(c.LevelLabel, Is.EqualTo($"L{c.Level}/{c.MaxLevel}"));
+            }
+        }
+
+        [Test]
+        public void BlueprintsAreStockedAndPricedAtTheNextLevel()
+        {
+            FakeRunHost host = HostWithShelf(out _);
+            var vm = new GarageViewModel(host);
+
+            Assert.That(vm.Blueprints.Count, Is.EqualTo(ShopLogic.BlueprintOfferCount));
+            foreach (ComponentVm b in vm.Blueprints)
+            {
+                Assert.That(b.Price, Is.EqualTo(host.Run.BlueprintPriceFor(b.Component)));
+                Assert.That(b.CanLevel, Is.True, "a maxed component must never be stocked");
+            }
+        }
+
+        [Test]
+        public void BuyingABlueprintLevelsTheComponentAndCharges()
+        {
+            FakeRunHost host = HostWithShelf(out _, money: 50);
+            var vm = new GarageViewModel(host);
+
+            ComponentVm offer = vm.Blueprints[0];
+            int levelBefore = Find(vm.Components, offer.Component).Level;
+            Assert.That(vm.BuyBlueprint(offer.Component), Is.True);
+
+            Assert.That(vm.Money, Is.EqualTo(50 - offer.Price));
+            Assert.That(Find(vm.Components, offer.Component).Level, Is.EqualTo(levelBefore + 1));
+            foreach (ComponentVm b in vm.Blueprints)
+                Assert.That(b.Component, Is.Not.EqualTo(offer.Component), "a bought Blueprint leaves the shelf");
+        }
+
+        [Test]
+        public void AComponentNotOnTheShelfCannotBeBought()
+        {
+            // The point of the whole rework: components are ROLLED, not browsed. A component absent from
+            // this visit's Blueprint row must be unbuyable however much money is on the table — otherwise
+            // the ten-row list is still a menu, just an undrawn one.
+            FakeRunHost host = HostWithShelf(out _);
+            var vm = new GarageViewModel(host);
+
+            CarComponent unstocked = Unstocked(vm);
+            int level = Find(vm.Components, unstocked).Level;
+            int money = vm.Money;
+
+            Assert.That(vm.BuyBlueprint(unstocked), Is.False);
+            Assert.That(vm.Money, Is.EqualTo(money), "a refused buy must charge nothing");
+            Assert.That(Find(vm.Components, unstocked).Level, Is.EqualTo(level));
+        }
+
+        [Test]
+        public void TheComponentListStaysAReadOutOfAllTen()
+        {
+            // The status list is not the shop: it still shows every component, stocked or not, so the
+            // player can read what the car IS while only the rolled Blueprints are buyable.
+            FakeRunHost host = HostWithShelf(out _);
+            var vm = new GarageViewModel(host);
+
+            Assert.That(vm.Components.Count, Is.EqualTo(CarComponentCatalog.Count));
+            Assert.That(vm.Blueprints.Count, Is.LessThan(vm.Components.Count));
+        }
+
+        /// <summary>A component this visit did NOT stock — there are always some, with 10 in the catalogue
+        /// and <see cref="ShopLogic.BlueprintOfferCount"/> on the shelf.</summary>
+        private static CarComponent Unstocked(GarageViewModel vm)
+        {
+            foreach (CarComponentInfo info in CarComponentCatalog.All)
+            {
+                bool stocked = false;
+                foreach (ComponentVm b in vm.Blueprints)
+                    if (b.Component == info.Component) { stocked = true; break; }
+                if (!stocked) return info.Component;
+            }
+            Assert.Fail("the shelf stocked every component — this test can no longer say anything");
+            return default;
+        }
+
+        [Test]
+        public void EveryVisitListsTwoPacks()
+        {
+            // Packs are rolled by BeginVisit, so this needs a host that has actually opened a visit —
+            // a bare FakeRunHost has an unopened shop and would list none.
+            FakeRunHost host = HostWithShelf(out _);
+            var vm = new GarageViewModel(host);
+            Assert.That(vm.Packs.Count, Is.EqualTo(ShopLogic.PacksPerVisit));
+        }
+
+        [Test]
+        public void AnUnopenedShopListsNoPacks()
+        {
+            // The complement, pinned deliberately: the VM reads live shop state rather than inventing a
+            // shelf, so a host that never opened a visit shows an empty garage instead of phantom stock.
+            var vm = new GarageViewModel(new FakeRunHost());
+            Assert.That(vm.Packs, Is.Empty);
+            Assert.That(vm.Offers, Is.Empty);
+        }
+
+        private static ComponentVm Find(System.Collections.Generic.IReadOnlyList<ComponentVm> list,
+            CarComponent component)
+        {
+            foreach (ComponentVm c in list)
+                if (c.Component == component) return c;
+            Assert.Fail($"{component} missing from the component list");
+            return default;
         }
 
         [Test]

@@ -54,6 +54,57 @@
 .hud-tr-item { align-items: flex-end; margin-bottom: 6px; }
 .hud-time { font-size: 18px; color: var(--ink); margin-top: 1px; }
 
+/* ── top-right: sector timing strip ─────────────────────────────────────────
+   One cell per sector, filling in across the lap like a broadcast graphic. The
+   COLOUR BAR is the read (purple = session best, green = personal best, yellow
+   = neither); the time is the detail you only look at between corners. Sits
+   under the lap times because that corner is already where the eye goes for
+   timing, and it stays plate-less like the rest of the HUD.
+   ───────────────────────────────────────────────────────────────────────── */
+.hud-sectors { flex-direction: row; margin-top: 2px; }
+
+.hud-sector {
+    align-items: center;
+    margin-left: 5px;
+    padding: 2px 5px 0;
+    border-width: 1px;
+    border-color: rgba(0, 0, 0, 0);   /* reserved so `.current` doesn't reflow the strip */
+}
+/* The sector being driven right now — a faint lit plate, not a colour, so it can
+   never be mistaken for one of the three timing colours below it. */
+.hud-sector.current {
+    background-color: rgba(79, 139, 255, 0.14);
+    border-color: var(--edge-lit);
+}
+
+.hud-sector__name {
+    font-size: 9px;
+    color: var(--ink-mute);
+    letter-spacing: 1px;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+.hud-sector__time {
+    font-size: 13px;
+    color: var(--ink);
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+.hud-sector__bar { width: 42px; height: 3px; margin-top: 2px; }
+
+/* ── top-centre: transient "how you drove that sector" flash ─────────────── */
+.hud-style {
+    font-size: 13px;
+    margin-top: 3px;
+    letter-spacing: 1px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+
 /* ── bottom lines (cutoff, payout, cues, status) ────────────────────────── */
 .hud-line { font-size: 14px; color: var(--ink); margin-bottom: 3px; white-space: nowrap; }
 .hud-line.dim { color: var(--ink-dim); }

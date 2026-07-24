@@ -79,6 +79,74 @@ namespace Shitboxer.Meta
         /// </summary>
         public float CarDurability = 1f;
 
+        /// <summary>
+        /// Credits earned DURING the current race by sector-scoring parts, banked into
+        /// <see cref="Money"/> at payout and then cleared. Separate from Money on purpose: the race is
+        /// still in progress while this accrues, and the HUD wants to show "earned so far" distinctly
+        /// from the wallet.
+        ///
+        /// Per doc 08 decision 9 this stays at 0 unless the player equips a part with sector rules, so
+        /// the base position-only inverted economy is untouched for a run that buys none. Deliberately
+        /// NOT persisted by RunSave — a run resumed mid-race restarts the race anyway.
+        /// </summary>
+        [System.NonSerialized] public int InRaceEarnings;
+
+        /// <summary>
+        /// Level of each car component, indexed by <see cref="CarComponent"/> ordinal (doc 08
+        /// decision 4). Every component is always installed; a Blueprint bought in the garage raises
+        /// one by a level. All start at <see cref="CarComponentCatalog.MinLevel"/>, which contributes
+        /// nothing, so a fresh run drives the authored chassis exactly.
+        /// </summary>
+        public int[] ComponentLevels = NewComponentLevels();
+
+        /// <summary>A fresh, all-baseline component set.</summary>
+        public static int[] NewComponentLevels()
+        {
+            var levels = new int[CarComponentCatalog.Count];
+            for (int i = 0; i < levels.Length; i++) levels[i] = CarComponentCatalog.MinLevel;
+            return levels;
+        }
+
+        /// <summary>Current level of a component; the baseline for anything out of range.</summary>
+        public int LevelOf(CarComponent component)
+        {
+            int index = (int)component;
+            return ComponentLevels != null && index >= 0 && index < ComponentLevels.Length
+                ? CarComponentCatalog.ClampLevel(ComponentLevels[index])
+                : CarComponentCatalog.MinLevel;
+        }
+
+        /// <summary>Cost of the next Blueprint for a component.</summary>
+        public int BlueprintPriceFor(CarComponent component) =>
+            CarComponentCatalog.BlueprintPrice(LevelOf(component));
+
+        /// <summary>
+        /// Buys one level of a component, charging <see cref="Money"/>. False — and nothing charged —
+        /// if the component is already maxed or the money isn't there.
+        ///
+        /// The money-and-level PRIMITIVE, deliberately with no notion of what is for sale. The garage
+        /// must go through <see cref="ShopLogic.TryBuyBlueprint"/>, which adds the shelf check — buying
+        /// straight through here would restore the old "pick any of the ten, any time" menu.
+        /// </summary>
+        public bool BuyBlueprint(CarComponent component)
+        {
+            int index = (int)component;
+            if (ComponentLevels == null || index < 0 || index >= ComponentLevels.Length) return false;
+
+            int level = LevelOf(component);
+            if (!CarComponentCatalog.CanLevel(level)) return false;
+
+            int price = CarComponentCatalog.BlueprintPrice(level);
+            if (Money < price) return false;
+
+            Money -= price;
+            ComponentLevels[index] = level + 1;
+            return true;
+        }
+
+        /// <summary>The stat points this run's components contribute — fed straight into the ledger.</summary>
+        public BuildLedger ComponentLedger() => CarComponentCatalog.Accumulate(ComponentLevels);
+
         /// <summary>Everything bought this run.</summary>
         public List<PartDef> OwnedParts = new List<PartDef>();
 
@@ -96,8 +164,25 @@ namespace Shitboxer.Meta
         /// </summary>
         public List<PartDef> CrateContents = new List<PartDef>();
 
-        /// <summary>True while a paid-for crate is waiting to be picked from. Blocks the rest of the shop.</summary>
+        /// <summary>True while a paid-for parts pack is waiting to be picked from.</summary>
         public bool CrateOpen => CrateContents.Count > 0;
+
+        /// <summary>
+        /// Components drawn by a bought-but-unresolved COMPONENT pack, awaiting the player's pick — the
+        /// component-side twin of <see cref="CrateContents"/>. Stored as <see cref="CarComponent"/>
+        /// ordinals so the whole run stays plainly serializable. Empty whenever no such pack is open.
+        ///
+        /// Lives on the run for exactly the reason the parts crate does: the pack is paid for at buy
+        /// time and the director saves immediately, so parking it in transient shop state would let a
+        /// quit-then-resume keep the spend and lose the draw.
+        /// </summary>
+        public List<int> PackComponents = new List<int>();
+
+        /// <summary>True while a paid-for component pack is waiting to be picked from.</summary>
+        public bool ComponentPackOpen => PackComponents.Count > 0;
+
+        /// <summary>True while ANY paid-for pack is unresolved. Blocks the rest of the shop.</summary>
+        public bool PackOpen => CrateOpen || ComponentPackOpen;
 
         /// <summary>
         /// Permanent team upgrades bought this run (doc 03's vouchers). Unlike parts these are never

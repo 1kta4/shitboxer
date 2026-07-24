@@ -23,6 +23,10 @@ namespace Shitboxer.UI.Model
         private readonly List<OwnedPartVm> _owned = new List<OwnedPartVm>();
         private readonly List<UpgradeVm> _availableUpgrades = new List<UpgradeVm>();
         private readonly List<UpgradeVm> _ownedUpgrades = new List<UpgradeVm>();
+        private readonly List<PackVm> _packs = new List<PackVm>();
+        private readonly List<ComponentVm> _components = new List<ComponentVm>();
+        private readonly List<ComponentVm> _blueprints = new List<ComponentVm>();
+        private readonly List<ComponentVm> _packComponents = new List<ComponentVm>();
 
         public GarageViewModel(IRunHost host)
         {
@@ -62,16 +66,50 @@ namespace Shitboxer.UI.Model
         public bool CanAffordRepair => Run.Money >= _host.RepairCost;
         public string RepairLabel => $"REPAIR CAR (${_host.RepairCost}) — durability {Run.CarDurability * 100f:0}%";
 
-        // --- Shelf / crate -----------------------------------------------------------------------
-        /// <summary>An open crate REPLACES the shelf — Offers is empty while a crate is open.</summary>
+        // --- Shelf / packs -------------------------------------------------------------------------
+        /// <summary>An open pack REPLACES the shelf — Offers is empty while any pack is open.</summary>
         public bool CrateOpen => Run.CrateOpen;
+
+        /// <summary>True while an open COMPONENTS pack is waiting to be picked from.</summary>
+        public bool ComponentPackOpen => Run.ComponentPackOpen;
+
+        /// <summary>True while any paid-for pack is unresolved. The shelf is hidden until it is.</summary>
+        public bool PackOpen => Run.PackOpen;
+
         public IReadOnlyList<OfferVm> Offers => _offers;
         public IReadOnlyList<OfferVm> CrateContents => _crate;
+
+        /// <summary>This visit's two booster packs.</summary>
+        public IReadOnlyList<PackVm> Packs => _packs;
+
+        /// <summary>The components an open components pack is offering.</summary>
+        public IReadOnlyList<ComponentVm> PackComponents => _packComponents;
+
         public int CratePrice => _host.CratePrice;
         public int CrateDrawCount => _host.CrateDrawCount;
         public bool CanAffordCrate => Run.Money >= _host.CratePrice;
         public int RerollCost => _host.Shop.RerollCost;
         public bool CanAffordReroll => Run.Money >= _host.Shop.RerollCost;
+
+        /// <summary>
+        /// Why the shelf's BUY buttons are off, when they are — a full car rather than empty pockets.
+        /// The screen has to say which, or "I have money and it won't let me buy" reads as a bug.
+        /// </summary>
+        public bool CarIsFull => !Run.HasFreeSlot;
+
+        // --- Components ----------------------------------------------------------------------------
+        /// <summary>
+        /// All ten components with their current level, in family order — a STATUS list, not a shop.
+        /// Nothing here is buyable: to raise a component you buy one of the <see cref="Blueprints"/>
+        /// that turned up, or pick one out of a components pack.
+        /// </summary>
+        public IReadOnlyList<ComponentVm> Components => _components;
+
+        /// <summary>
+        /// The Blueprints on this visit's shelf, priced at each component's next level. Empty while a
+        /// pack is open (the pick replaces the shelf) and late in a run once components are maxed out.
+        /// </summary>
+        public IReadOnlyList<ComponentVm> Blueprints => _blueprints;
 
         // --- Team upgrades -----------------------------------------------------------------------
         public IReadOnlyList<UpgradeVm> AvailableUpgrades => _availableUpgrades;
@@ -85,13 +123,15 @@ namespace Shitboxer.UI.Model
 
         // --- Commands: delegate, Rebuild, raise Changed only on a real mutation -------------------
         public bool Buy(PartDef part) => Mutate(_host.BuyOffer(part));
+        public bool Sell(PartDef part) => Mutate(_host.SellPart(part));
         public bool Reroll() => Mutate(_host.RerollShop());
         public bool BuyCrate() => Mutate(_host.BuyCrate());
+        public bool BuyPack(int packIndex) => Mutate(_host.BuyPack(packIndex));
         public bool TakeFromCrate(PartDef part) => Mutate(_host.TakeFromCrate(part));
+        public bool TakeComponent(CarComponent component) => Mutate(_host.TakeComponent(component));
+        public bool BuyBlueprint(CarComponent component) => Mutate(_host.BuyBlueprint(component));
         public bool BuyUpgrade(TeamUpgrade upgrade) => Mutate(_host.BuyUpgrade(upgrade));
         public bool Repair() => Mutate(_host.RepairCar());
-        public bool Equip(PartDef part) => Mutate(Run.Equip(part));
-        public bool Unequip(PartDef part) => Mutate(Run.Unequip(part));
         public void NextRace() => _host.StartNextRace();
 
         private bool Mutate(bool changed)
@@ -107,27 +147,61 @@ namespace Shitboxer.UI.Model
         /// <summary>Recompute every list and the stat preview from the host. Ctor + every command.</summary>
         public void Rebuild()
         {
+            // Components set the baseline, parts bolt on over the top — the same order the director
+            // bakes the real car in, so the preview cannot disagree with what you drive.
             VehicleSpec baseSpec = _host.BaseSpec;
-            VehicleSpec current = baseSpec != null ? SpecModApplier.Apply(baseSpec, Run.EquippedParts) : null;
+            VehicleSpec current = baseSpec != null
+                ? SpecModApplier.Apply(StatLedger.Bake(baseSpec, Run.ComponentLedger()), Run.EquippedParts)
+                : null;
             Current = current != null ? StatSummary.Compute(current) : default;
 
             _offers.Clear();
-            if (!Run.CrateOpen)
+            if (!Run.PackOpen)
                 foreach (PartDef part in _host.Shop.Offers)
                     _offers.Add(BuildOffer(part, current));
 
             _crate.Clear();
             if (Run.CrateOpen)
                 foreach (PartDef part in Run.CrateContents)
-                    _crate.Add(BuildOffer(part, current));
+                    _crate.Add(BuildOffer(part, current, alreadyPaid: true));
+
+            _packs.Clear();
+            if (!Run.PackOpen)
+                for (int i = 0; i < _host.Shop.Packs.Count; i++)
+                {
+                    ShopPack pack = _host.Shop.Packs[i];
+                    bool affordable = Run.Money >= pack.Price;
+                    // A parts pack hands over a part, and a bought part is always fitted — so it can't
+                    // even be opened with a full car. A components pack has no such constraint.
+                    bool buyable = affordable
+                                   && (pack.Kind != ShopPackKind.Parts || Run.HasFreeSlot);
+                    _packs.Add(new PackVm(i, pack.Kind, pack.DisplayName, pack.Price, pack.DrawCount,
+                        affordable, buyable));
+                }
+
+            _packComponents.Clear();
+            if (Run.ComponentPackOpen)
+                foreach (int ordinal in Run.PackComponents)
+                    _packComponents.Add(BuildComponent((CarComponent)ordinal, free: true));
+
+            // The ten-row list is a read-out of the car, so it stays visible even mid-pack — unlike the
+            // Blueprint shelf, which is stock and hides behind an open pack like every other offer.
+            _components.Clear();
+            foreach (CarComponentInfo info in CarComponentCatalog.All)
+                _components.Add(BuildComponent(info.Component, free: false));
+
+            _blueprints.Clear();
+            if (!Run.PackOpen)
+                foreach (CarComponent component in _host.Shop.Blueprints)
+                    _blueprints.Add(BuildComponent(component, free: false));
 
             _owned.Clear();
             foreach (PartDef part in Run.OwnedParts)
             {
                 if (!part) continue;
-                bool equipped = Run.IsEquipped(part);
                 _owned.Add(new OwnedPartVm(part, part.DisplayName, part.Category, part.Edition,
-                    PartDisplay.EditionTag(part.Edition), equipped, !equipped && Run.HasFreeSlot));
+                    PartDisplay.EditionTag(part.Edition), Run.IsEquipped(part),
+                    _host.Shop.SellValueOf(part)));
             }
 
             _availableUpgrades.Clear();
@@ -146,24 +220,50 @@ namespace Shitboxer.UI.Model
         // Stat parts, computed by applying the single part ON TOP of the current equipped set (Apply
         // clones internally, so run state is never touched). Identical logic to the old
         // GarageScreen.DrawOffer/DrawStatPreview, minus the drawing.
-        private OfferVm BuildOffer(PartDef part, VehicleSpec current)
+        /// <summary>
+        /// One component row. <paramref name="free"/> marks a pick from an already-paid-for pack, where
+        /// the price is 0 and affordability is irrelevant — otherwise it prices the next Blueprint.
+        /// </summary>
+        private ComponentVm BuildComponent(CarComponent component, bool free)
+        {
+            CarComponentInfo info = CarComponentCatalog.Info(component);
+            int level = Run.LevelOf(component);
+            bool canLevel = CarComponentCatalog.CanLevel(level);
+            int price = free ? 0 : CarComponentCatalog.BlueprintPrice(level);
+
+            return new ComponentVm(component, info.DisplayName, info.Description, info.Family,
+                level, CarComponentCatalog.MaxLevel, price,
+                free || Run.Money >= price, canLevel);
+        }
+
+        /// <param name="alreadyPaid">
+        /// True for a pack pick, which was paid for when the pack was bought — so only the free-slot
+        /// half of the gate applies. Charging the part's price again would grey out a pick the player
+        /// has already bought.
+        /// </param>
+        private OfferVm BuildOffer(PartDef part, VehicleSpec current, bool alreadyPaid = false)
         {
             int price = _host.Shop.PriceOf(part);
             bool hasPreview = part && part.Category == PartCategory.Stat && current != null;
 
-            StatDelta grip = default;
-            StatDelta power = default;
+            StatDelta grip = default, power = default, weight = default, durability = default;
             if (hasPreview)
             {
                 StatSummary.Stats before = StatSummary.Compute(current);
                 StatSummary.Stats after = StatSummary.Compute(SpecModApplier.Apply(current, new[] { part }));
                 grip = new StatDelta(before.Grip, after.Grip);
                 power = new StatDelta(before.Power, after.Power);
+                weight = new StatDelta(before.Weight, after.Weight);
+                durability = new StatDelta(before.Durability, after.Durability);
             }
+
+            // Affordable means BUYABLE: a bought part is always fitted, so a full car blocks the
+            // purchase just as surely as an empty wallet.
+            bool buyable = Run.HasFreeSlot && (alreadyPaid || Run.Money >= price);
 
             return new OfferVm(part, part ? part.DisplayName : "", part ? part.Category : default, price,
                 part ? part.Edition : PartEdition.None, part ? PartDisplay.EditionTag(part.Edition) : "",
-                part ? part.Description : "", Run.Money >= price, hasPreview, grip, power);
+                part ? part.Description : "", buyable, hasPreview, grip, power, weight, durability);
         }
     }
 }

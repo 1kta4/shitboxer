@@ -76,5 +76,28 @@ namespace Shitboxer.Race
             int minutes = (int)(seconds / 60f);
             return $"{minutes}:{seconds - minutes * 60f:00.0}";
         }
+
+        /// <summary>
+        /// A sector time for the timing strip: seconds to two decimals, no minutes field ("23.41"), and
+        /// "--.--" for the -1 "not set yet" sentinel. Deliberately finer than
+        /// <see cref="FormatRaceClock"/>: a sector time is written once and then sits still, so a second
+        /// decimal is readable rather than shimmering — and hundredths are exactly the granularity that
+        /// makes a purple/green split feel earned rather than arbitrary.
+        ///
+        /// A sector on any plausible track is well under a minute, so dropping the minutes field is safe
+        /// and buys the strip a lot of width. A pathological time still formats, just wide.
+        /// </summary>
+        public static string FormatSectorTime(float seconds)
+        {
+            if (seconds < 0f) return "--.--";
+            return seconds.ToString("0.00");
+        }
+
+        /// <summary>
+        /// Short label for a sector index: 0 → "S1". Presentation only — every rule in the Race layer
+        /// works in 0-based indices, and this is the single place that converts to the 1-based names
+        /// drivers actually use.
+        /// </summary>
+        public static string FormatSectorName(int sectorIndex) => $"S{sectorIndex + 1}";
     }
 }

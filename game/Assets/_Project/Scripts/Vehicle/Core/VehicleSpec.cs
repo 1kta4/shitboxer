@@ -96,6 +96,10 @@ namespace Shitboxer.Vehicle
         [Tooltip("Extra roll/pitch angular damping while grounded — kills wallowing.")]
         public float FlatRideDamping = 1.5f;
 
+        [Header("Toughness — the DURABILITY stat lives here")]
+        [Tooltip("Fraction of incoming impact damage this car shrugs off, 0 = takes it all (the shipped behaviour). Raised by the build's Durability points. INERT until the damage rework wires it — present now so the garage's Durability bar has a real number to read and so a chassis can be authored tough.")]
+        [Range(0f, 0.9f)] public float DamageResistance = 0f;
+
         [Header("Aero")]
         [Tooltip("Longitudinal drag: F = -Coeff * v * |v|.")]
         public float DragCoeff = 0.38f;
@@ -104,6 +108,27 @@ namespace Shitboxer.Vehicle
 
         public float FrontAxleZ => WheelbaseM * 0.5f;
         public float RearAxleZ => -WheelbaseM * 0.5f;
+
+        /// <summary>
+        /// An independent copy of this spec. Every tuning path — stat parts, the stat ledger, the bot
+        /// strength ramp — works on a copy so the authored asset is never mutated.
+        ///
+        /// <see cref="MemberwiseClone"/> rather than a JsonUtility round-trip: it is faster, allocates
+        /// once instead of building an intermediate string, picks up any field added later for free,
+        /// and — the reason it changed — it works OUTSIDE the Unity player loop, so the whole
+        /// spec-baking layer is unit-testable in a plain runner instead of silently skipping.
+        ///
+        /// Every field here is a value type or a serializable struct, which MemberwiseClone duplicates
+        /// correctly; <see cref="GearRatios"/> is the single reference-type field and is copied
+        /// explicitly. ADD A REFERENCE-TYPE FIELD AND YOU MUST DEEP-COPY IT HERE, or two specs will
+        /// silently share it.
+        /// </summary>
+        public VehicleSpec Clone()
+        {
+            var copy = (VehicleSpec)MemberwiseClone();
+            if (GearRatios != null) copy.GearRatios = (float[])GearRatios.Clone();
+            return copy;
+        }
 
         /// <summary>
         /// Clamp every field the sim divides by (or whose zero would poison the maths) up to a small

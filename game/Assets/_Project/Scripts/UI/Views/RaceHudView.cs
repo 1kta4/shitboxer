@@ -28,6 +28,7 @@ namespace Shitboxer.UI.Views
         private readonly Label _last = new Label();
         private readonly Label _cutoff = new Label();
         private readonly Label _payout = new Label();
+        private readonly Label _sectorCash = new Label();
         private readonly Label _verdict = new Label();
         private readonly Label _draft = new Label();
         private readonly Label _sapGrip = new Label();
@@ -39,6 +40,35 @@ namespace Shitboxer.UI.Views
         private readonly Label _duraVal = new Label();
         private readonly Label _countdown = new Label();
         private readonly VisualElement _flash = new VisualElement();
+
+        // --- sector timing strip (top-right, under the lap times) -------------------------------
+        // Built lazily on the first refresh, because the sector count comes from the race and this view
+        // is constructed before any race exists.
+        private readonly VisualElement _sectorStrip = new VisualElement();
+        private Label[] _sectorTimes = System.Array.Empty<Label>();
+        private VisualElement[] _sectorBars = System.Array.Empty<VisualElement>();
+        private VisualElement[] _sectorCells = System.Array.Empty<VisualElement>();
+
+        // Last values pushed into the strip. A sector's time and colour change three times a LAP, but
+        // Refresh runs every frame — and every style/text write dirties the element for UI Toolkit's
+        // next layout pass, plus the time write allocates a string. Caching turns ~60 writes a second
+        // into 3 a lap.
+        private float[] _shownSectorTimes = System.Array.Empty<float>();
+        private SectorColour[] _shownSectorColours = System.Array.Empty<SectorColour>();
+        private int _shownCurrentSector = -1;
+        private int _shownSectorCash = -1;
+
+        // --- transient style readout (top-centre) ------------------------------------------------
+        private readonly Label _styleFlash = new Label();
+
+        /// <summary>Seconds the just-driven sector's style stays on screen before fading out.</summary>
+        private const float StyleFlashWindowS = 2.4f;
+
+        // Monotonic sector count last seen for the player, so a crossing can be detected without the
+        // race layer having to carry a realtime stamp for a purely presentational fade.
+        private int _lastSeenSectorCount = -1;
+        private float _styleFlashStartedRealtime = -99f;
+        private bool _styleFlashVisible;
 
         public RaceHudView()
         {
@@ -67,12 +97,20 @@ namespace Shitboxer.UI.Views
             _delta.AddToClassList("hud-delta");
             tc.Add(_curTime);
             tc.Add(_delta);
+            // How the last sector was DRIVEN — flashes on each crossing, then fades. Deliberately
+            // transient: a permanent style readout would coach you through the sector, when the point is
+            // to find out whether players can already tell what they just drove.
+            _styleFlash.AddToClassList("hud-style");
+            _styleFlash.style.display = DisplayStyle.None;
+            tc.Add(_styleFlash);
             screen.Add(tc);
 
-            // top-right: BEST / LAST lap
+            // top-right: BEST / LAST lap, then the sector strip beneath them
             var tr = Corner("hud-tr");
             tr.Add(RightStat("BEST LAP", _best));
             tr.Add(RightStat("LAST LAP", _last));
+            _sectorStrip.AddToClassList("hud-sectors");
+            tr.Add(_sectorStrip);
             screen.Add(tr);
 
             // bottom-left: cutoff, payout, verdict, transient cues
@@ -89,8 +127,11 @@ namespace Shitboxer.UI.Views
             _sapPower.AddToClassList("red");
             _attack.AddToClassList("hud-line");
             _attack.AddToClassList("amber");
+            _sectorCash.AddToClassList("hud-line");
+            _sectorCash.AddToClassList("green");
             bl.Add(_cutoff);
             bl.Add(_payout);
+            bl.Add(_sectorCash);
             bl.Add(_verdict);
             bl.Add(_draft);
             bl.Add(_sapGrip);
@@ -142,6 +183,9 @@ namespace Shitboxer.UI.Views
             _last.text = RaceDisplay.FormatRaceClock(me.LastLapTimeS);
 
             RefreshDelta(m, me);
+            RefreshSectors(m, me);
+            RefreshStyleFlash(me, host.SectorParts);
+            RefreshSectorCash(host.SectorParts);
             RefreshCutoff(m, me);
             RefreshPayout(me, payout);
             RefreshVerdict(me);
@@ -149,6 +193,143 @@ namespace Shitboxer.UI.Views
             RefreshDura(player);
             RefreshCountdown(m);
             RefreshFlash(player);
+        }
+
+        /// <summary>
+        /// The broadcast-style timing strip: one cell per sector showing this lap's time, with a colour
+        /// bar underneath — purple for the session's fastest, green for a personal best, yellow otherwise.
+        /// The cell for the sector currently being driven is highlighted so the strip also answers
+        /// "where am I".
+        /// </summary>
+        private void RefreshSectors(RaceManager m, RaceCarStatus me)
+        {
+            int count = m.SectorsPerLap;
+            if (count <= 0) { _sectorStrip.style.display = DisplayStyle.None; return; }
+            if (_sectorTimes.Length != count) BuildSectorStrip(count);
+            _sectorStrip.style.display = DisplayStyle.Flex;
+
+            var times = me.LapSectorTimesS;
+            var colours = me.LapSectorColours;
+            bool racing = me.State == CarRaceState.Racing;
+            int current = racing ? me.CurrentSector : -1;
+
+            for (int i = 0; i < count; i++)
+            {
+                float t = i < times.Count ? times[i] : -1f;
+                SectorColour c = i < colours.Count ? colours[i] : SectorColour.None;
+
+                // Only touch the element when something actually changed — see the cache fields.
+                if (!Mathf.Approximately(_shownSectorTimes[i], t))
+                {
+                    _sectorTimes[i].text = RaceDisplay.FormatSectorTime(t);
+                    _shownSectorTimes[i] = t;
+                }
+                if (_shownSectorColours[i] != c)
+                {
+                    _sectorBars[i].style.backgroundColor = SectorTiming.ToColor(c);
+                    // An un-set sector's bar is a faint placeholder rather than a solid grey block, so
+                    // an empty strip reads as "not yet" instead of as a fourth colour tier.
+                    _sectorBars[i].style.opacity = c == SectorColour.None ? 0.25f : 1f;
+                    _shownSectorColours[i] = c;
+                }
+            }
+
+            if (current != _shownCurrentSector)
+            {
+                for (int i = 0; i < count; i++)
+                    _sectorCells[i].EnableInClassList("current", i == current);
+                _shownCurrentSector = current;
+            }
+        }
+
+        private void BuildSectorStrip(int count)
+        {
+            _sectorStrip.Clear();
+            _sectorTimes = new Label[count];
+            _sectorBars = new VisualElement[count];
+            _sectorCells = new VisualElement[count];
+
+            // Seed the cache to values the race can never produce, so the first refresh always writes.
+            _shownSectorTimes = new float[count];
+            _shownSectorColours = new SectorColour[count];
+            for (int i = 0; i < count; i++)
+            {
+                _shownSectorTimes[i] = float.NaN;
+                _shownSectorColours[i] = (SectorColour)byte.MaxValue;
+            }
+            _shownCurrentSector = -1;
+
+            for (int i = 0; i < count; i++)
+            {
+                var cell = new VisualElement();
+                cell.AddToClassList("hud-sector");
+
+                var name = new Label { text = RaceDisplay.FormatSectorName(i) };
+                name.AddToClassList("hud-sector__name");
+
+                var value = new Label { text = RaceDisplay.FormatSectorTime(-1f) };
+                value.AddToClassList("hud-sector__time");
+
+                var bar = new VisualElement();
+                bar.AddToClassList("hud-sector__bar");
+
+                cell.Add(name);
+                cell.Add(value);
+                cell.Add(bar);
+                _sectorStrip.Add(cell);
+
+                _sectorTimes[i] = value;
+                _sectorBars[i] = bar;
+                _sectorCells[i] = cell;
+            }
+        }
+
+        /// <summary>
+        /// Flashes how the just-completed sector was driven, then fades. Detects the crossing by watching
+        /// the monotonic sector counter rather than a timestamp, so the race layer carries no state that
+        /// exists purely for a UI fade.
+        /// </summary>
+        private void RefreshStyleFlash(RaceCarStatus me, SectorPartRunner parts)
+        {
+            if (me.CompletedSectors != _lastSeenSectorCount)
+            {
+                bool firstSight = _lastSeenSectorCount < 0;
+                _lastSeenSectorCount = me.CompletedSectors;
+                // Don't flash on the very first observation — that's this view binding to a race already
+                // in progress, not a sector the player just drove.
+                if (!firstSight && me.LastSectorIndex >= 0)
+                {
+                    _styleFlashStartedRealtime = Time.time;
+                    // What the sector paid rides on the SAME flash as how it was driven, so the causal
+                    // link — "that money came from that style" — is one glance rather than two.
+                    int cash = parts != null ? parts.LastSectorMoney : 0;
+                    string paid = cash > 0 ? $"   +${cash}" : string.Empty;
+                    _styleFlash.text =
+                        $"{RaceDisplay.FormatSectorName(me.LastSectorIndex)}  {SectorStyleClassifier.Describe(me.LastSectorStyle)}{paid}";
+                    _styleFlash.style.color = SectorTiming.ToColor(me.LastSectorColour);
+                }
+            }
+
+            float since = Time.time - _styleFlashStartedRealtime;
+            if (since < 0f || since > StyleFlashWindowS)
+            {
+                // Guarded: the flash is idle for most of a race, and an unconditional display write
+                // would dirty the element for UI Toolkit's layout pass on every one of those frames.
+                if (_styleFlashVisible)
+                {
+                    _styleFlash.style.display = DisplayStyle.None;
+                    _styleFlashVisible = false;
+                }
+                return;
+            }
+            if (!_styleFlashVisible)
+            {
+                _styleFlash.style.display = DisplayStyle.Flex;
+                _styleFlashVisible = true;
+            }
+            // Hold at full opacity for the first half, then ease out — so it is readable before it goes.
+            float fade = Mathf.Clamp01(1f - (since / StyleFlashWindowS - 0.5f) * 2f);
+            _styleFlash.style.opacity = fade;
         }
 
         private void RefreshCountdown(RaceManager m)
@@ -208,6 +389,21 @@ namespace Shitboxer.UI.Views
             bool ahead = cur - me.BestLapTimeS <= 0f;
             _delta.EnableInClassList("green", ahead);
             _delta.EnableInClassList("amber", !ahead);
+        }
+
+        /// <summary>
+        /// Running total of what sector parts have paid this race. Hidden entirely at zero, so a loadout
+        /// with no sector rules sees no line at all rather than a permanent "$0" — sectors pay nothing
+        /// on their own (doc 08 decision 9) and the HUD should say so by omission.
+        /// </summary>
+        private void RefreshSectorCash(SectorPartRunner parts)
+        {
+            int earned = parts != null ? parts.MoneyEarned : 0;
+            if (earned == _shownSectorCash) return;   // changes at most 9x a race; Refresh runs every frame
+            _shownSectorCash = earned;
+
+            _sectorCash.style.display = earned > 0 ? DisplayStyle.Flex : DisplayStyle.None;
+            if (earned > 0) _sectorCash.text = $"SECTORS  +${earned}";
         }
 
         private void RefreshCutoff(RaceManager m, RaceCarStatus me)
