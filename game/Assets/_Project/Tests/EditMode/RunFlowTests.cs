@@ -174,7 +174,10 @@ namespace Shitboxer.Tests
             var original = new RunState { TotalCircuits = 5, Money = 9, Lives = 2 };
             RunState resumed = RunSave.From(original).ToRunState(pool);
 
-            Assert.AreEqual(1, resumed.TotalCircuits, "the DTO drops season length — it rebuilds at the default");
+            // The default is 8 since decision 12 (the 24-race season) — the point stands unchanged:
+            // whatever the saved run carried (5 here) is dropped, and the rebuilt value is the
+            // class default until the director re-stamps its own configured length.
+            Assert.AreEqual(8, resumed.TotalCircuits, "the DTO drops season length — it rebuilds at the default");
             Assert.AreEqual(9, resumed.Money, "run PROGRESS must still survive the round-trip");
 
             RunDirector.ApplySeasonShape(resumed, 5);
