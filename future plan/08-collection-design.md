@@ -3,7 +3,8 @@
 **Status: in progress, 2026-07-24.** Built by walking `Jokers.docx` (the Balatro-mapped collection
 spec) against the shipped physics. Decisions below are LOCKED unless re-litigated explicitly.
 Open questions are at the bottom — they are the live work. Slices 1–6 playtested 2026-07-23;
-slices 7–8 (damage rework, season/bot retune) built 2026-07-24, **not yet played**.
+slices 7–10 (damage rework, season/bot retune, actives, tuning harness) built 2026-07-24,
+**not yet played**.
 
 Companion to `03-game-design.md`. Where the two disagree, this doc is newer; the one deliberate
 override is noted in decision 2.
@@ -181,7 +182,7 @@ half is cash it in.
 > those numbers only because they are on rails following `RacingLine`; a player at µ 4 would have a
 > scalpel that flips on kerbs.
 
-**14 — Active items each declare their own charge condition.**
+**14 — Active items each declare their own charge condition.** *(Built — slice 9.)*
 Not one model. An active is defined partly by *how it is earned*, so equipping one changes how you
 want to drive. Conditions: **behaviour-charged** (drafting, clean running, contact dealt, damage
 taken), **sector-charged** (+1 per sector line), **once per race**, **cooldown**, and
@@ -754,6 +755,52 @@ Three things worth knowing:
 
 ---
 
+## Slice 9 — active items (decision 14)
+
+Built 2026-07-24, **not yet played**. The shape the doc asked for: **the charge condition is the
+data** — `PartDef` gained an `ActiveSpec` (condition + fill/chunk rate + boost + drain + min charge
++ per-use cost), and the reservoir underneath is `DraftBoostModel` itself, the reference
+implementation the doc named, extended with one `AddCharge` method for event-driven conditions. Its
+hard ×1.5 boost ceiling therefore bounds every active for free.
+
+- Conditions shipped: **Drafting, CleanRunning, ContactDealt** (only hits ≥50% your fault — getting
+  rammed is DamageTaken's identity, paying both ways would blur the two), **DamageTaken** (charge
+  per 10% durability lost), **SectorLine, OncePerRace** (arms full, never refills), **Cooldown,
+  PaidUse** (always ready, each press billed — the hook a boss's per-use tax lands on; `UseCost`
+  can ride on ANY condition).
+- **One bind, one active**: the FIRST equipped active part owns the key; the runner
+  (`ActivePartRunner`, the same Meta-seam shape as the sector runner) gathers world signals, steps
+  the pure state, pays the use cost exactly once per deploy, and holds the boost on the sim every
+  tick — the write doubling as the re-assert against the watchdog's mid-race sim rebuild.
+- **Rebind shipped small**: a curated dropdown (Q/E/F/R/X/C/LeftShift/Space) in settings rather
+  than a listen-for-any-key layer. `ActivateKeyBinding.Parse` falls back to Q on anything stale, so
+  the bind always exists; the HUD hint shows the normalized key that actually works. A full rebind
+  layer remains future work if the game ever needs more than this one bind.
+- **HUD**: a charge meter under the durability bar — cobalt while charging, green when the press
+  would bite (charged AND affordable), amber while live. Hidden entirely without an active.
+- **8 parts, one per archetype**, so playtesting exercises every charge identity: Tow Cell,
+  Zen Battery, Haymaker Cell, Payback Coil, Checkpoint Charge, One Big Push, Slow Reactor,
+  Push To Pass ($2/use).
+- The dormant designer-gated `DraftBoost` component stays exactly as it was — disabled it writes
+  nothing, so the two can never fight over `BoostMult`.
+
+**Verification:** 553 passed / 0 failed / 144 editor-only skips, zero warnings. The pure state
+(charge gates, once-per-race no-refill, paid-use billing, the pause zero-dt no-op, the ceiling
+clamp) is covered; the Unity glue (sensors, combat events, the real keyboard) is what playtesting
+exercises.
+
+---
+
+## Slice 10 — the tuning harness grows (open question 6)
+
+Two more editor-only ESC-menu tools, forced by the 24-race season: **NEXT CIRCUIT >>** (jump to the
+next circuit's first race — no payout, no life, mirrors StartNextRace's transition exactly so
+nothing downstream can tell) and a **TIME ×4** fast-forward toggle (applied on resume; the frozen
+menu itself stays frozen). With FINISH RACE NOW these make "what does circuit 6 feel like"
+a two-click question.
+
+---
+
 ## Open questions
 
 1. ~~**Durability and weight need to become real.**~~ **Durability done — slice 7.** Weight was
@@ -768,9 +815,9 @@ Three things worth knowing:
 4. **What the race HUD shows**, now that the four stat bars are excluded from it.
 5. **Eight circuits needs eight tracks.** Doc 06 plans them; three race scenes exist today
    (`RaceTest`, `RaceGauntlet`, `RaceSpeedway`).
-6. **Tuning iteration cost.** A 75-minute run makes balance passes expensive. A debug
-   skip-race / fast-forward / jump-to-circuit harness is now a prerequisite for tuning, not a
-   nicety.
+6. ~~**Tuning iteration cost.**~~ **Done — slice 1's dev row + slice 10.** FINISH RACE NOW,
+   NEXT CIRCUIT jump and TIME ×4 cover skip-race / jump-to-circuit / fast-forward; grow it only if
+   a tuning session finds a missing lever.
 7. **Blueprint pricing and shop presence.** How many per shop, at what cost, and do they compete
    with parts for shelf slots or get their own row?
 
