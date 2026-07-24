@@ -3,8 +3,9 @@
 **Status: in progress, 2026-07-24.** Built by walking `Jokers.docx` (the Balatro-mapped collection
 spec) against the shipped physics. Decisions below are LOCKED unless re-litigated explicitly.
 Open questions are at the bottom — they are the live work. Slices 1–6 playtested 2026-07-23;
-slices 7–13 (damage rework, season/bot retune, actives, tuning harness, The Brute, the boss
-rotation, editions-as-materials) built 2026-07-24, **not yet played**.
+slices 7–14 (damage rework, season/bot retune, actives, tuning harness, The Brute, the boss
+rotation, editions-as-materials, the eight-track season) built 2026-07-24, **not yet played**.
+Everything through slice 14 is editor-verified headless (716/716 in batchmode).
 
 Companion to `03-game-design.md`. Where the two disagree, this doc is newer; the one deliberate
 override is noted in decision 2.
@@ -902,8 +903,11 @@ half hold) are still the gating step.
 3. **v1 scope and sequencing.** Components, Enhancements, Seals, Editions-as-materials, Spectrals,
    Tarots, Actives, Booster tiers — eight subsystems, on top of Phase 4 UI already mid-flight.
 4. **What the race HUD shows**, now that the four stat bars are excluded from it.
-5. **Eight circuits needs eight tracks.** Doc 06 plans them; three race scenes exist today
-   (`RaceTest`, `RaceGauntlet`, `RaceSpeedway`).
+5. ~~**Eight circuits needs eight tracks.**~~ **Done — slice 14.** Eight greybox venues, one per
+   circuit (`RunDirector.DefaultRaceScenes` orders the season arc; scene selection is keyed by
+   CircuitIndex so a circuit's races and boss run at home). The five new layouts carry their doc-06
+   theme in the builder's Character strings for the future art pass; what greyboxing can't express
+   (weather, ice, hazards) stays doc 06's art/mechanics work.
 6. ~~**Tuning iteration cost.**~~ **Done — slice 1's dev row + slice 10.** FINISH RACE NOW,
    NEXT CIRCUIT jump and TIME ×4 cover skip-race / jump-to-circuit / fast-forward; grow it only if
    a tuning session finds a missing lever.
