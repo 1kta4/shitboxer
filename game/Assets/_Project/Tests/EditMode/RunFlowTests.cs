@@ -330,9 +330,14 @@ namespace Shitboxer.Tests
             Assert.GreaterOrEqual(RunState.RepairCostFor(0.999f, ShippedFullRepairCost), 1,
                 "any wear at all costs at least $1");
             Assert.AreEqual(ShippedFullRepairCost, RunState.RepairCostFor(VehicleSim.MinDurability, ShippedFullRepairCost),
-                "at the durability floor a repair costs the full price");
-            Assert.AreEqual(ShippedFullRepairCost, RunState.RepairCostFor(0.2f, ShippedFullRepairCost),
+                "at the durability floor (zero since decision 15 — a wreck) a repair costs the full price");
+            Assert.AreEqual(ShippedFullRepairCost, RunState.RepairCostFor(-0.5f, ShippedFullRepairCost),
                 "below the floor still clamps to the full price");
+            // Since decision 15 the wear span is the whole 0..1 range, so a part-worn car pays
+            // proportionally: durability 0.2 is 80% wear, not floor-price.
+            Assert.AreEqual(Mathf.CeilToInt(ShippedFullRepairCost * 0.8f),
+                RunState.RepairCostFor(0.2f, ShippedFullRepairCost),
+                "part-worn repair scales linearly across the full 0..1 wear span");
         }
 
         [Test]
@@ -346,12 +351,13 @@ namespace Shitboxer.Tests
                     RunState.RepairCostFor(VehicleSim.MinDurability, ShippedFullRepairCost, exp), $"floor, exp {exp}");
             }
 
-            // Mid-damage (durability 0.7 → normalized wear 0.5): a convex exponent (>1) makes a partial repair
-            // strictly cheaper than the linear default, a concave one (<1) strictly dearer — the "scales when
-            // configured" behaviour, off the fixed endpoints.
-            int linear = RunState.RepairCostFor(0.7f, ShippedFullRepairCost, 1f);       // 12 * 0.5     = 6
-            int convex = RunState.RepairCostFor(0.7f, ShippedFullRepairCost, 2f);       // 12 * 0.5^2   = 3
-            int concave = RunState.RepairCostFor(0.7f, ShippedFullRepairCost, 0.5f);    // 12 * 0.5^0.5 ≈ 8.49 → 9
+            // Mid-damage (durability 0.5 → normalized wear 0.5 on the decision-15 full-range span): a
+            // convex exponent (>1) makes a partial repair strictly cheaper than the linear default, a
+            // concave one (<1) strictly dearer — the "scales when configured" behaviour, off the fixed
+            // endpoints.
+            int linear = RunState.RepairCostFor(0.5f, ShippedFullRepairCost, 1f);       // 12 * 0.5     = 6
+            int convex = RunState.RepairCostFor(0.5f, ShippedFullRepairCost, 2f);       // 12 * 0.5^2   = 3
+            int concave = RunState.RepairCostFor(0.5f, ShippedFullRepairCost, 0.5f);    // 12 * 0.5^0.5 ≈ 8.49 → 9
             Assert.AreEqual(6, linear);
             Assert.Less(convex, linear, "a convex exponent makes partial damage cheaper than linear");
             Assert.Greater(concave, linear, "a concave exponent makes partial damage dearer than linear");

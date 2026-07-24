@@ -229,15 +229,14 @@ namespace Shitboxer.Vehicle
 
         // ------------------------------------------------------------------ persistent damage / durability
 
-        /// <summary>Floor Durability can never drop below — even a total wreck still drives, just badly.</summary>
-        public const float MinDurability = 0.4f;
-
         /// <summary>
-        /// Fraction of peak grip/power stripped once fully battered (Durability == MinDurability). Kept
-        /// below a full 1:1 so a wreck is hobbled, not undriveable — at the floor a car still keeps
-        /// (1 - MaxWearPerformanceLoss * (1 - MinDurability)) of its output.
+        /// Floor Durability can never drop below. Zero since the damage rework (doc 08 decision 15): a
+        /// car CAN now be wrecked outright, and a wreck is the HOST's problem — RaceManager retires any
+        /// car whose durability reaches zero, so the zero-grip/zero-torque sim state is never something
+        /// a player is left driving. (The old 0.4 floor meant the worst outcome of being rammed all race
+        /// was driving at 70% — contact racing had no real worst case.)
         /// </summary>
-        private const float MaxWearPerformanceLoss = 0.5f;
+        public const float MinDurability = 0f;
 
         /// <summary>
         /// PERSISTENT 0..1 structural integrity, 1 = a fresh car. Unlike the transient grip/power saps this
@@ -248,37 +247,53 @@ namespace Shitboxer.Vehicle
         /// </summary>
         public float Durability { get; private set; } = 1f;
 
-        /// <summary>
-        /// Multiplier (≤1) that persistent wear places on BOTH peak tyre grip and engine drive torque:
-        /// 1 at full Durability, easing down to (1 - MaxWearPerformanceLoss * (1 - MinDurability)) at the
-        /// floor. Folded in alongside <see cref="GripEffectMult"/>/<see cref="PowerEffectMult"/> so lasting
-        /// wear stacks multiplicatively with the transient combat saps.
-        /// </summary>
-        public float DurabilityMult => 1f - (1f - Durability) * MaxWearPerformanceLoss;
+        /// <summary>True once <see cref="Durability"/> has hit zero — the car is a wreck. The host is
+        /// expected to retire it from the race (decision 15); the sim itself just reports the state.</summary>
+        public bool IsDestroyed => Durability <= 0f;
+
+        // Cached Durability^WearExponent — recomputed only when Durability changes (rare: a hit or a
+        // host restore), never in the per-step force path where DurabilityMult is read per wheel.
+        private float _durabilityMult = 1f;
 
         /// <summary>
-        /// Permanently wear the car by <paramref name="amount"/> of durability, clamped so Durability never
-        /// drops below <see cref="MinDurability"/>. No-op for non-positive or non-finite amounts. Unlike
-        /// ApplyGripSap/ApplyPowerSap this does NOT decay back toward nominal — the loss holds for the rest
-        /// of the race and is cleared only by rebuilding the sim. Callers scale <paramref name="amount"/> by
-        /// impact severity so heavy shunts progressively batter the car down (Wreckfest-style consequences).
+        /// Multiplier (≤1) that persistent wear places on BOTH peak tyre grip and engine drive torque:
+        /// Durability ^ <see cref="VehicleSpec.WearExponent"/> (doc 08 decision 15), so 1 on a fresh car,
+        /// the chassis-authored curve on a damaged one, and 0 on a wreck. At the default exponent of 1 a
+        /// half-durability car runs at half pace — "crippled", and expected to miss the survival cutoff.
+        /// Folded in alongside <see cref="GripEffectMult"/>/<see cref="PowerEffectMult"/> so lasting
+        /// wear stacks multiplicatively with the transient combat saps.
+        /// </summary>
+        public float DurabilityMult => _durabilityMult;
+
+        /// <summary>
+        /// Permanently wear the car by <paramref name="amount"/> of durability, scaled down by the spec's
+        /// <see cref="VehicleSpec.DamageResistance"/> (a tough build shrugs off part of every hit) and
+        /// clamped so Durability never drops below <see cref="MinDurability"/> (zero — a wreck). No-op for
+        /// non-positive or non-finite amounts. Unlike ApplyGripSap/ApplyPowerSap this does NOT decay back
+        /// toward nominal — the loss holds for the rest of the race and is cleared only by rebuilding the
+        /// sim. Callers scale <paramref name="amount"/> by impact severity so heavy shunts progressively
+        /// batter the car down (Wreckfest-style consequences).
         /// </summary>
         public void ApplyDamage(float amount)
         {
             if (!(amount > 0f)) return; // rejects zero, negatives and NaN
+            amount *= 1f - Spec.DamageResistance;
             Durability = Mathf.Max(MinDurability, Durability - amount);
+            _durabilityMult = Mathf.Pow(Durability, Spec.WearExponent);
         }
 
         /// <summary>
         /// Directly assign persistent <see cref="Durability"/>, clamped to [<see cref="MinDurability"/>, 1].
         /// Unlike <see cref="ApplyDamage"/> (which only ever lowers it and rejects out-of-range amounts)
         /// this sets an ABSOLUTE value, so the host can carry a run's accumulated wear onto a freshly-rebuilt
-        /// sim (a new VehicleSim resets to full) or restore it after a garage repair. Lives in the plain-C#
-        /// core so a headless server can carry wear across races identically.
+        /// sim (a new VehicleSim resets to full) or restore it after a garage repair. No resistance scaling —
+        /// this is a restore, not a hit. Lives in the plain-C# core so a headless server can carry wear
+        /// across races identically.
         /// </summary>
         public void SetDurability(float durability)
         {
             Durability = Mathf.Clamp(durability, MinDurability, 1f);
+            _durabilityMult = Mathf.Pow(Durability, Spec.WearExponent);
         }
 
         // ------------------------------------------------------------------ tyre heat / wear

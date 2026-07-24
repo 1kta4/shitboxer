@@ -310,7 +310,11 @@ namespace Shitboxer.Meta
             // Persistent wear carries ACROSS races within a run: a freshly-rebuilt sim resets to full
             // durability (and ApplyEquippedParts may have just rebuilt it via SetSpec), so re-apply the
             // run's carried value here — after the other Apply* calls — so a battered car stays battered
-            // until the player pays to repair it in the garage.
+            // until the player pays to repair it in the garage. Floored first: with retirement at zero
+            // (decision 15), rolling a wreck onto the grid would retire it at the green flag and drain
+            // the run's remaining lives with zero player input — so overnight the crew hammers the
+            // panels straight enough to roll, free. 25% is still deeply crippled, just drivable.
+            Run.CarDurability = RaceStartDurability(Run.CarDurability);
             if (_playerCar.Sim != null)
                 _playerCar.Sim.SetDurability(Run.CarDurability);
 
@@ -419,6 +423,20 @@ namespace Shitboxer.Meta
         public static float BotStrengthFor(int raceNumber, float baseScale, float perRace, float max) =>
             Mathf.Clamp(Mathf.Max(1f, baseScale) + Mathf.Max(0f, perRace) * Mathf.Max(0, raceNumber),
                         1f, Mathf.Max(1f, max));
+
+        /// <summary>
+        /// Durability floor applied to the carried wear when a race BEGINS (decision 15). With
+        /// retirement at zero, a car rolled onto the grid as a wreck would retire at the green flag —
+        /// and since a failed race is retried, a broke player with a wrecked car would lose every
+        /// remaining life with zero input. So the crew hammers the panels straight enough to roll,
+        /// free: 25% durability, still deeply crippled (25% pace at the default wear exponent), but
+        /// drivable. Applied only at race start — garage repair costs still read the true carried wear.
+        /// </summary>
+        public const float MinRaceStartDurability = 0.25f;
+
+        /// <summary>The durability a race actually starts from, given the run's carried wear.</summary>
+        public static float RaceStartDurability(float carried) =>
+            Mathf.Max(Mathf.Clamp01(carried), MinRaceStartDurability);
 
         private void ApplyBotStrength()
         {
@@ -794,7 +812,19 @@ namespace Shitboxer.Meta
             // earlier survives that recovery instead of quietly disappearing.
             _sectorParts.Reassert();
 
-            if (_raceManager == null || !_raceManager.RaceComplete) return;
+            if (_raceManager == null) return;
+
+            // Decision 15: a retired player must not sit in a dead car watching the field lap for
+            // minutes — stamp the running order as final and resolve now. The retired state survives
+            // FinishRaceNow (only Racing cars are stamped), so the verdict below still reads RETIRED.
+            if (!_raceManager.RaceComplete && _playerCar != null)
+            {
+                RaceCarStatus mine = _raceManager.GetStatus(_playerCar);
+                if (mine != null && mine.State == CarRaceState.Retired)
+                    _raceManager.FinishRaceNow();
+            }
+
+            if (!_raceManager.RaceComplete) return;
             ResolveRace();
         }
 
@@ -901,7 +931,7 @@ namespace Shitboxer.Meta
             {
                 _devMenuOpen = false;
                 Time.timeScale = _preMenuTimeScale;
-                if (_raceManager != null) _raceManager.DevFinishRaceNow();
+                if (_raceManager != null) _raceManager.FinishRaceNow();
             }
 
             // Live sector-scoring readout, so a test drive can be verified without adding print
@@ -1036,12 +1066,16 @@ namespace Shitboxer.Meta
             RecordRivalEncounters(me);
 
             bool eliminated = me.State == CarRaceState.Eliminated;
+            // Decision 15: the car was wrecked outright — durability hit zero mid-race. Same failure
+            // price as elimination (a life and the position payout), distinct summary so the player
+            // knows WHY the race ended.
+            bool retired = me.State == CarRaceState.Retired;
             // Flat top-N: a boss race asks for the same finish on every circuit. This used to shrink one
             // slot per circuit (Max(1, BossTopN - CircuitIndex)), which quietly escalated an already
             // unannounced gate into "win or lose a life" by circuit 3 — the rule moved under the player
             // with nothing on screen saying so, and cost a life in playtest.
-            bool bossFailed = !eliminated && Run.IsBossRace && me.Position > Run.BossTopN;
-            bool failed = eliminated || bossFailed;
+            bool bossFailed = !eliminated && !retired && Run.IsBossRace && me.Position > Run.BossTopN;
+            bool failed = eliminated || retired || bossFailed;
 
             // Opt-in boss race: true only when BossRacesEnabled designated THIS race a boss (its circuit's
             // final race) — the same designation ApplyRuleset used to push RaceRuleset.Boss at bind time.
@@ -1098,9 +1132,11 @@ namespace Shitboxer.Meta
             if (failed)
             {
                 Run.Lives -= 1;
-                LastRaceSummary = (eliminated
-                    ? $"P{me.Position} — ELIMINATED (missed the cutoff). +${totalPay}, -1 life."
-                    : $"P{me.Position} — boss race demands top {Run.BossTopN}. +${totalPay}, -1 life. Retry it.")
+                LastRaceSummary = (retired
+                    ? $"P{me.Position} — RETIRED, car destroyed. +${totalPay}, -1 life. Repair before the retry."
+                    : eliminated
+                        ? $"P{me.Position} — ELIMINATED (missed the cutoff). +${totalPay}, -1 life."
+                        : $"P{me.Position} — boss race demands top {Run.BossTopN}. +${totalPay}, -1 life. Retry it.")
                     + fragileNote;
 
                 if (Run.Lives <= 0)
@@ -1157,18 +1193,23 @@ namespace Shitboxer.Meta
 
         // A car that finished the race within this band ABOVE the sim's durability floor took HEAVY
         // damage — the signal that a Fragile part shook loose (see BreakOneFragilePartOnHeavyDamage).
-        private const float FragileBreakDurabilityBand = 0.05f;
+        // The crippled line of decision 15: at durability 0.5 the default chassis runs at half pace.
+        // Fragile parts break at or below it — the same threshold the Gold enhancement will read
+        // ("removed if durability drops below 50%"), so "heavily damaged" means ONE thing everywhere.
+        // (Pre-rework this was MinDurability + 0.05 = 0.45 against the old 0.4 floor; near-identical
+        // trigger point, now anchored to a threshold that exists for its own reasons.)
+        private const float FragileBreakDurabilityThreshold = 0.5f;
 
         /// <summary>
         /// Fragile parts (PartCondition.Fragile) are strong but breakable: if the car finished the race
-        /// battered near the sim's durability floor — read from the just-captured Run.CarDurability, the
-        /// HEAVY-damage signal — ONE equipped Fragile part shakes loose and is destroyed, removed from
+        /// crippled — at or below the decision-15 half-durability line, read from the just-captured
+        /// Run.CarDurability — ONE equipped Fragile part shakes loose and is destroyed, removed from
         /// both EquippedParts and OwnedParts (parts are unique, so dropping the PartDef is a clean delete).
         /// At most one break per race. Returns a summary suffix noting the loss, or "" if nothing broke.
         /// </summary>
         private string BreakOneFragilePartOnHeavyDamage()
         {
-            bool heavyDamage = Run.CarDurability <= VehicleSim.MinDurability + FragileBreakDurabilityBand;
+            bool heavyDamage = Run.CarDurability <= FragileBreakDurabilityThreshold;
             if (!heavyDamage) return "";
 
             PartDef toBreak = null;

@@ -200,7 +200,10 @@ namespace Shitboxer.Meta
                 spec.FinalDriveRatio /= Mathf.Pow(power, GearingShareOfPower);
 
             spec.MassKg *= WeightMult(ledger.Weight);
-            spec.DamageResistance = Mathf.Clamp01(spec.DamageResistance + DamageResistance(ledger.Durability));
+            // Capped at the field's authored 0.9 ceiling, not 1: since the damage rework reads this at
+            // ApplyDamage intake, a Clamp01 here would let a deep-durability build become literally
+            // unhittable — every contact part and boss in the game switched off by one stat.
+            spec.DamageResistance = Mathf.Clamp(spec.DamageResistance + DamageResistance(ledger.Durability), 0f, 0.9f);
 
             PhysicsCeilings.Clamp(spec);
             spec.Validate();

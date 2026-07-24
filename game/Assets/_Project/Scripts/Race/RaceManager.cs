@@ -10,6 +10,7 @@ namespace Shitboxer.Race
         Racing,
         Finished,   // crossed the line inside the survival cutoff (winner included)
         Eliminated, // finished outside the cutoff, or timed out before finishing
+        Retired,    // durability hit zero mid-race — the car is a wreck (doc 08 decision 15)
     }
 
     /// <summary>Live race bookkeeping for one car. Read-only outside the Race assembly.</summary>
@@ -549,6 +550,15 @@ namespace Shitboxer.Race
             {
                 if (status.State != CarRaceState.Racing || !status.Car) continue;
 
+                // Damage rework (doc 08 decision 15): a car at zero durability is a wreck, not a slow
+                // car — its sim produces zero grip and zero torque, so leaving it Racing would strand
+                // it sliding around the track forever. Retire it the step the wreck happens.
+                if (status.Car.Durability <= 0f)
+                {
+                    Retire(status);
+                    continue;
+                }
+
                 // Sector evidence accrues from the car's own telemetry and from the field, every step,
                 // regardless of what the projection guard below decides about distance. A teleported car
                 // still spent this step drafting or sideways.
@@ -725,6 +735,18 @@ namespace Shitboxer.Race
             ReleaseBot(status);
         }
 
+        /// <summary>
+        /// Wreck retirement (doc 08 decision 15): the car's durability hit zero, so its race ends here —
+        /// no finish time, no cutoff pass, position settled by distance covered like any non-finisher.
+        /// ReleaseBot also zeroes the input so a wrecked bot stops sawing at a wheel that no longer grips.
+        /// </summary>
+        private void Retire(RaceCarStatus status)
+        {
+            status.State = CarRaceState.Retired;
+            status.PassedCutoff = false;
+            ReleaseBot(status);
+        }
+
         /// <summary>Stops a bot from lapping forever once its race is over; humans keep control.</summary>
         private static void ReleaseBot(RaceCarStatus status)
         {
@@ -735,20 +757,20 @@ namespace Shitboxer.Race
             }
         }
 
-#if UNITY_EDITOR
         /// <summary>
-        /// EDITOR-ONLY tuning aid: end the race right now, finishing every still-racing car in the
-        /// standing it currently holds. Exists because a 24-race season (doc 08 decision 12) makes
-        /// waiting out three laps to check one payout an absurd iteration cost.
+        /// End the race right now, finishing every still-racing car in the standing it currently holds.
+        /// Two callers: the editor-only ESC dev menu (a 24-race season — doc 08 decision 12 — makes
+        /// waiting out three laps to check one payout an absurd iteration cost), and the run layer when
+        /// the PLAYER's car is wrecked (decision 15) — a retired player must not spectate the field for
+        /// the remaining laps, so the running order is stamped as final. Cars already Finished,
+        /// Eliminated or Retired keep their state; only Racing cars are stamped.
         ///
         /// Order is preserved deliberately. The leaderboard sorts finishers by finish TIME, so stamping
         /// every car with the same clock value would make the sort arbitrary and scramble the standings
         /// at the moment the payout reads them. Cars are therefore stamped in current running order with
         /// a hair's separation between them.
-        ///
-        /// Compiled out of player builds entirely — this must never be reachable in a shipped game.
         /// </summary>
-        public void DevFinishRaceNow()
+        public void FinishRaceNow()
         {
             if (!_running || RaceComplete) return;
 
@@ -772,7 +794,6 @@ namespace Shitboxer.Race
             SortLeaderboard();
             RaceComplete = true;
         }
-#endif
 
         private bool AllCarsDone()
         {

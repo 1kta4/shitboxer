@@ -446,6 +446,11 @@ namespace Shitboxer.UI.Views
                     _verdict.AddToClassList("bad");
                     _verdict.text = "ELIMINATED";
                     break;
+                case CarRaceState.Retired:
+                    _verdict.style.display = DisplayStyle.Flex;
+                    _verdict.AddToClassList("bad");
+                    _verdict.text = "RETIRED — CAR DESTROYED";
+                    break;
                 default:
                     _verdict.style.display = DisplayStyle.None;
                     break;

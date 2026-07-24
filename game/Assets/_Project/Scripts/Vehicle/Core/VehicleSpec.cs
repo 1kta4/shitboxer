@@ -97,8 +97,10 @@ namespace Shitboxer.Vehicle
         public float FlatRideDamping = 1.5f;
 
         [Header("Toughness — the DURABILITY stat lives here")]
-        [Tooltip("Fraction of incoming impact damage this car shrugs off, 0 = takes it all (the shipped behaviour). Raised by the build's Durability points. INERT until the damage rework wires it — present now so the garage's Durability bar has a real number to read and so a chassis can be authored tough.")]
+        [Tooltip("Fraction of incoming impact damage this car shrugs off, 0 = takes it all. Raised by the build's Durability points; VehicleSim.ApplyDamage folds it in at intake, so it protects against contact wear from every source (including boss-amplified hits). Capped at 0.9 — no car is ever immune.")]
         [Range(0f, 0.9f)] public float DamageResistance = 0f;
+        [Tooltip("Per-chassis damage-model curve (doc 08 decision 15): pace at damage level D is D^this. 1 = linear (half durability, half pace). Below 1 shrugs damage off (a monster truck at 0.4 keeps 76% pace at half durability); above 1 cripples hard (an open-wheeler at 2 is down to 25%). This exponent is where chassis toughness CHARACTER lives — DamageResistance above scales how much damage lands, this shapes what the damage costs.")]
+        [Range(0.25f, 3f)] public float WearExponent = 1f;
 
         [Header("Aero")]
         [Tooltip("Longitudinal drag: F = -Coeff * v * |v|.")]
@@ -145,6 +147,12 @@ namespace Shitboxer.Vehicle
             WheelRadiusM = Mathf.Max(0.05f, WheelRadiusM);
             SteerFalloffSpeedMps = Mathf.Max(0.1f, SteerFalloffSpeedMps);
             MaxSuspensionForceN = Mathf.Max(1f, MaxSuspensionForceN);
+
+            // The damage model's own divisors-by-behaviour: an exponent of 0 would make durability a
+            // no-op (D^0 == 1), resistance of 1 would make a car unhittable. Clamp both to the
+            // inspector ranges so a hand-edited asset can't switch the damage rework off.
+            WearExponent = Mathf.Clamp(WearExponent, 0.25f, 3f);
+            DamageResistance = Mathf.Clamp(DamageResistance, 0f, 0.9f);
 
             ClampTyre(ref FrontTyre);
             ClampTyre(ref RearTyre);

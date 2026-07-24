@@ -340,11 +340,14 @@ namespace Shitboxer.Tests
             Assert.Less(batteredDriveForce, freshDriveForce, "a battered car should produce less drive force");
 
             // Floor: hammering it far past the floor cannot drop Durability (or its mult) without bound.
+            // Since decision 15 the floor is ZERO — a wreck is a real state the host retires, not a
+            // hobbled-but-driveable car.
             for (int i = 0; i < 50; i++) battered.ApplyDamage(1f);
             float flooredDurability = battered.Durability;
             float flooredMult = battered.DurabilityMult;
-            Assert.Greater(flooredDurability, 0f, "the Durability floor must keep a wreck driveable, not zero it");
             Assert.That(flooredDurability, Is.EqualTo(VehicleSim.MinDurability).Within(1e-6f), "Durability did not clamp to its floor");
+            Assert.IsTrue(battered.IsDestroyed, "a car hammered to the floor should read as destroyed");
+            Assert.That(flooredMult, Is.EqualTo(0f).Within(1e-6f), "a wreck should have zero performance — retirement, not pace, is the floor");
             battered.ApplyDamage(1f);
             Assert.That(battered.Durability, Is.EqualTo(flooredDurability).Within(1e-6f), "Durability fell below its floor");
             Assert.That(battered.DurabilityMult, Is.EqualTo(flooredMult).Within(1e-6f), "DurabilityMult fell below its floor");
@@ -377,7 +380,7 @@ namespace Shitboxer.Tests
             Assert.That(sim.Durability, Is.EqualTo(1f).Within(1e-6f), "durability did not clamp to the ceiling of 1");
             Assert.That(sim.DurabilityMult, Is.EqualTo(1f).Within(1e-6f), "a pristine car should have a full-performance mult");
 
-            // Below the floor clamps up to MinDurability (even a total wreck still drives, just badly).
+            // Below the floor clamps up to MinDurability (zero since decision 15 — the host retires a wreck).
             sim.SetDurability(0f);
             Assert.That(sim.Durability, Is.EqualTo(VehicleSim.MinDurability).Within(1e-6f), "durability did not clamp up to its floor");
             sim.SetDurability(-5f);
