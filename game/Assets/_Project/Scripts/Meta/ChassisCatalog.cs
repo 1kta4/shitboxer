@@ -20,17 +20,23 @@ namespace Shitboxer.Meta
     }
 
     /// <summary>
-    /// The selectable chassis. Ids 0/1 map to <c>RunDirector.chassisSpecs</c> (Grip / Power boxes).
-    /// Locked entries have no spec yet — they are the meta unlock hooks (see the roadmap's "unlock a
-    /// second chassis / The Brute"): shown greyed until their flag is earned.
+    /// The selectable chassis. Ids map straight into <c>RunDirector.chassisSpecs</c>
+    /// (0 GripBox, 1 PowerBox, 2 Brute). Locked entries are shown greyed until their MetaProgress
+    /// flag is earned. The Brute is real since doc 08 slice 11 — the first of the 15-car list, and
+    /// the first chassis whose character lives in the decision-15 damage model: 1600 kg of RWD lug
+    /// with WearExponent 0.4 (76% pace at half durability — barely notices a beating) and authored
+    /// DamageResistance 0.25, paid for with the field's worst grip and gentle steering.
     /// </summary>
     public static class ChassisCatalog
     {
+        /// <summary>The Brute's MetaProgress unlock flag — granted by RunDirector on a season clear.</summary>
+        public const string BruteUnlockFlag = "chassis_brute";
+
         public static readonly IReadOnlyList<ChassisInfo> All = new[]
         {
             new ChassisInfo(0, "GRIP BOX",  "Cornering and bite. The all-rounder starter.", null),
             new ChassisInfo(1, "POWER BOX", "Straight-line muscle, looser rear. Starter.",  null),
-            new ChassisInfo(2, "THE BRUTE", "Heavy, hits hard. Clear a season to unlock.",  "chassis_brute"),
+            new ChassisInfo(2, "THE BRUTE", "Heavy, hits hard, shrugs damage. Clear a season to unlock.", BruteUnlockFlag),
         };
 
         public static bool IsUnlocked(ChassisInfo c, MetaProgress meta) =>

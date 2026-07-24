@@ -1525,7 +1525,13 @@ namespace Shitboxer.Meta
         {
             if (Meta == null) Meta = new MetaProgress();
             Meta.RegisterRunEnd(Run.CircuitIndex, Run.Money);
-            if (seasonCleared) Meta.RegisterSeasonCleared(Run.StakeLevel);
+            if (seasonCleared)
+            {
+                Meta.RegisterSeasonCleared(Run.StakeLevel);
+                // The roadmap's chassis unlock, live since slice 11 gave The Brute a real spec:
+                // any cleared season — whatever the stake — opens it.
+                Meta.Unlock(ChassisCatalog.BruteUnlockFlag);
+            }
 
             // Wave-12: append a compact summary of the just-ended run to the rolling history log. The
             // timestamp is read from the HOST clock here (never inside pure logic) and passed in; the
