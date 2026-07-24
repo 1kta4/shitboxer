@@ -3,8 +3,8 @@
 **Status: in progress, 2026-07-24.** Built by walking `Jokers.docx` (the Balatro-mapped collection
 spec) against the shipped physics. Decisions below are LOCKED unless re-litigated explicitly.
 Open questions are at the bottom — they are the live work. Slices 1–6 playtested 2026-07-23;
-slices 7–12 (damage rework, season/bot retune, actives, tuning harness, The Brute, the boss
-rotation) built 2026-07-24, **not yet played**.
+slices 7–13 (damage rework, season/bot retune, actives, tuning harness, The Brute, the boss
+rotation, editions-as-materials) built 2026-07-24, **not yet played**.
 
 Companion to `03-game-design.md`. Where the two disagree, this doc is newer; the one deliberate
 override is noted in decision 2.
@@ -832,12 +832,38 @@ carry a `Title`; the HUD status line announces the boss ("BOSS 3/3 — THE TAXMA
 race summaries name who beat you. **`bossRacesEnabled` is ON by default now** — the 24-race season
 is what boss variety was for; the old OFF default was a compatibility guard, not a design stance.
 
-**Deferred with a reason — editions-as-materials (the Spectral pack).** Editions (Foil/Holo/
-Polychrome) exist and bake correctly, but nothing ever grants one, and `PartDef.Edition` lives on
-the shared ScriptableObject asset — granting one at runtime would mutate the asset on disk. Making
-editions live content needs per-run edition state (RunState map, save format, sell pricing,
-`SpecModApplier` threading) — a full slice of its own, not a quick wire. The Spectral pack should
-open onto exactly that when it is built.
+~~**Deferred with a reason — editions-as-materials (the Spectral pack).**~~ **Built — slice 13.**
+
+---
+
+## Slice 13 — editions as materials (the Spectral pack)
+
+Built 2026-07-24, from the deferral note above. The trap it was deferred over is the design's
+centre: **editions live on the RUN, never on the `PartDef` asset** — `RunState.PartEditions`
+(id-keyed), read through `EditionOf`, which lets a run-applied material beat the authored edition.
+Materials only ever climb (`TryUpgradeEdition` refuses same-or-lower), and a sold or broken part
+forfeits its edition.
+
+- **The bake**: `SpecModApplier.Apply` gained an edition-resolver parameter; the director and the
+  garage preview both pass `Run.EditionOf`, so the amplified car and its preview cannot disagree.
+  Null resolver = the asset's authored edition = every pre-slice-13 caller unchanged.
+- **The pack**: stocked at weight 15 (vs 50 parts / 40 components) — the scarce pull, since its
+  prize outclasses one component level. Draws 3 offers, each **pre-aimed** ("[HOLO ×1.5] →
+  JUNKYARD TURBO") at a distinct fitted stat part, tier rolled strictly above the part's current
+  one (Foil 60 / Holo 30 / Polychrome 10 — from Holo the only pull is the jackpot). Pre-aiming
+  keeps the pick a one-tap decision — no second target-choosing step. Refused at buy when no
+  fitted part can take an edition; only stat parts qualify (editions amplify SpecMods — a material
+  on a stat-less part would be a lie).
+- **The economy**: sell value prices the applied edition in (×1.5/×2/×3 on the half-refund), so a
+  material is value banked, not burned. Selling an open offer's target purges that offer; if that
+  empties the pack, the pack resolves.
+- **The save**: `partEditions` + open-pack offers persist. Found and closed along the way: an open
+  COMPONENTS pack was never saved at all — a quit mid-pack silently ate its price. All three pack
+  kinds now survive a save.
+
+**Verification:** 566 passed / 0 failed / 150 editor-only skips, zero warnings. The codec and
+weight table are pure-tested; the pack/eligibility/sell/save behaviours are editor-fixture tests
+(Test Runner), same as the rest of the shop.
 
 ---
 
