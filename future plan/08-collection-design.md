@@ -861,9 +861,32 @@ forfeits its edition.
   COMPONENTS pack was never saved at all — a quit mid-pack silently ate its price. All three pack
   kinds now survive a save.
 
-**Verification:** 566 passed / 0 failed / 150 editor-only skips, zero warnings. The codec and
-weight table are pure-tested; the pack/eligibility/sell/save behaviours are editor-fixture tests
-(Test Runner), same as the rest of the shop.
+**Verification:** 566 passed / 0 failed / 150 editor-only skips in the standalone harness, zero
+warnings. The codec and weight table are pure-tested; the pack/eligibility/sell/save behaviours
+are editor-fixture tests, same as the rest of the shop.
+
+---
+
+## The editor verification gap — CLOSED (2026-07-24)
+
+Unity batchmode runs headless from WSL (`-batchmode -nographics -runTests`, editor closed on the
+Windows side first). That retires the standing "one editor run is still needed" caveat that every
+slice since 7 carried:
+
+- **Build Meta Assets ran**: the 8 active-part assets materialised with their `ActiveSpec` blocks
+  serialised correctly; `PartPool` registers 69 parts.
+- **The FULL EditMode suite ran in the real editor** — including the ~150 ScriptableObject
+  fixtures (shop, save, garage, part content, spectral) the standalone harness always skipped.
+  First pass: 759/771, and the only real failure among them was a stale pin the harness could
+  never catch (`ApplySeasonShape_ReStampsAfterSaveResume` asserting the pre-decision-12 season
+  default of 1). Fixed; re-run green. The other 10 failures are the MCP bridge package's own tests
+  wanting a live WebSocket server — third-party noise.
+- **761 Shitboxer tests, all passing in the editor.** One caution for the next person: Unity's
+  `-runTests` exit code reads 0 even on failures — parse the results XML, never trust the code.
+
+What batchmode still cannot answer is play: slices 7–13 remain unplayed, and the doc's behaviour
+tests (does retirement feel fair, does an active change how you drive, does the season's back
+half hold) are still the gating step.
 
 ---
 
