@@ -237,11 +237,14 @@ namespace Shitboxer.Tests
             Assert.AreEqual(3, run.RacesPerCircuit);
         }
 
-        // --- Track rotation --------------------------------------------------------------------
+        // --- Track selection (slice 14: keyed by CIRCUIT — one signature venue per circuit) -----
 
         [Test]
-        public void SceneForRace_RotatesSoA5RaceRunIsntOneRectangleFiveTimes()
+        public void SceneForRace_WalksTheListInOrder_AndWrapsWhenShort()
         {
+            // The indexer is pure: position in, scene out. Since slice 14 the caller passes
+            // CircuitIndex, so with fewer scenes than circuits the season wraps — exactly the old
+            // 3-track rotation, now at circuit granularity.
             var scenes = new[] { "RaceTest", "RaceGauntlet", "RaceSpeedway" };
 
             Assert.AreEqual("RaceTest", RunDirector.SceneForRace(0, scenes, "Active"));
@@ -249,6 +252,25 @@ namespace Shitboxer.Tests
             Assert.AreEqual("RaceSpeedway", RunDirector.SceneForRace(2, scenes, "Active"));
             Assert.AreEqual("RaceTest", RunDirector.SceneForRace(3, scenes, "Active"));
             Assert.AreEqual("RaceGauntlet", RunDirector.SceneForRace(4, scenes, "Active"));
+        }
+
+        [Test]
+        public void DefaultSeasonVenues_AreEightDistinctTracks_OnePerCircuit()
+        {
+            // Doc 06's "8 circuits, 8 signature tracks" (doc 08 open question 5): the default list
+            // must cover the decision-12 season exactly — every circuit gets its own venue, no
+            // wrapping, finale on the showcase. Pinned so a renamed or dropped scene has to answer
+            // to the season here.
+            string[] venues = RunDirector.DefaultRaceScenes;
+            Assert.AreEqual(8, venues.Length, "one venue per circuit of the 24-race season");
+            Assert.AreEqual(venues.Length, new System.Collections.Generic.HashSet<string>(venues).Count,
+                "no venue is reused inside one season");
+            Assert.AreEqual("RaceTest", RunDirector.SceneForRace(0, venues, "Active"),
+                "circuit 1 opens on the baseline");
+            Assert.AreEqual("RaceColosseum", RunDirector.SceneForRace(7, venues, "Active"),
+                "the finale runs the showcase");
+            foreach (string original in new[] { "RaceTest", "RaceGauntlet", "RaceSpeedway" })
+                Assert.Contains(original, venues, $"{original} — the three proven layouts stay in the season");
         }
 
         [Test]

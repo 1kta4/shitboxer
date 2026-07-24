@@ -65,8 +65,27 @@ namespace Shitboxer.Meta
         [Min(1)]
         [SerializeField] private int racesPerCircuit = 3;
 
-        [Tooltip("Track scenes the run rotates through, one per race — otherwise a 5-race run is the same rectangle five times. Every name must be a scene in Build Settings; 'Shitboxer/Build Race Scenes' generates them and registers them. Leave EMPTY to reload the active scene instead, which is the old single-track behaviour.")]
-        [SerializeField] private string[] raceScenes = { "RaceTest", "RaceGauntlet", "RaceSpeedway" };
+        [Tooltip("The season's venues IN CIRCUIT ORDER — one signature track per circuit (doc 06: 8 circuits, 8 tracks), so a circuit's three races and its boss all run at home. Every name must be a scene in Build Settings; 'Shitboxer/Build Race Scenes' generates and registers all of them. Fewer scenes than circuits wraps; EMPTY reloads the active scene (the old single-track behaviour).")]
+        [SerializeField] private string[] raceScenes = DefaultRaceScenes;
+
+        /// <summary>
+        /// The shipped season venues, index = CircuitIndex (doc 06's "one signature track per
+        /// circuit", doc 08 open question 5). Public and static so tests can pin the season's shape
+        /// and the scene builder's output can be checked against it. The ordering is a difficulty/
+        /// variety arc: baseline, sweepers, braking zones, contested doors, the narrow Gauntlet,
+        /// the Speedway, the thin Ribbon, and the Colosseum finale.
+        /// </summary>
+        public static readonly string[] DefaultRaceScenes =
+        {
+            "RaceTest",      // C1 — balanced baseline (doc06 #1 tutorial slot)
+            "RaceCoastal",   // C2 — fast sweepers (doc06 #2)
+            "RaceDocks",     // C3 — mid-width, braking zones (doc06 #3)
+            "RaceCanyon",    // C4 — narrow doors at speed (doc06 #4)
+            "RaceGauntlet",  // C5 — narrowest, contact (doc06 #5 slot)
+            "RaceSpeedway",  // C6 — straights and slipstream (doc06 #6)
+            "RaceRibbon",    // C7 — thin and long, earned passes (doc06 #7 slot)
+            "RaceColosseum", // C8 — the showcase finale (doc06 #8)
+        };
 
         [Header("Persistent rivals")]
         [Tooltip("Career roster the run draws its field of named rivals from. Leave EMPTY to fall back to the built-in 24-rival roster in RivalRoster.Default. A null roster pushes no identities at all, so every bot keeps its legacy hierarchy-derived character — byte-for-byte the pre-roster behaviour.")]
@@ -1723,17 +1742,20 @@ namespace Shitboxer.Meta
         }
 
         /// <summary>
-        /// Which track a given race runs on: rotates through <paramref name="scenes"/> so consecutive
-        /// races differ and a 5-race run sees every layout. Pure and static so the rotation is
-        /// unit-testable without a live scene (same convention as <see cref="ApplySeasonShape"/> /
-        /// <see cref="BotStrengthFor"/>). Falls back to <paramref name="fallback"/> — the active scene —
-        /// when unconfigured or when a slot is blank, which reproduces the single-track behaviour
-        /// rather than throwing on a scene that isn't in Build Settings.
+        /// The venue at a given position in the season's scene list — a pure wrapping indexer into
+        /// <paramref name="scenes"/>. Since slice 14 the caller keys it by CIRCUIT index (doc 06's
+        /// one-signature-track-per-circuit model: a circuit's three races and its boss run at home);
+        /// with fewer scenes than circuits it wraps, which is exactly the old 3-track rotation.
+        /// Pure and static so the mapping is unit-testable without a live scene (same convention as
+        /// <see cref="ApplySeasonShape"/> / <see cref="BotStrengthFor"/>). Falls back to
+        /// <paramref name="fallback"/> — the active scene — when unconfigured or when a slot is
+        /// blank, which reproduces the single-track behaviour rather than throwing on a scene that
+        /// isn't in Build Settings.
         /// </summary>
-        public static string SceneForRace(int raceNumber, string[] scenes, string fallback)
+        public static string SceneForRace(int circuitIndex, string[] scenes, string fallback)
         {
             if (scenes == null || scenes.Length == 0) return fallback;
-            int index = ((raceNumber % scenes.Length) + scenes.Length) % scenes.Length; // negatives wrap too
+            int index = ((circuitIndex % scenes.Length) + scenes.Length) % scenes.Length; // negatives wrap too
             return string.IsNullOrWhiteSpace(scenes[index]) ? fallback : scenes[index];
         }
 
@@ -1746,8 +1768,11 @@ namespace Shitboxer.Meta
         private void ReloadRaceScene()
         {
             string active = SceneManager.GetActiveScene().name;
-            int raceNumber = Run != null ? Run.RaceNumber : 0;
-            string next = SceneForRace(raceNumber, raceScenes, active);
+            // Keyed by CIRCUIT since slice 14: a circuit is a venue — its three races and its boss
+            // all run at home (doc 06's model). A retry stays on the same track as before, since a
+            // failed race leaves both indices alone.
+            int circuitIndex = Run != null ? Run.CircuitIndex : 0;
+            string next = SceneForRace(circuitIndex, raceScenes, active);
 
             // A layout that was never generated — or generated but not registered in Build Settings —
             // must not end a run in an exception two races in. Stay on the current track and say why.

@@ -20,6 +20,21 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/_Project/Scenes/RaceSpeedway.unity
     guid: 9ab7fda5195e8104cb9d17031289b91e
+  - enabled: 1
+    path: Assets/_Project/Scenes/RaceCoastal.unity
+    guid: 28c67f9c2217268448af9a5b428b7ba9
+  - enabled: 1
+    path: Assets/_Project/Scenes/RaceDocks.unity
+    guid: 96c28b70ae950784fa9a84fd73ed76d6
+  - enabled: 1
+    path: Assets/_Project/Scenes/RaceCanyon.unity
+    guid: 56805a2cc6362314b98eb1f1b9467ba6
+  - enabled: 1
+    path: Assets/_Project/Scenes/RaceRibbon.unity
+    guid: 02362fef05a27a740a39a306a311d21a
+  - enabled: 1
+    path: Assets/_Project/Scenes/RaceColosseum.unity
+    guid: 8243cc0ee6060d74886ed7c7de3a8c7b
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0

@@ -59,8 +59,11 @@ namespace Shitboxer.Editor
             public string ScenePath => $"{ScenesDir}/{SceneName}.unity";
         }
 
-        // Three layouts so a 5-race run isn't the same rectangle five times. Deliberately varied along
-        // the axes that change racing rather than looks: room to pass, lap length, and corner speed.
+        // Eight layouts — one signature venue per circuit of the 24-race season (doc 06: "8 circuits,
+        // 8 signature tracks", greyboxed as drivable layouts FIRST, art pass later; doc 08 open
+        // question 5). Varied along the axes that change racing rather than looks: room to pass, lap
+        // length, and corner speed. Each new entry's Character notes the doc-06 theme it will wear
+        // when the art pass lands. Circuit order lives in RunDirector.DefaultRaceScenes.
         private static readonly TrackLayout[] Layouts =
         {
             // The original, unchanged: 40 m of room, ~686 m lap, 20 m corners. The balanced baseline.
@@ -86,6 +89,49 @@ namespace Shitboxer.Editor
                 SceneName = "RaceSpeedway", Character = "long straights — slipstream and Power",
                 OuterHalfX = 180f, OuterHalfZ = 75f, InnerHalfX = 140f, InnerHalfZ = 35f,
                 CornerRadiusM = 30f,
+            },
+            // Fast and flowing: a 40 m corridor into 34 m sweepers you barely lift for. Grip cars
+            // carry speed through, Power cars claw it back on the exits. (doc 06 #2, Coastal Highway.)
+            new TrackLayout
+            {
+                SceneName = "RaceCoastal", Character = "fast sweepers — commitment and exit speed (doc06: Coastal Highway)",
+                OuterHalfX = 170f, OuterHalfZ = 95f, InnerHalfX = 130f, InnerHalfZ = 55f,
+                CornerRadiusM = 34f,
+            },
+            // Mid-size and workmanlike: a 28 m corridor with 16 m corners — proper braking zones
+            // without Gauntlet's claustrophobia. The all-skills mid-season check. (doc 06 #3,
+            // Industrial Docks.)
+            new TrackLayout
+            {
+                SceneName = "RaceDocks", Character = "mid-width, real braking zones (doc06: Industrial Docks)",
+                OuterHalfX = 120f, OuterHalfZ = 85f, InnerHalfX = 92f, InnerHalfZ = 57f,
+                CornerRadiusM = 16f,
+            },
+            // Long-ish lap squeezed to 24 m with 14 m corners: pace lives on the straights but every
+            // corner entry is a contested door. Contact-heavy by geometry. (doc 06 #4, Desert Canyon.)
+            new TrackLayout
+            {
+                SceneName = "RaceCanyon", Character = "narrow doors at speed — contested entries (doc06: Desert Canyon)",
+                OuterHalfX = 140f, OuterHalfZ = 80f, InnerHalfX = 116f, InnerHalfZ = 56f,
+                CornerRadiusM = 14f,
+            },
+            // The thin one: a 20 m ribbon around the second-longest lap. Single-file at pace —
+            // overtakes are built over half a lap of pressure, and defense is a real skill.
+            // (doc 06 #7, Frozen Lake's slot until surface zones exist.)
+            new TrackLayout
+            {
+                SceneName = "RaceRibbon", Character = "thin and long — pressure racing, earned passes (doc06: Frozen Lake slot)",
+                OuterHalfX = 178f, OuterHalfZ = 80f, InnerHalfX = 158f, InnerHalfZ = 60f,
+                CornerRadiusM = 20f,
+            },
+            // The showcase: the biggest lap of the eight (~990 m) on a full 40 m corridor with 26 m
+            // corners — every skill the season taught, at scale, for the finale. (doc 06 #8, Final
+            // Circuit.)
+            new TrackLayout
+            {
+                SceneName = "RaceColosseum", Character = "the big one — everything, at scale (doc06: Final Circuit)",
+                OuterHalfX = 190f, OuterHalfZ = 110f, InnerHalfX = 150f, InnerHalfZ = 70f,
+                CornerRadiusM = 26f,
             },
         };
 
