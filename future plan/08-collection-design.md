@@ -1,11 +1,12 @@
 # 08 — Collection Design (components, parts, sectors)
 
-**Status: in progress, 2026-07-24.** Built by walking `Jokers.docx` (the Balatro-mapped collection
+**Status: in progress, 2026-07-27.** Built by walking `Jokers.docx` (the Balatro-mapped collection
 spec) against the shipped physics. Decisions below are LOCKED unless re-litigated explicitly.
 Open questions are at the bottom — they are the live work. Slices 1–6 playtested 2026-07-23;
 slices 7–14 (damage rework, season/bot retune, actives, tuning harness, The Brute, the boss
-rotation, editions-as-materials, the eight-track season) built 2026-07-24, **not yet played**.
-Everything through slice 14 is editor-verified headless (716/716 in batchmode).
+rotation, editions-as-materials, the eight-track season) built 2026-07-24, slice 15 (the Kart and
+the Open Wheeler) 2026-07-27 — **slices 7–15 not yet played**. Everything through slice 15 is
+editor-verified headless (723/723 in batchmode).
 
 Companion to `03-game-design.md`. Where the two disagree, this doc is newer; the one deliberate
 override is noted in decision 2.
@@ -868,6 +869,52 @@ are editor-fixture tests, same as the rest of the shop.
 
 ---
 
+## Slice 15 — the car list grows (The Kart, The Open Wheeler)
+
+Built 2026-07-27, **not yet played**. (Slice 14 — the eight tracks — is recorded under open
+question 5.) Two more of the 15-car list, and precisely the two this plan already specced in hard
+numbers: open question 2's Kart and decision 15's exponent-2.0 open wheeler. Both are pure
+`VehicleSpec` content — zero new plumbing, the slice-11 recipe verbatim (asset + catalog entry +
+builder line + one guid line in each of the eight scenes). The car-select UI needed nothing: it
+iterates the catalog, and five 168 px cards wrap 3+2 inside the 560 px menu body.
+
+- **THE KART (id 3)** — *"very low health… standard durability"*, taken at decision 15's word:
+  **750 kg** (the 700 kg spring floor is the design wall; springs re-authored at 48 kN/m to keep
+  GripBox's ~1.3 Hz ride frequency), RWD, 128 Nm at 7,600 rpm screaming to a 9,200 redline, the
+  field's fastest steering (260°/s, 34° lock) — and **no damage field authored at all**
+  (WearExponent 1.0, resistance 0, both by omission). Open question 2 explains why that omission
+  is the whole design. Weight-reduction parts are near-dead on it (already at the floor) —
+  deliberate anti-synergy, the deck that doesn't want the "good" items.
+- **THE OPEN WHEELER (id 4)** — decision 15's table row made real: **WearExponent 2.0** (25% pace
+  at half durability — a crippled Open Wheeler will miss the cutoff), µ 1.62/1.58 slicks,
+  downforce 3.4, 880 kg on formula-stiff 82 kN/m springs, 240 Nm at the top of an 8,400 redline.
+  Best power-to-weight in the field (~1.6× the boxes) — priced by glass: every hit is a crisis on
+  an exponent-2 curve. Fifth gear is deliberately long-ratioed to ~200 km/h so PowerBox keeps the
+  straight-line crown. **Base-pace flag for the first playtest:** its clean-lap pace may simply
+  beat the ×1.7 bot ceiling — if it trivialises the back half of the season, pull PeakTorqueNm or
+  µ before touching the wear curve; the glass is the identity, the pace is the dial.
+- **The unlocks chain, Balatro-style, zero new telemetry** — both rules read state
+  `RecordRunEndToMeta` already holds. The Kart: clear a season **in The Brute**
+  (`Run.ChassisId == ChassisCatalog.BruteId` — drive the anvil, earn the feather). The Open
+  Wheeler: a **barely-scratched clear** — end the season's final race (THE LONG HAUL's seven laps)
+  at ≥ `RunDirector.PristineClearDurability` (0.75, comfortably above the 0.5 crippled line),
+  proof of the clean driving its wear curve demands.
+- **Found and closed along the way:** `RunSave` never persisted `ChassisId`. RunState's own
+  doc-comment promised "a resumed run keeps its car"; every resume actually reverted to the
+  GripBox (id 0), which quietly nullified the Brute unlock slice 11 shipped. The save carries it
+  now; absent from an older save it defaults to 0 — exactly the reversion those saves already had.
+
+**Verification:** standalone harness 572 / 0 / 152, zero warnings — five new pure tests (both
+lock chains, the BruteId pin, the pristine threshold sitting above the crippled line, flag
+uniqueness); the two new save round-trips are editor fixtures like the rest of RunSaveTests.
+Full editor suite re-run in batchmode: **723 Shitboxer tests passed / 0 failed** (slice 14's 716
+plus the 7 new; the one skip is ShopLogicTests' own seeded `Assert.Ignore`, pre-existing; the 10
+McpUnity failures are the usual bridge-package noise). The hand-edited scene wiring was
+self-audited by re-running the builder's `AddRunModeToRaceScene` on RaceTest headless and
+diffing — the builder reproduces the committed YAML.
+
+---
+
 ## The editor verification gap — CLOSED (2026-07-24)
 
 Unity batchmode runs headless from WSL (`-batchmode -nographics -runTests`, editor closed on the
@@ -885,7 +932,7 @@ slice since 7 carried:
 - **761 Shitboxer tests, all passing in the editor.** One caution for the next person: Unity's
   `-runTests` exit code reads 0 even on failures — parse the results XML, never trust the code.
 
-What batchmode still cannot answer is play: slices 7–13 remain unplayed, and the doc's behaviour
+What batchmode still cannot answer is play: slices 7–15 remain unplayed, and the doc's behaviour
 tests (does retirement feel fair, does an active change how you drive, does the season's back
 half hold) are still the gating step.
 
@@ -896,10 +943,16 @@ half hold) are still the gating step.
 1. ~~**Durability and weight need to become real.**~~ **Durability done — slice 7.** Weight was
    always expressible (`MassKg` + the ledger); the remaining half of this question is content, not
    plumbing: the nine durability/weight-defined cars, Seals, and Enhancements can now be authored.
-2. **"Health" vs "durability."** The Kart is specced *"very low health… standard durability."* There
-   is only one number today, and it is both a pool and a performance scalar. (Slice 7 kept one
-   number deliberately — decision 15's "crippled at half" only works because pace and pool are the
-   same value.)
+   **Slice 15 authored the two cars the plan docs themselves spec in hard numbers** (the Kart and
+   the Open Wheeler; the Brute was slice 11). The rest of the 15-car list needs identities pulled
+   from `Jokers.docx` (not in the repo) before it needs any code. Seals and Enhancements remain.
+2. ~~**"Health" vs "durability."**~~ **Closed — slice 15, by authoring the Kart.** One number
+   stands. "Very low health" is carried entirely by 750 kg of momentum physics: contact damage is
+   shared-impulse (`collision.impulse` reads the same for both cars), so the Kart wears no faster
+   than what hits it — it gets *displaced* (Δv ∝ 1/m; the Brute outweighs it 2.13:1), and in a
+   position-scored, survival-cutoff economy, being punted off line IS the injury. The Kart ships
+   with **no damage field authored at all**. "Fragile" turned out to be the *other* axis
+   (WearExponent — the Open Wheeler's 2.0). A second health pool was never needed.
 3. **v1 scope and sequencing.** Components, Enhancements, Seals, Editions-as-materials, Spectrals,
    Tarots, Actives, Booster tiers — eight subsystems, on top of Phase 4 UI already mid-flight.
 4. **What the race HUD shows**, now that the four stat bars are excluded from it.
