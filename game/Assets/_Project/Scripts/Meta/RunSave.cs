@@ -36,6 +36,14 @@ namespace Shitboxer.Meta
         /// </summary>
         public float carDurability = 1f;
 
+        /// <summary>
+        /// Which chassis the run drives (RunState.ChassisId — an index into RunDirector.chassisSpecs).
+        /// Closed as a gap in doc 08 slice 15: RunState always documented this as persisted, but no
+        /// save ever carried it, so a resumed Brute run silently reverted to the GripBox. Absent from
+        /// an older save's JSON it defaults to 0 — exactly the reversion those saves already had.
+        /// </summary>
+        public int chassisId;
+
         /// <summary>Ids of everything bought this run (PartDef.Id).</summary>
         public List<string> ownedPartIds = new List<string>();
 
@@ -106,6 +114,7 @@ namespace Shitboxer.Meta
                 raceIndex = run.RaceIndex,
                 seed = run.Seed,
                 carDurability = run.CarDurability,
+                chassisId = run.ChassisId,
             };
             foreach (PartDef part in run.OwnedParts)
                 if (part && !string.IsNullOrEmpty(part.Id)) dto.ownedPartIds.Add(part.Id);
@@ -150,6 +159,7 @@ namespace Shitboxer.Meta
                 RaceIndex = raceIndex,
                 Seed = seed,
                 CarDurability = carDurability,
+                ChassisId = chassisId,
             };
             run.OwnedParts.Clear();
             run.EquippedParts.Clear();

@@ -104,6 +104,32 @@ namespace Shitboxer.Tests
         }
 
         [Test]
+        public void SaveDto_RoundTrips_ChassisId_ThroughJson()
+        {
+            // The chosen car must survive a save/resume. RunState always documented ChassisId as
+            // persisted, but until doc 08 slice 15 no save carried it, so a resumed Brute run
+            // silently reverted to the GripBox.
+            var run = new RunState { Money = 10, Lives = 3, ChassisId = 2 };
+
+            RunSave dto = RunSave.From(run);
+            string json = JsonUtility.ToJson(dto);
+            RunSave restoredDto = JsonUtility.FromJson<RunSave>(json);
+            RunState restored = restoredDto.ToRunState(Pool());
+
+            Assert.AreEqual(2, restored.ChassisId);
+        }
+
+        [Test]
+        public void ChassisId_AbsentFromJson_DefaultsToGripBox()
+        {
+            // An old save written before the chassis persisted resumes as chassis 0 — exactly the
+            // reversion those saves already had, so nothing changes underneath them.
+            RunSave dto = JsonUtility.FromJson<RunSave>("{\"money\":5,\"lives\":3,\"seed\":1}");
+            RunState run = dto.ToRunState(Pool());
+            Assert.AreEqual(0, run.ChassisId);
+        }
+
+        [Test]
         public void EquippedId_NotAlsoOwned_IsDroppedOnLoad()
         {
             var a = Part("a");

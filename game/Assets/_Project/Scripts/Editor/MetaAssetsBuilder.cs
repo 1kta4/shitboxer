@@ -876,15 +876,17 @@ namespace Shitboxer.Editor
             director.Configure(pool);
             director.ConfigureRivalRoster(rivalRoster);
 
-            // Car-select chassis specs (index = ChassisCatalog id: 0 Grip, 1 Power, 2 Brute),
-            // swapped onto the player at run start. The Brute stays LOCKED until its MetaProgress
-            // flag ("chassis_brute", clear a season) — the spec being wired here is what makes the
-            // unlock mean something.
+            // Car-select chassis specs (index = ChassisCatalog id: 0 Grip, 1 Power, 2 Brute,
+            // 3 Kart, 4 Open Wheeler), swapped onto the player at run start. The locked three stay
+            // greyed until their MetaProgress flags (season clear / Brute clear / pristine clear) —
+            // the specs being wired here are what make those unlocks mean something.
             director.ConfigureChassis(new[]
             {
                 AssetDatabase.LoadAssetAtPath<Shitboxer.Vehicle.VehicleSpecAsset>("Assets/_Project/Settings/Vehicles/GripBox.asset"),
                 AssetDatabase.LoadAssetAtPath<Shitboxer.Vehicle.VehicleSpecAsset>("Assets/_Project/Settings/Vehicles/PowerBox.asset"),
                 AssetDatabase.LoadAssetAtPath<Shitboxer.Vehicle.VehicleSpecAsset>("Assets/_Project/Settings/Vehicles/Brute.asset"),
+                AssetDatabase.LoadAssetAtPath<Shitboxer.Vehicle.VehicleSpecAsset>("Assets/_Project/Settings/Vehicles/Kart.asset"),
+                AssetDatabase.LoadAssetAtPath<Shitboxer.Vehicle.VehicleSpecAsset>("Assets/_Project/Settings/Vehicles/OpenWheeler.asset"),
             });
 
             // UI Toolkit garage overlay on the RunRig (persists via DontDestroyOnLoad, so it survives the

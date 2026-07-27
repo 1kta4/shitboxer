@@ -1,0 +1,80 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6d8320f3e1983ed49b525ae56013a5b1, type: 3}
+  m_Name: OpenWheeler
+  m_EditorClassIdentifier: Shitboxer.Vehicle::Shitboxer.Vehicle.VehicleSpecAsset
+  Spec:
+    MassKg: 880
+    CentreOfMassOffset: {x: 0, y: -0.45, z: 0.05}
+    WheelbaseM: 2.9
+    TrackWidthM: 1.85
+    AxleHeightM: -0.12
+    SuspensionRestLengthM: 0.2
+    SuspensionTravelM: 0.12
+    SpringRateNPerM: 82000
+    DamperRateNPerMps: 7800
+    AntiRollBarNPerM: 14000
+    WheelRadiusM: 0.33
+    WheelMassKg: 15
+    FrontTyre:
+      PeakMu: 1.62
+      SlideMu: 1.25
+      PeakSlipAngleDeg: 7
+      PeakSlipRatio: 0.1
+      FalloffSharpness: 1
+      LoadSensitivity: 0.05
+      RatedLoadN: 3000
+    RearTyre:
+      PeakMu: 1.58
+      SlideMu: 1.25
+      PeakSlipAngleDeg: 7.5
+      PeakSlipRatio: 0.11
+      FalloffSharpness: 0.95
+      LoadSensitivity: 0.05
+      RatedLoadN: 3000
+    TyreForceAppLift: 0.5
+    MaxSteerDeg: 26
+    HighSpeedSteerDeg: 10
+    SteerFalloffSpeedMps: 34
+    SteerRateDegPerS: 240
+    Engine:
+      IdleRpm: 1800
+      RedlineRpm: 8400
+      PeakTorqueNm: 240
+      PeakTorqueRpm: 6600
+      LowEndFraction: 0.5
+      TopEndFraction: 0.8
+      EngineBrakeNm: 95
+    Layout: 1
+    GearRatios:
+    - 2.9
+    - 2
+    - 1.55
+    - 1.28
+    - 1.1
+    ReverseGearRatio: 3
+    FinalDriveRatio: 4.7
+    DrivetrainEfficiency: 0.93
+    UpshiftRpm: 8100
+    DownshiftRpm: 4600
+    ShiftTimeS: 0.12
+    BrakeTorqueNm: 3600
+    BrakeBias: 0.58
+    HandbrakeTorqueNm: 2200
+    HandbrakeGripFactor: 0.7
+    DragCoeff: 0.44
+    DownforceCoeff: 3.4
+    ExtraGravity: 0.7
+    YawAssist: 0.5
+    LateralVelocityDamping: 1.6
+    FlatRideDamping: 1.9
+    WearExponent: 2

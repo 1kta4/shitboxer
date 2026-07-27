@@ -497,6 +497,14 @@ namespace Shitboxer.Meta
         public static float RaceStartDurability(float carried) =>
             Mathf.Max(Mathf.Clamp01(carried), MinRaceStartDurability);
 
+        /// <summary>
+        /// Carried durability the season's FINAL race must end at (or above) to count as a
+        /// "barely scratched" clear — the Open Wheeler's unlock (doc 08 slice 15). 0.75 sits well
+        /// clear of the 0.5 crippled line: the last race is THE LONG HAUL's seven laps in a contact
+        /// field, so ending it at three-quarters health is a driving exam, not a formality.
+        /// </summary>
+        public const float PristineClearDurability = 0.75f;
+
         private void ApplyBotStrength()
         {
             // Grip and power scale together behind one knob, but they are NOT equal levers: measured
@@ -1589,6 +1597,14 @@ namespace Shitboxer.Meta
                 // The roadmap's chassis unlock, live since slice 11 gave The Brute a real spec:
                 // any cleared season — whatever the stake — opens it.
                 Meta.Unlock(ChassisCatalog.BruteUnlockFlag);
+                // Slice 15 — the list chains, Balatro-style. The Kart is earned by clearing a
+                // season IN The Brute (drive the anvil, earn the feather); the Open Wheeler by
+                // ending the season's final race barely scratched — proof of the clean driving
+                // its exponent-2 wear curve demands.
+                if (Run.ChassisId == ChassisCatalog.BruteId)
+                    Meta.Unlock(ChassisCatalog.KartUnlockFlag);
+                if (Run.CarDurability >= PristineClearDurability)
+                    Meta.Unlock(ChassisCatalog.OpenWheelerUnlockFlag);
             }
 
             // Wave-12: append a compact summary of the just-ended run to the rolling history log. The

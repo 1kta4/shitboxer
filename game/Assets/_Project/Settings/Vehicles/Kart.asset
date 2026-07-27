@@ -1,0 +1,79 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6d8320f3e1983ed49b525ae56013a5b1, type: 3}
+  m_Name: Kart
+  m_EditorClassIdentifier: Shitboxer.Vehicle::Shitboxer.Vehicle.VehicleSpecAsset
+  Spec:
+    MassKg: 750
+    CentreOfMassOffset: {x: 0, y: -0.42, z: 0}
+    WheelbaseM: 2.05
+    TrackWidthM: 1.45
+    AxleHeightM: -0.12
+    SuspensionRestLengthM: 0.22
+    SuspensionTravelM: 0.14
+    SpringRateNPerM: 48000
+    DamperRateNPerMps: 4800
+    AntiRollBarNPerM: 7000
+    WheelRadiusM: 0.24
+    WheelMassKg: 9
+    FrontTyre:
+      PeakMu: 1.3
+      SlideMu: 1.08
+      PeakSlipAngleDeg: 8
+      PeakSlipRatio: 0.11
+      FalloffSharpness: 0.85
+      LoadSensitivity: 0.06
+      RatedLoadN: 2000
+    RearTyre:
+      PeakMu: 1.28
+      SlideMu: 1.08
+      PeakSlipAngleDeg: 8.5
+      PeakSlipRatio: 0.12
+      FalloffSharpness: 0.85
+      LoadSensitivity: 0.06
+      RatedLoadN: 2000
+    TyreForceAppLift: 0.5
+    MaxSteerDeg: 34
+    HighSpeedSteerDeg: 13
+    SteerFalloffSpeedMps: 26
+    SteerRateDegPerS: 260
+    Engine:
+      IdleRpm: 1300
+      RedlineRpm: 9200
+      PeakTorqueNm: 128
+      PeakTorqueRpm: 7600
+      LowEndFraction: 0.45
+      TopEndFraction: 0.85
+      EngineBrakeNm: 45
+    Layout: 1
+    GearRatios:
+    - 3.1
+    - 2.15
+    - 1.6
+    - 1.25
+    - 0.95
+    ReverseGearRatio: 3.4
+    FinalDriveRatio: 4.6
+    DrivetrainEfficiency: 0.92
+    UpshiftRpm: 8800
+    DownshiftRpm: 5200
+    ShiftTimeS: 0.15
+    BrakeTorqueNm: 1900
+    BrakeBias: 0.6
+    HandbrakeTorqueNm: 2600
+    HandbrakeGripFactor: 0.55
+    DragCoeff: 0.3
+    DownforceCoeff: 0.9
+    ExtraGravity: 1
+    YawAssist: 0.65
+    LateralVelocityDamping: 2
+    FlatRideDamping: 1.8

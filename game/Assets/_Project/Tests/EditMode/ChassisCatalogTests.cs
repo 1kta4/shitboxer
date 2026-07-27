@@ -1,11 +1,12 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using Shitboxer.Meta;
 
 namespace Shitboxer.Tests
 {
     /// <summary>
-    /// The chassis-select catalog and The Brute's unlock (doc 08 slice 11). Ids double as indices
-    /// into RunDirector.chassisSpecs, so their shape is load-bearing, not cosmetic.
+    /// The chassis-select catalog and the unlock chain (doc 08 slices 11 and 15). Ids double as
+    /// indices into RunDirector.chassisSpecs, so their shape is load-bearing, not cosmetic.
     /// </summary>
     public class ChassisCatalogTests : TestBase
     {
@@ -37,6 +38,61 @@ namespace Shitboxer.Tests
 
             meta.Unlock(ChassisCatalog.BruteUnlockFlag); // what RecordRunEndToMeta does on seasonCleared
             Assert.IsTrue(ChassisCatalog.IsUnlocked(brute, meta), "a cleared season opens The Brute");
+        }
+
+        [Test]
+        public void Kart_IsLockedUntilItsBruteClearFlag()
+        {
+            ChassisInfo kart = ChassisCatalog.All[3];
+            Assert.AreEqual(ChassisCatalog.KartUnlockFlag, kart.UnlockFlag,
+                "the catalog entry and the flag RunDirector grants on a Brute season clear must be the same string");
+
+            var meta = new MetaProgress();
+            Assert.IsFalse(ChassisCatalog.IsUnlocked(kart, meta), "a fresh profile has not earned The Kart");
+
+            meta.Unlock(ChassisCatalog.BruteUnlockFlag);
+            Assert.IsFalse(ChassisCatalog.IsUnlocked(kart, meta),
+                "unlocking The Brute is not the same as clearing a season IN it");
+
+            meta.Unlock(ChassisCatalog.KartUnlockFlag); // what RecordRunEndToMeta does on seasonCleared with ChassisId == BruteId
+            Assert.IsTrue(ChassisCatalog.IsUnlocked(kart, meta), "a season cleared in The Brute opens The Kart");
+        }
+
+        [Test]
+        public void OpenWheeler_IsLockedUntilItsPristineClearFlag()
+        {
+            ChassisInfo openWheeler = ChassisCatalog.All[4];
+            Assert.AreEqual(ChassisCatalog.OpenWheelerUnlockFlag, openWheeler.UnlockFlag,
+                "the catalog entry and the flag RunDirector grants on a barely-scratched clear must be the same string");
+
+            var meta = new MetaProgress();
+            Assert.IsFalse(ChassisCatalog.IsUnlocked(openWheeler, meta), "a fresh profile has not earned The Open Wheeler");
+
+            meta.Unlock(ChassisCatalog.OpenWheelerUnlockFlag); // what RecordRunEndToMeta does when the season ends at >= PristineClearDurability
+            Assert.IsTrue(ChassisCatalog.IsUnlocked(openWheeler, meta), "a barely-scratched clear opens The Open Wheeler");
+        }
+
+        [Test]
+        public void BruteId_PointsAtTheBrute_BecauseTheKartGrantReadsIt()
+        {
+            Assert.AreEqual("THE BRUTE", ChassisCatalog.All[ChassisCatalog.BruteId].Name,
+                "RecordRunEndToMeta compares Run.ChassisId to BruteId for the Kart's chained unlock");
+        }
+
+        [Test]
+        public void PristineClear_SitsWellAboveTheCrippledLine()
+        {
+            Assert.Greater(RunDirector.PristineClearDurability, 0.5f,
+                "the Open Wheeler's unlock must demand more than merely not-crippled");
+        }
+
+        [Test]
+        public void UnlockFlags_AreDistinct_SoOneClearCannotOpenTheWrongCar()
+        {
+            var seen = new HashSet<string>();
+            foreach (ChassisInfo c in ChassisCatalog.All)
+                if (c.UnlockFlag != null)
+                    Assert.IsTrue(seen.Add(c.UnlockFlag), $"duplicate unlock flag '{c.UnlockFlag}'");
         }
     }
 }
