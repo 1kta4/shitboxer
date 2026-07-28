@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_JunkyardTurboHolo
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: junkyard_turbo_holo
+  DisplayName: Junkyard Turbo (Holo)
+  Description: "A holographic collector's snail. Same whistle, bigger shove: Holo
+    amplifies its torque effect to ~+22.5% \u2014 a rare, premium-priced take on
+    the plain Junkyard Turbo."
+  Category: 0
+  Rarity: 2
+  Price: 16
+  Condition: 0
+  Edition: 2
+  SpecMods:
+  - Target: 2
+    Multiplier: 1.15
+    Op: 0
+  MoneyPerPositionHeld: 0
+  DraftLeech: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0

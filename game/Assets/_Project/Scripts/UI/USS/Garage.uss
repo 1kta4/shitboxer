@@ -1,0 +1,491 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   GARAGE v3 — layout + components.  Requires Tokens.uss + Shitboxer.uss.
+   Flexbox only (no grid); bevels are border colours (no box-shadow); corners
+   are square for now (the mock's diagonal cuts are a baked-sprite pass later).
+   USS has NO CSS gradient functions (linear-/radial-gradient throw "invalid
+   image texture" at repaint), so every surface is a FLAT background-color;
+   gradient depth + glows are a later baked-texture pass.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ══ Stage ═══════════════════════════════════════════════════════════════ */
+.gx-stage {
+    flex-grow: 1;
+    width: 100%;
+    max-width: 1080px;
+    padding: 18px 28px 20px;
+}
+
+/* ══ A. Header ═══════════════════════════════════════════════════════════ */
+.gx-head {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 10px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--line);
+}
+.gx-lockup { flex-direction: row; align-items: flex-end; }
+.gx-title {
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-title);
+    color: var(--ink);
+}
+.gx-tag {
+    -unity-font-definition: var(--font-sys);
+    font-size: var(--size-label);
+    color: var(--ink-mute);
+    background-color: #1b2230;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
+    border-width: 1px;
+    border-color: #33415a;
+    padding: 4px 8px;
+    margin-left: 12px;
+}
+.gx-sys { flex-direction: row; align-items: center; }
+.gx-circuit { font-size: var(--size-label); color: #8fa2bd; }
+.gx-mem { font-size: var(--size-label); color: var(--ink-mute); margin-left: 14px; }
+
+/* ══ B. Left rail — permanent car state ══════════════════════════════════ */
+.gx-body {
+    flex-direction: row;
+    flex-grow: 1;
+    margin-top: 12px;
+}
+.gx-rail {
+    width: 320px;
+    flex-shrink: 0;
+    overflow: hidden;    /* clip any horizontal spill so rail content never covers the shop */
+    margin-right: 20px;
+    padding: 14px;
+    background-color: var(--plate);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/rail-plate.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
+    border-width: 1px;
+    border-color: var(--edge);
+    border-left-width: 3px;
+    border-left-color: var(--blue);
+}
+.gx-railh {
+    padding-bottom: 6px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--line);
+    margin-bottom: 8px;
+}
+.gx-railh-txt {
+    font-size: var(--size-label);
+    color: var(--sec);
+}
+
+.gx-readouts { margin-bottom: 4px; }
+.readout-row { flex-direction: row; align-items: center; margin-bottom: 3px; }
+.readout-row__label { flex-shrink: 0; font-size: var(--size-label); color: var(--ink); }
+.readout-row__leader {
+    flex-grow: 1;
+    flex-basis: 0;       /* take only LEFTOVER space (not the 128-dot content width) so the value fits */
+    min-width: 0;        /* and let it shrink + clip */
+    overflow: hidden;
+    color: var(--ink-mute);
+    margin-left: 6px;
+    margin-right: 6px;
+}
+.readout-row__value { flex-shrink: 0; font-size: var(--size-val); color: var(--ink); }
+.readout-row.cash .readout-row__value { color: var(--amber); }
+
+.gx-lives-row { flex-direction: row; align-items: center; margin-top: 4px; }
+.gx-lives-label { font-size: var(--size-label); color: var(--ink); }
+.gx-lives { flex-direction: row; margin-left: 8px; }
+.gx-life {
+    width: 9px;
+    height: 9px;
+    border-radius: 5px;
+    background-color: var(--red);
+    margin-right: 4px;
+}
+
+.gx-next {
+    font-size: var(--size-label);
+    color: var(--blue-lt);
+    background-color: rgba(30, 70, 150, 0.22);
+    border-left-width: 2px;
+    border-left-color: var(--blue);
+    padding: 6px 9px;
+    margin-top: 10px;
+}
+
+.gx-stats { margin-top: 12px; }
+.stat-bar { flex-direction: row; align-items: center; margin-bottom: 8px; }
+.stat-bar__name { width: 52px; font-size: var(--size-label); color: #9fb0c8; }
+.stat-bar__track {
+    flex-grow: 1;
+    height: 14px;
+    margin-left: 8px;
+    margin-right: 8px;
+    background-color: #0b101a;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/track.png");
+    border-width: 1px;
+    border-color: #313c4e;
+    overflow: hidden;
+}
+.stat-bar__fill {
+    height: 100%;
+    background-color: var(--blue);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/fill.png");
+    /* bars ease from 0 -> value on load, and animate on any stat change (buying a part). */
+    transition: width 0.45s ease-out;
+}
+.stat-bar__value {
+    width: 34px;
+    font-size: var(--size-val);
+    color: #eef3fb;
+    -unity-text-align: middle-right;
+}
+/* ghost preview: the delta segment shown when a shop part is selected (green gain / blood loss) */
+.stat-bar__ghost {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background-color: rgba(95, 217, 122, 0.22);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost-stripe.png");
+    background-repeat: repeat;
+}
+.stat-bar__ghost.loss {
+    background-color: rgba(224, 56, 78, 0.28);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost-stripe-loss.png");
+}
+.stat-bar__value.gain { color: var(--green); }
+.stat-bar__value.loss { color: var(--red); }
+
+.gx-ownedh {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 6px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--line);
+    margin-top: 14px;
+    margin-bottom: 6px;
+}
+.gx-slots { font-size: var(--size-label); color: var(--ink-mute); }
+.gx-owned { flex-direction: column; }
+.gx-owned-item {
+    flex-direction: row;
+    align-items: center;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background-color: var(--panel);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
+    border-width: 1px;
+    border-color: #2c3646;
+}
+.gx-owned-item:hover { border-color: #5a7096; }
+.gx-owned-item.on {
+    border-color: var(--green);
+    background-color: #18261d;
+}
+.gx-owned-name { flex-grow: 1; font-size: var(--size-body); color: var(--ink); margin-left: 7px; }
+.gx-slot-empty {
+    font-size: var(--size-label);
+    color: #3d4a5e;
+    border-width: 1px;
+    border-color: #2c3646;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    -unity-text-align: middle-center;
+}
+
+/* chips (part category) */
+.gx-chip {
+    font-size: var(--size-label);
+    color: var(--blue-lt);
+    background-color: #1b2836;
+    border-width: 1px;
+    border-color: #2f4a68;
+    padding: 1px 4px;
+}
+.gx-chip.econ {
+    color: var(--amber);
+    background-color: #2a2418;
+    border-color: #5a4a24;
+}
+
+/* ══ C. Main — the shop ══════════════════════════════════════════════════ */
+.gx-main { flex-grow: 1; }
+.gx-sec {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 8px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--line);
+    margin-bottom: 10px;
+}
+.gx-offercount { font-size: var(--size-label); color: var(--ink-mute); }
+.gx-offers { flex-direction: column; }
+
+.gx-offer {
+    background-color: var(--plate-hi);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 14;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 14;
+    border-width: 1px;
+    border-color: var(--line);
+    border-left-width: 3px;
+    border-left-color: rgba(0, 0, 0, 0);
+    padding: 8px 12px;
+    margin-bottom: 6px;
+}
+.gx-offer:hover { border-color: #5a7096; }
+.gx-offer.sel {
+    background-color: #2f3d55;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/offer-sel.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 14;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 14;
+    border-color: #5f7ba6;
+    border-left-color: var(--blue);
+}
+.gx-offer.unaffordable { opacity: 0.45; }
+
+.gx-offer-row { flex-direction: row; align-items: center; }
+.gx-marker { width: 14px; font-size: var(--size-label); color: var(--blue); opacity: 0; }
+.gx-offer.sel .gx-marker { opacity: 1; }
+.gx-oname { flex-grow: 1; font-size: var(--size-body); color: #e9f0fa; margin-left: 2px; }
+.gx-price {
+    min-width: 34px;
+    font-size: var(--size-val);
+    color: var(--amber);
+    -unity-text-align: middle-right;
+    margin-left: 8px;
+}
+.gx-offer.unaffordable .gx-price { color: var(--red); }
+
+.gx-offer-detail {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top-width: 1px;
+    border-top-color: #37435a;
+}
+.gx-offer-info { flex-grow: 1; }
+.gx-desc {
+    font-size: var(--size-body);
+    color: var(--ink-dim);
+    white-space: normal;
+    max-width: 380px;
+}
+.gx-delta { flex-direction: row; margin-top: 6px; }
+.gx-delta .up { color: var(--green); font-size: var(--size-label); margin-right: 10px; }
+.gx-delta .dn { color: var(--red); font-size: var(--size-label); margin-right: 10px; }
+.gx-delta.passive { color: var(--ink-mute); font-size: var(--size-label); }
+
+/* ══ Buttons ═════════════════════════════════════════════════════════════ */
+.gx-btn {
+    -unity-font-definition: var(--font-sys);
+    font-size: var(--size-label);
+    color: #0d1723;
+    background-color: #c4d0e0;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/button.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
+    border-width: 1px;
+    border-color: #f2f7ff;
+    border-radius: 0;
+    padding: 8px 14px;
+    margin: 0 0 0 12px;
+}
+.gx-btn:hover { background-color: #d6e0ee; }
+.gx-btn:disabled { opacity: 0.4; }
+.gx-btn.ghost {
+    background-color: #232c3a;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/ghost.png");
+    color: #b9c9e0;
+    border-color: #3d4a5e;
+}
+.gx-btn.ghost:hover { background-color: #2b3548; color: var(--ink); }
+
+/* ══ D. Footer ═══════════════════════════════════════════════════════════ */
+.gx-foot {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top-width: 1px;
+    border-top-color: var(--line);
+}
+.gx-acts { flex-direction: row; }
+.gx-acts .gx-btn { margin: 0 8px 0 0; }
+.gx-cta {
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-cta);
+    color: #f0f6ff;
+    background-color: var(--blue);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/cta.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 14;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 14;
+    border-width: 0;
+    border-radius: 0;
+    padding: 12px 24px;
+    margin: 0;
+}
+.gx-cta:hover { background-color: #5f97ff; }
+
+/* ══ End-of-run result screen (RunOver / RunComplete) ═════════════════════ */
+.end { align-items: center; justify-content: center; }
+.end-panel {
+    width: 440px;
+    max-width: 92%;
+    background-color: var(--plate);
+    border-width: 1px;
+    border-color: var(--edge);
+    border-left-width: 3px;
+    border-left-color: var(--blue);
+    padding: 18px 20px;
+}
+.end-headline {
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-title);
+    color: #eef4fb;
+    margin-bottom: 6px;
+}
+.end-sub { font-size: var(--size-body); color: var(--ink-dim); white-space: normal; margin-bottom: 6px; }
+.end-section { font-size: var(--size-label); color: var(--sec); letter-spacing: 2px; margin-top: 12px; margin-bottom: 4px; }
+.end-line { font-size: var(--size-body); color: var(--ink); margin-bottom: 2px; }
+.end-dim { color: var(--ink-mute); }
+.end-cta {
+    -unity-font-definition: var(--font-display);
+    font-size: var(--size-cta);
+    color: #f0f6ff;
+    background-color: var(--blue);
+    border-width: 0;
+    border-radius: 0;
+    padding: 12px;
+    margin-top: 16px;
+}
+.end-cta:hover { background-color: #5f97ff; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   PACKS + COMPONENTS  (doc 08 slices 3-4)
+   Both sit below the shelf rather than behind tabs: everything you can spend
+   on should be visible at once, or the shop stops being a comparison and
+   becomes a menu.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.gx-subhead { margin-top: 12px; margin-bottom: 5px; }
+
+/* ── booster packs: two side-by-side cards ──────────────────────────────── */
+.gx-packs { flex-direction: row; }
+
+.gx-pack {
+    flex-grow: 1;
+    flex-basis: 0;
+    align-items: center;
+    padding: 9px 8px;
+    margin-right: 6px;
+    background-color: var(--plate-hi);
+    border-width: 1px;
+    border-color: var(--line);
+}
+.gx-pack:hover { border-color: #5a7096; }
+.gx-pack.off { opacity: 0.45; }
+.gx-pack-name {
+    font-size: var(--size-body);
+    color: var(--blue-lt);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+}
+.gx-pack-sub { font-size: var(--size-label); color: var(--ink-mute); margin-top: 2px; margin-bottom: 6px; }
+
+/* ── components: one row each, family-tagged ────────────────────────────── */
+.gx-components { flex-direction: column; }
+
+.gx-comp {
+    flex-direction: row;
+    align-items: center;
+    padding: 5px 8px;
+    margin-bottom: 3px;
+    background-color: var(--panel);
+    border-width: 1px;
+    border-color: var(--line);
+}
+.gx-comp:hover { border-color: #5a7096; }
+.gx-comp.maxed { opacity: 0.55; }
+/* A pack pick is a decision, not a list — lift it so it reads as "choose one". */
+.gx-comp.pick {
+    background-color: #17202e;
+    border-color: var(--blue);
+    padding: 8px;
+    margin-bottom: 5px;
+}
+
+/* The family tag IS the stat bar it feeds, so it is colour-coded to match. */
+.gx-comp-fam {
+    width: 62px;
+    font-size: var(--size-label);
+    letter-spacing: 1px;
+    -unity-font-style: bold;
+}
+.fam-power { color: var(--amber); }
+.fam-grip { color: var(--green); }
+.fam-weight { color: var(--blue-lt); }
+.fam-durability { color: #d08a6a; }
+
+.gx-comp-name { flex-grow: 1; font-size: var(--size-body); color: var(--ink); }
+.gx-comp-lvl {
+    font-size: var(--size-val);
+    color: var(--ink-dim);
+    margin-right: 10px;
+    -unity-font-style: bold;
+}
+.gx-comp-max { font-size: var(--size-label); color: var(--ink-mute); letter-spacing: 1px; }
+
+/* ── the compact buy button shared by packs and components ──────────────── */
+.gx-buy {
+    -unity-font-definition: var(--font-sys);
+    font-size: var(--size-label);
+    color: var(--ink);
+    background-color: #223049;
+    border-width: 1px;
+    border-color: var(--edge);
+    padding: 3px 9px;
+    margin: 0;
+}
+.gx-buy:hover { background-color: #2b3c5a; border-color: var(--blue); }
+.gx-buy:disabled { opacity: 0.4; }
+
+/* ── SELL, on a fitted part ─────────────────────────────────────────────────
+   Deliberately an explicit button rather than a click-anywhere row: with
+   buying gated on a free slot this is the ONLY way to make room, so selling a
+   build-defining part must never be a misclick. */
+.gx-sell {
+    -unity-font-definition: var(--font-sys);
+    font-size: var(--size-label);
+    color: var(--amber);
+    background-color: #2a2418;
+    border-width: 1px;
+    border-color: #4a3f28;
+    padding: 2px 7px;
+    margin: 0;
+    margin-left: 6px;
+}
+.gx-sell:hover { background-color: #3a3120; border-color: var(--amber); }

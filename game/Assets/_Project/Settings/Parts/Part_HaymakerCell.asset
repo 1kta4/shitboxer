@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_HaymakerCell
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: haymaker_cell
+  DisplayName: Haymaker Cell
+  Description: Every hit YOU land winds the spring a third turn. Three punches, one
+    +18% power counter.
+  Category: 2
+  Rarity: 1
+  Price: 9
+  Condition: 0
+  Edition: 0
+  SpecMods: []
+  MoneyPerPositionHeld: 0
+  DraftLeech: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0
+  SectorRules: []
+  Active:
+    Charge: 3
+    FillPerSecond: 0.35
+    ChargePerEvent: 0.34
+    BoostMult: 1.18
+    DrainPerSecond: 0.7
+    MinCharge01: 1
+    UseCost: 0

@@ -1,7 +1,11 @@
 {
     "name": "Shitboxer.Cameras",
     "rootNamespace": "Shitboxer.Cameras",
-    "references": [],
+    "references": [
+        "Shitboxer.Race",
+        "Shitboxer.Vehicle",
+        "Unity.InputSystem"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

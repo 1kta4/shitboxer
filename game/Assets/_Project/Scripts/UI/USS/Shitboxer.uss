@@ -1,0 +1,34 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   SHITBOXER UI — base ground + default text.  Requires Tokens.uss first.
+   The garage's own layout/components live in Garage.uss.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.sb-screen {
+    flex-grow: 1;
+    align-items: center;              /* centre the letterboxed stage        */
+    justify-content: flex-start;
+    background-color: var(--screen);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/screen.png");
+    -unity-font-definition: var(--font-sys);
+    color: var(--ink);
+    font-size: var(--size-body);
+}
+
+.sb-screen Label {
+    -unity-font-definition: var(--font-sys);
+    color: var(--ink);
+    font-size: var(--size-body);
+    white-space: nowrap;
+}
+
+/* CRT scanline overlay, mounted over the garage / end screens (never the race) */
+.sb-scanlines {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/scanlines.png");
+    background-repeat: repeat;
+    opacity: 0.28;
+}

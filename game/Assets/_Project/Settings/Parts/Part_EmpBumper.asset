@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_EmpBumper
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: emp_bumper
+  DisplayName: EMP Bumper
+  Description: "Discharges on impact. A clean hit kills a rival's ignition \u2014
+    -45% power \u2014 but the capacitor is delicate and the whole rig is pricey."
+  Category: 2
+  Rarity: 2
+  Price: 10
+  SpecMods: []
+  MoneyPerPositionHeld: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0.45
+  AuraRadiusM: 0
+  AuraGripSap: 0

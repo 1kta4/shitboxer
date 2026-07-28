@@ -1,0 +1,81 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6d8320f3e1983ed49b525ae56013a5b1, type: 3}
+  m_Name: Brute
+  m_EditorClassIdentifier: Shitboxer.Vehicle::Shitboxer.Vehicle.VehicleSpecAsset
+  Spec:
+    MassKg: 1600
+    CentreOfMassOffset: {x: 0, y: -0.3, z: 0.1}
+    WheelbaseM: 2.75
+    TrackWidthM: 1.7
+    AxleHeightM: -0.08
+    SuspensionRestLengthM: 0.38
+    SuspensionTravelM: 0.24
+    SpringRateNPerM: 66000
+    DamperRateNPerMps: 6200
+    AntiRollBarNPerM: 5200
+    WheelRadiusM: 0.34
+    WheelMassKg: 22
+    FrontTyre:
+      PeakMu: 1.04
+      SlideMu: 0.9
+      PeakSlipAngleDeg: 7.5
+      PeakSlipRatio: 0.14
+      FalloffSharpness: 0.75
+      LoadSensitivity: 0.12
+      RatedLoadN: 4600
+    RearTyre:
+      PeakMu: 1.02
+      SlideMu: 0.9
+      PeakSlipAngleDeg: 8
+      PeakSlipRatio: 0.15
+      FalloffSharpness: 0.7
+      LoadSensitivity: 0.12
+      RatedLoadN: 4600
+    TyreForceAppLift: 0.5
+    MaxSteerDeg: 30
+    HighSpeedSteerDeg: 11
+    SteerFalloffSpeedMps: 28
+    SteerRateDegPerS: 190
+    Engine:
+      IdleRpm: 900
+      RedlineRpm: 5600
+      PeakTorqueNm: 430
+      PeakTorqueRpm: 3200
+      LowEndFraction: 0.75
+      TopEndFraction: 0.55
+      EngineBrakeNm: 110
+    Layout: 1
+    GearRatios:
+    - 2.8
+    - 1.8
+    - 1.35
+    - 1.05
+    - 0.85
+    ReverseGearRatio: 3
+    FinalDriveRatio: 3.9
+    DrivetrainEfficiency: 0.9
+    UpshiftRpm: 5300
+    DownshiftRpm: 2600
+    ShiftTimeS: 0.3
+    BrakeTorqueNm: 3400
+    BrakeBias: 0.6
+    HandbrakeTorqueNm: 3800
+    HandbrakeGripFactor: 0.5
+    DragCoeff: 0.46
+    DownforceCoeff: 0.4
+    ExtraGravity: 0.9
+    YawAssist: 0.35
+    LateralVelocityDamping: 1
+    FlatRideDamping: 1.6
+    DamageResistance: 0.25
+    WearExponent: 0.4

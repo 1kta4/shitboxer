@@ -1,0 +1,28 @@
+{
+    "name": "Shitboxer.Tests.EditMode",
+    "rootNamespace": "Shitboxer.Tests",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "Shitboxer.Vehicle",
+        "Shitboxer.Race",
+        "Shitboxer.Meta",
+        "Shitboxer.UI.Model",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

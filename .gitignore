@@ -40,6 +40,9 @@ game/[Aa]ssets/StreamingAssets/aa.meta
 game/[Aa]ssets/StreamingAssets/aa/*
 crashlytics-build.properties
 
+# Headless test-run artifacts (Unity -runTests output)
+game/test-results.xml
+
 # Builds / packages
 *.apk
 *.aab
@@ -54,3 +57,6 @@ desktop.ini
 # Embedded mcp-unity package: ignore its Node server artifacts
 game/Packages/com.gamelovers.mcp-unity/Server~/node_modules/
 game/Packages/com.gamelovers.mcp-unity/Server~/build/
+
+# Claude Code local session state
+.claude/

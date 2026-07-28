@@ -23,6 +23,18 @@ namespace Shitboxer.Vehicle
         public readonly float[] SlipAngleDeg = new float[WheelCount];
         public readonly bool[] Grounded = new bool[WheelCount];
 
+        // --- Tyre heat / wear (opt-in) ---
+        /// <summary>
+        /// When false (the default) the tyre heat/wear model is NOT stepped and never touches tyre grip —
+        /// the force path is identical to a sim without it, so the user's tuned driving feel is unchanged.
+        /// Flip on to let tyres warm, reach an optimal-grip band, overheat and slowly wear across a race.
+        /// </summary>
+        public bool TyreWearEnabled = false;
+
+        // One heat/wear model per wheel. Always allocated (four tiny objects) but only stepped/consulted
+        // when TyreWearEnabled — an un-stepped model reads GripMult == 1, so the disabled path is a no-op.
+        private readonly TyreWear[] _tyreWear = new TyreWear[WheelCount];
+
         // --- Drivetrain state ---
         public int Gear { get; private set; } = 1;        // 1-based; 0 = reverse
         public bool InReverse { get; private set; }
@@ -38,10 +50,33 @@ namespace Shitboxer.Vehicle
         private const float LongRelaxationLengthM = 0.15f;
         private const float LatRelaxationLengthM = 0.35f;
 
+        // Internal substep count for the stiff wheel-spin / tyre-slip integration. The wheel
+        // angular-velocity ODE and the slip-relaxation state have a time constant (~3 ms) far shorter
+        // than a 20 ms FixedUpdate, so a single explicit Euler step over the full dt leans on the
+        // overshoot clamps below to stay stable. Each public Step instead advances only that per-wheel
+        // spin/slip state over N micro-steps of dt/N — drivetrain, steering, suspension geometry, aero
+        // and assists are computed ONCE per Step and held fixed across the substeps — which shrinks the
+        // effective dt below the time constant and makes the integration robust on its own. Spec-
+        // independent by design (a private const, not a serialized field) so a headless server steps
+        // identical maths. N in 4..8 is the practical band; 4 is a safe, cheap default.
+        private const int WheelSubsteps = 4;
+
+        // Per-substep multiplier reproducing the per-Step airborne slip-state decay (0.9 over one full
+        // Step) for any WheelSubsteps: 0.9^(1/N) applied N times == 0.9. Keeps airborne relaxation
+        // identical per Step to the pre-substep behaviour rather than decaying N times as fast.
+        private static readonly float AirborneSlipDecayPerSubstep = Mathf.Pow(0.9f, 1f / WheelSubsteps);
+
+        // Sustained airtime (seconds with no wheel grounded). Gates the extra-gravity assist so a car
+        // that has sunk under the world is not driven further down — the blind-sink fall-through trap.
+        private float _airborneTime;
+        private const float ExtraGravityMaxAirborneS = 0.25f;
+
         public VehicleSim(VehicleSpec spec)
         {
             Spec = spec;
+            Spec.Validate(); // clamp every divisor field to a positive minimum before a step can divide by it
             EngineRpm = spec.Engine.IdleRpm;
+            for (int i = 0; i < WheelCount; i++) _tyreWear[i] = new TyreWear();
         }
 
         /// <summary>Local attach position for wheel i (FL, FR, RL, RR) in chassis space.</summary>
@@ -64,6 +99,223 @@ namespace Shitboxer.Vehicle
         /// <summary>World-space torque the host must apply to the chassis this step (assists).</summary>
         public Vector3 BodyTorque { get; private set; }
 
+        // ------------------------------------------------------------------ transient combat effects
+
+        /// <summary>
+        /// Multiplier on all tyre grip this step, 1 = nominal. Attack parts (Ram Bars, Disruptor
+        /// Field) push it below 1 via ApplyGripSap; it recovers toward 1 on its own. Lives in the
+        /// plain-C# core so a headless server decays it identically — the host only injects the
+        /// contact/proximity events that trigger a sap.
+        /// </summary>
+        public float GripEffectMult { get; private set; } = 1f;
+
+        /// <summary>Multiplier on engine drive torque this step, 1 = nominal. See ApplyPowerSap (Spike Plates).</summary>
+        public float PowerEffectMult { get; private set; } = 1f;
+
+        private float _gripRecoverPerS = 1f;
+        private float _powerRecoverPerS = 1f;
+
+        /// <summary>
+        /// Knock grip down by <paramref name="strength01"/> (0.3 = −30%), recovering toward nominal
+        /// at <paramref name="recoverPerS"/> per second. Only ever deepens an existing sap (keeps the
+        /// stronger of the two), so a continuous aura holds a floor while a one-off ram can spike
+        /// below it and fade back to it. No-op for non-positive strength.
+        /// </summary>
+        public void ApplyGripSap(float strength01, float recoverPerS)
+        {
+            if (strength01 <= 0f) return;
+            float floor = Mathf.Clamp01(1f - strength01);
+            if (floor < GripEffectMult)
+            {
+                GripEffectMult = floor;
+                _gripRecoverPerS = Mathf.Max(0.01f, recoverPerS);
+            }
+        }
+
+        /// <summary>Engine-torque analogue of ApplyGripSap (Spike Plates sap the cars they touch).</summary>
+        public void ApplyPowerSap(float strength01, float recoverPerS)
+        {
+            if (strength01 <= 0f) return;
+            float floor = Mathf.Clamp01(1f - strength01);
+            if (floor < PowerEffectMult)
+            {
+                PowerEffectMult = floor;
+                _powerRecoverPerS = Mathf.Max(0.01f, recoverPerS);
+            }
+        }
+
+        private void DecayEffects(float dt)
+        {
+            GripEffectMult = Mathf.MoveTowards(GripEffectMult, 1f, _gripRecoverPerS * dt);
+            PowerEffectMult = Mathf.MoveTowards(PowerEffectMult, 1f, _powerRecoverPerS * dt);
+            // Slipstream fades once the car pulls out of the tow (the host re-asserts it each step while drafting).
+            DraftDragMult = Mathf.MoveTowards(DraftDragMult, 1f, DraftRecoverPerS * dt);
+        }
+
+        // ------------------------------------------------------------------ slipstream / draft
+
+        /// <summary>
+        /// Deepest a tow can cut aero drag to: 0.6 keeps ~40% of drag — a strong but bounded slipstream so
+        /// a drafting car can't accelerate without limit. The host's DraftSensor supplies the actual factor.
+        /// </summary>
+        public const float MinDraftDragMult = 0.6f;
+
+        /// <summary>
+        /// Multiplier on the aero DRAG term this step, 1 = full drag (clean air), lower = a slipstream. A car
+        /// tucked close behind another sits in its wake, so the host's DraftSensor pushes this below 1 via
+        /// <see cref="ApplyDraft"/>; it eases back to 1 on its own once the car pulls out — exactly like the
+        /// transient grip/power saps. Downforce is deliberately NOT reduced (drafting cuts drag, not grip).
+        /// Lives in the plain-C# core so a headless server eases it identically — the host only injects the
+        /// proximity that triggers a draft.
+        /// </summary>
+        public float DraftDragMult { get; private set; } = 1f;
+
+        /// <summary>How fast the drag cut recovers toward 1 once the host stops re-asserting a draft, per second.</summary>
+        private const float DraftRecoverPerS = 2f;
+
+        /// <summary>
+        /// Put the car in another's slipstream this step, easing its aero drag toward <paramref name="mult"/>
+        /// (clamped to [<see cref="MinDraftDragMult"/>, 1]). Like the grip/power saps it only ever DEEPENS the
+        /// tow (keeps the lower of the two) and recovers toward 1 on its own, so the host re-asserts it every
+        /// step while drafting and it fades once the car pulls out. A value >= 1 (or non-finite) is a no-op —
+        /// "no draft" is signalled by simply not calling this, letting DraftDragMult recover.
+        /// </summary>
+        public void ApplyDraft(float mult)
+        {
+            if (!(mult < 1f)) return; // rejects >= 1 and NaN
+            float floor = Mathf.Clamp(mult, MinDraftDragMult, 1f);
+            if (floor < DraftDragMult) DraftDragMult = floor;
+        }
+
+        // ------------------------------------------------------------------ overtake boost (KERS)
+
+        /// <summary>
+        /// Multiplier on engine drive torque this step, 1 = nominal (no boost). A HOST component
+        /// (DraftBoost) builds a bounded charge from sustained drafting and, when the player deploys it,
+        /// drives this above 1 for a short burst — an NFS/KERS-style overtake button — then back to 1.
+        /// Unlike <see cref="PowerEffectMult"/> (the combat sap, which the sim itself decays) this is a
+        /// plain host-driven input the host RE-ASSERTS every step, so the sim never decays or clamps it;
+        /// it folds into the drivetrain multiplicatively alongside the sap/wear channels so the two
+        /// compose cleanly. Left at its default of 1 it is a perfect no-op — the delivered torque, and
+        /// every force downstream, is byte-for-byte the un-boosted sim, so today's driving feel is
+        /// unchanged until a host flips the boost on. A bare field (not decayed here) keeps the core
+        /// engine-loop-independent: a headless server folds an identical multiplier the host hands it.
+        /// </summary>
+        public float BoostMult = 1f;
+
+        // ------------------------------------------------------------------ race-scoped build bonuses
+
+        /// <summary>
+        /// Multiplier on peak tyre grip that a HOST holds for the rest of a race, 1 = nominal. This is the
+        /// channel sector-scoring parts land their grip rewards on (doc 08): unlike
+        /// <see cref="GripEffectMult"/> — the combat sap, which the sim itself decays back toward 1 — this
+        /// is a bare host-owned field the sim never touches, so a bonus earned in sector 2 is still there
+        /// at the flag. Cleared only by rebuilding the sim, which the run layer does per race.
+        ///
+        /// Left at its default of 1 it is a perfect no-op: the friction circle sees the byte-for-byte
+        /// un-bonused value, so a car with no sector parts drives exactly as it always did. A plain field
+        /// (not decayed here) keeps the core engine-loop-independent — a headless server folds an
+        /// identical multiplier the host hands it.
+        /// </summary>
+        public float BonusGripMult = 1f;
+
+        /// <summary>
+        /// Engine-torque analogue of <see cref="BonusGripMult"/>. Composes multiplicatively alongside
+        /// <see cref="PowerEffectMult"/> (the sap), <see cref="DurabilityMult"/> (wear) and
+        /// <see cref="BoostMult"/> (KERS), so the four channels stack cleanly and none has to know about
+        /// the others. Defaults to 1 — an exact no-op.
+        /// </summary>
+        public float BonusPowerMult = 1f;
+
+        // ------------------------------------------------------------------ persistent damage / durability
+
+        /// <summary>
+        /// Floor Durability can never drop below. Zero since the damage rework (doc 08 decision 15): a
+        /// car CAN now be wrecked outright, and a wreck is the HOST's problem — RaceManager retires any
+        /// car whose durability reaches zero, so the zero-grip/zero-torque sim state is never something
+        /// a player is left driving. (The old 0.4 floor meant the worst outcome of being rammed all race
+        /// was driving at 70% — contact racing had no real worst case.)
+        /// </summary>
+        public const float MinDurability = 0f;
+
+        /// <summary>
+        /// PERSISTENT 0..1 structural integrity, 1 = a fresh car. Unlike the transient grip/power saps this
+        /// does NOT recover during a race — a battered car stays battered — and it resets to 1 only when the
+        /// sim is rebuilt (a fresh car each race, i.e. a new VehicleSim). Lowered on hard shunts via
+        /// <see cref="ApplyDamage"/>. Lives in the plain-C# core so a headless server accumulates wear
+        /// identically — the host only injects the impact events that drive it.
+        /// </summary>
+        public float Durability { get; private set; } = 1f;
+
+        /// <summary>True once <see cref="Durability"/> has hit zero — the car is a wreck. The host is
+        /// expected to retire it from the race (decision 15); the sim itself just reports the state.</summary>
+        public bool IsDestroyed => Durability <= 0f;
+
+        // Cached Durability^WearExponent — recomputed only when Durability changes (rare: a hit or a
+        // host restore), never in the per-step force path where DurabilityMult is read per wheel.
+        private float _durabilityMult = 1f;
+
+        /// <summary>
+        /// Multiplier (≤1) that persistent wear places on BOTH peak tyre grip and engine drive torque:
+        /// Durability ^ <see cref="VehicleSpec.WearExponent"/> (doc 08 decision 15), so 1 on a fresh car,
+        /// the chassis-authored curve on a damaged one, and 0 on a wreck. At the default exponent of 1 a
+        /// half-durability car runs at half pace — "crippled", and expected to miss the survival cutoff.
+        /// Folded in alongside <see cref="GripEffectMult"/>/<see cref="PowerEffectMult"/> so lasting
+        /// wear stacks multiplicatively with the transient combat saps.
+        /// </summary>
+        public float DurabilityMult => _durabilityMult;
+
+        /// <summary>
+        /// Permanently wear the car by <paramref name="amount"/> of durability, scaled down by the spec's
+        /// <see cref="VehicleSpec.DamageResistance"/> (a tough build shrugs off part of every hit) and
+        /// clamped so Durability never drops below <see cref="MinDurability"/> (zero — a wreck). No-op for
+        /// non-positive or non-finite amounts. Unlike ApplyGripSap/ApplyPowerSap this does NOT decay back
+        /// toward nominal — the loss holds for the rest of the race and is cleared only by rebuilding the
+        /// sim. Callers scale <paramref name="amount"/> by impact severity so heavy shunts progressively
+        /// batter the car down (Wreckfest-style consequences).
+        /// </summary>
+        public void ApplyDamage(float amount)
+        {
+            if (!(amount > 0f)) return; // rejects zero, negatives and NaN
+            amount *= 1f - Spec.DamageResistance;
+            Durability = Mathf.Max(MinDurability, Durability - amount);
+            _durabilityMult = Mathf.Pow(Durability, Spec.WearExponent);
+        }
+
+        /// <summary>
+        /// Directly assign persistent <see cref="Durability"/>, clamped to [<see cref="MinDurability"/>, 1].
+        /// Unlike <see cref="ApplyDamage"/> (which only ever lowers it and rejects out-of-range amounts)
+        /// this sets an ABSOLUTE value, so the host can carry a run's accumulated wear onto a freshly-rebuilt
+        /// sim (a new VehicleSim resets to full) or restore it after a garage repair. No resistance scaling —
+        /// this is a restore, not a hit. Lives in the plain-C# core so a headless server can carry wear
+        /// across races identically.
+        /// </summary>
+        public void SetDurability(float durability)
+        {
+            Durability = Mathf.Clamp(durability, MinDurability, 1f);
+            _durabilityMult = Mathf.Pow(Durability, Spec.WearExponent);
+        }
+
+        // ------------------------------------------------------------------ tyre heat / wear
+
+        /// <summary>
+        /// The per-wheel tyre heat/wear model for wheel <paramref name="i"/> (FL, FR, RL, RR) — telemetry
+        /// and tuning. <see cref="TyreWear.GripMult"/> reads 1 on a fresh/un-stepped model, so this is
+        /// inert until <see cref="TyreWearEnabled"/> is set and the model is stepped.
+        /// </summary>
+        public TyreWear WheelTyreWear(int i) => _tyreWear[i];
+
+        /// <summary>
+        /// Race-start reset: return every tyre to ambient temperature and clear the slow wear accumulated
+        /// over the previous race. A freshly-built VehicleSim already starts reset — call this to reuse an
+        /// existing sim across races. The host (RaceManager) is expected to call it at each race start;
+        /// it is deliberately NOT wired to any caller here.
+        /// </summary>
+        public void ResetTyreWear()
+        {
+            for (int i = 0; i < WheelCount; i++) _tyreWear[i].Reset();
+        }
+
         /// <summary>
         /// Advance the sim by dt. Returns forces to apply to the chassis rigidbody this step.
         /// The returned array is reused between calls — consume it immediately.
@@ -72,6 +324,7 @@ namespace Shitboxer.Vehicle
             Vector3 chassisVelocity, Vector3 chassisForward, Vector3 chassisUp,
             Vector3 chassisAngularVelocity)
         {
+            DecayEffects(dt); // transient grip/power saps ease back toward nominal (auras re-clamp below)
             UpdateSteering(dt, input.Steer, chassisVelocity.magnitude);
 
             float forwardSpeed = Vector3.Dot(chassisVelocity, chassisForward);
@@ -85,14 +338,35 @@ namespace Shitboxer.Vehicle
             // Arcade pedal convention: while reversing, the brake pedal is the reverse throttle.
             float driveTorquePerWheel = ComputeDriveTorque(InReverse ? input.Brake : input.Throttle);
 
+            // Substep the stiff wheel/tyre integration. Contacts and the suspension load computed
+            // above are held fixed across the substeps; only each wheel's spin and slip-relaxation
+            // state advances, over WheelSubsteps micro-steps of dt/N. Wheels don't couple to one
+            // another within a substep (the only cross-wheel coupling — the anti-roll bar — already
+            // ran on the fixed suspension load), so a wheel can run all its substeps before the next.
+            // The force handed back to the host is the per-wheel force AVERAGED over the substeps, so
+            // the net impulse applied over dt equals the integral of the tyre force across the step.
+            float subDt = dt / WheelSubsteps;
             for (int i = 0; i < WheelCount; i++)
-                StepWheel(i, dt, input, contacts[i], driveTorquePerWheel);
+            {
+                Vector3 forceAccum = Vector3.zero;
+                Vector3 appPoint = Vector3.zero;
+                for (int s = 0; s < WheelSubsteps; s++)
+                    forceAccum += StepWheel(i, subDt, input, contacts[i], driveTorquePerWheel, out appPoint);
 
-            // Aero: quadratic drag opposing velocity, plus downforce along -up.
-            float v = chassisVelocity.magnitude;
-            Vector3 comForce = -Spec.DragCoeff * v * chassisVelocity - Spec.DownforceCoeff * v * v * chassisUp;
+                _forces[i] = new ForceCommand
+                {
+                    Force = forceAccum / WheelSubsteps,
+                    Position = appPoint,
+                };
+            }
 
-            comForce += StepAssists(input, chassisVelocity, chassisForward, chassisUp, chassisAngularVelocity);
+            // Aero: quadratic drag opposing velocity, plus downforce along -up. Speed is capped for
+            // the quadratic terms only so a pathological velocity can't overflow them to Infinity.
+            float v = Mathf.Min(chassisVelocity.magnitude, 200f);
+            // DraftDragMult (1 = clean air, lower = a slipstream) scales the DRAG term only; downforce is untouched.
+            Vector3 comForce = -Spec.DragCoeff * DraftDragMult * v * chassisVelocity - Spec.DownforceCoeff * v * v * chassisUp;
+
+            comForce += StepAssists(dt, input, chassisVelocity, chassisForward, chassisUp, chassisAngularVelocity);
 
             _forces[WheelCount] = new ForceCommand
             {
@@ -110,16 +384,26 @@ namespace Shitboxer.Vehicle
         /// immediate without touching the tyre model. Lives in the sim (not the host) so a
         /// headless server steps identical maths. Returns a CoM force; also sets BodyTorque.
         /// </summary>
-        private Vector3 StepAssists(in VehicleInput input, Vector3 velocity, Vector3 forward,
+        private Vector3 StepAssists(float dt, in VehicleInput input, Vector3 velocity, Vector3 forward,
             Vector3 up, Vector3 angularVelocity)
         {
-            // Extra gravity always applies — heavy landings are most of "not floaty".
-            Vector3 force = Vector3.down * (Spec.MassKg * 9.81f * Spec.ExtraGravity);
             BodyTorque = Vector3.zero;
 
             int groundedCount = 0;
             for (int i = 0; i < WheelCount; i++)
                 if (Grounded[i]) groundedCount++;
+
+            // The extra "downforce gravity" is a heavy-landing feel cheat, applied even airborne so
+            // brief hops over bumps stay planted. But a car out of contact for a WHILE may be sinking
+            // through the ground (wheel rays blind past RayStartLift); pulling it further down then
+            // drives it out the bottom of the world (the blind-sink fall-through). So cut the pull
+            // once airborne long enough to be a fall, not a hop — it then falls under normal gravity
+            // only and can recover.
+            _airborneTime = groundedCount > 0 ? 0f : _airborneTime + dt;
+            Vector3 force = _airborneTime < ExtraGravityMaxAirborneS
+                ? Vector3.down * (Spec.MassKg * 9.81f * Spec.ExtraGravity)
+                : Vector3.zero;
+
             if (groundedCount < 3) return force; // airborne/tipped: no steering cheats
 
             float forwardSpeed = Vector3.Dot(velocity, forward);
@@ -242,7 +526,11 @@ namespace Shitboxer.Vehicle
             float engineTorque;
             if (throttle > 0.01f)
             {
-                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle;
+                // Transient power sap, persistent wear AND the host's overtake boost all scale the
+                // delivered engine torque. BoostMult defaults to 1 (a host raises it during a deployed
+                // boost), so with no boost this is byte-for-byte the original power * sap * wear expression.
+                engineTorque = Spec.Engine.TorqueAt(EngineRpm) * throttle
+                               * PowerEffectMult * DurabilityMult * BoostMult * BonusPowerMult;
                 // Rev limiter: no more torque at the wall.
                 if (EngineRpm >= Spec.Engine.RedlineRpm - 10f) engineTorque = 0f;
             }
@@ -262,6 +550,7 @@ namespace Shitboxer.Vehicle
 
         private void StepSuspension(int i, float dt, in GroundContact c)
         {
+            bool wasGrounded = Grounded[i]; // last step's state, before we overwrite it below
             Grounded[i] = c.Grounded;
             if (!c.Grounded)
             {
@@ -270,15 +559,43 @@ namespace Shitboxer.Vehicle
                 return;
             }
 
-            float prev = Compression[i];
-            Compression[i] = Mathf.Clamp(
+            float maxCompression = Spec.SuspensionRestLengthM + Spec.SuspensionTravelM;
+            float compression = Mathf.Clamp(
                 Spec.SuspensionRestLengthM - (c.HitDistance - Spec.WheelRadiusM),
-                0f, Spec.SuspensionRestLengthM + Spec.SuspensionTravelM);
+                0f, maxCompression);
 
-            float compressionSpeed = (Compression[i] - prev) / dt;
-            float force = Spec.SpringRateNPerM * Compression[i]
+            // Damper needs the compression RATE, but while airborne we force Compression to 0. On the
+            // first grounded step after airtime a naive (compression - 0)/dt reads the whole touchdown
+            // compression as one step of velocity — e.g. 0.3 m / 0.02 s = 15 m/s → a ~67 kN phantom
+            // damper spike on one corner (a launch AND a yaw/roll kick, and a spiked tyre load downstream).
+            // Seed prev from THIS step's geometry across the airborne->grounded transition so the rate is
+            // 0 there, then clamp the rate so even a curb/step blip while grounded can't spike the damper
+            // past the force ceiling.
+            float prev = wasGrounded ? Compression[i] : compression;
+            Compression[i] = compression;
+
+            float compressionSpeed = (compression - prev) / dt;
+            float maxCompressionSpeed = Spec.MaxSuspensionForceN / Mathf.Max(1f, Spec.DamperRateNPerMps);
+            compressionSpeed = Mathf.Clamp(compressionSpeed, -maxCompressionSpeed, maxCompressionSpeed);
+
+            float force = Spec.SpringRateNPerM * compression
                         + Spec.DamperRateNPerMps * compressionSpeed;
-            SuspensionForce[i] = Mathf.Max(0f, force); // springs push, never pull
+
+            // Progressive bump-stop: near the end of travel the linear spring alone (SpringRate * maxTravel)
+            // may not resist bottoming, so add a stiff term through the last stretch of travel. over^2/span
+            // grows from zero slope at engagement to very stiff at the limit, so it ramps in smoothly rather
+            // than as a hard corner.
+            float bumpStart = maxCompression * Spec.BumpStopStartFraction;
+            if (compression > bumpStart)
+            {
+                float over = compression - bumpStart;
+                float span = Mathf.Max(1e-3f, maxCompression - bumpStart);
+                force += Spec.BumpStopRateNPerM * (over * over) / span;
+            }
+
+            // Springs push, never pull (floor at 0); the ceiling caps landing/bottoming spikes so a single
+            // corner's vertical force — and the tyre load it becomes downstream — can't fling the car.
+            SuspensionForce[i] = Mathf.Clamp(force, 0f, Spec.MaxSuspensionForceN);
         }
 
         private void ApplyAntiRollBars()
@@ -297,8 +614,16 @@ namespace Shitboxer.Vehicle
 
         // ------------------------------------------------------------------ wheels & tyres
 
-        private void StepWheel(int i, float dt, in VehicleInput input, in GroundContact c, float driveTorquePerWheel)
+        /// <summary>
+        /// Advance one wheel's spin + tyre-slip state by a single substep of <paramref name="dt"/> and
+        /// return the world-space force it produces this substep (suspension load + tyre long/lat), with
+        /// its application point in <paramref name="appPoint"/>. Called WheelSubsteps times per Step; the
+        /// caller averages the returned forces. Suspension load (SuspensionForce[i]) and the contact are
+        /// held fixed across the substeps — only AngularVelocity[i] and the slip-relaxation state evolve.
+        /// </summary>
+        private Vector3 StepWheel(int i, float dt, in VehicleInput input, in GroundContact c, float driveTorquePerWheel, out Vector3 appPoint)
         {
+            appPoint = Vector3.zero;
             float inertia = 0.5f * Spec.WheelMassKg * Spec.WheelRadiusM * Spec.WheelRadiusM;
             float torque = IsDriven(i) ? driveTorquePerWheel : 0f;
 
@@ -313,13 +638,13 @@ namespace Shitboxer.Vehicle
 
             if (!c.Grounded)
             {
-                // Airborne: just spin the wheel from drive/brake torque, and relax slip state.
+                // Airborne: just spin the wheel from drive/brake torque, and relax slip state. Produces
+                // no ground force, so the averaged contribution over the substeps stays zero.
                 AngularVelocity[i] += torque / inertia * dt;
                 AngularVelocity[i] = ApplyBrake(AngularVelocity[i], brakeTorque, inertia, dt);
-                _slipRatioState[i] *= 0.9f;
-                _slipAngleState[i] *= 0.9f;
-                _forces[i] = default;
-                return;
+                _slipRatioState[i] *= AirborneSlipDecayPerSubstep;
+                _slipAngleState[i] *= AirborneSlipDecayPerSubstep;
+                return Vector3.zero;
             }
 
             TyreSpec tyre = IsFrontWheel(i) ? Spec.FrontTyre : Spec.RearTyre;
@@ -354,7 +679,19 @@ namespace Shitboxer.Vehicle
             float rho = Mathf.Sqrt(sLong * sLong + sLat * sLat);
 
             float load = SuspensionForce[i];
-            float mu = TyreMu(tyre, rho, load);
+            // Combat grip sap, persistent wear AND the ground surface (grass/dirt vs tarmac) all fold
+            // straight into the friction circle. SurfaceGripMult reads 1 for an unset contact, so this
+            // is a no-op until a track marks a low-grip zone.
+            float mu = TyreMu(tyre, rho, load) * GripEffectMult * DurabilityMult * c.SurfaceGripMult * BonusGripMult;
+            if (TyreWearEnabled)
+            {
+                // Warm/wear the tyre from this substep's slip and load, then fold its thermal+wear grip
+                // factor into the friction circle. rho is the friction-circle slip (1 = peak), clamped to
+                // a 0..1 heating input; load is normalized by the tyre's rated load (already >0 via
+                // VehicleSpec.Validate). Gated so this whole block — and any grip change — is absent by default.
+                _tyreWear[i].Step(dt, Mathf.Clamp01(rho), Mathf.Clamp01(load / tyre.RatedLoadN));
+                mu *= _tyreWear[i].GripMult;
+            }
             if (!IsFrontWheel(i) && input.Handbrake > 0.1f)
                 mu *= Spec.HandbrakeGripFactor;
 
@@ -400,9 +737,8 @@ namespace Shitboxer.Vehicle
             // Tyre forces act between the contact patch and axle height (TyreForceAppLift):
             // full contact-patch application makes raycast cars roll over unrealistically hard,
             // because there's no real suspension geometry to generate jacking forces.
-            Vector3 appPoint = Vector3.Lerp(c.HitPoint, c.AttachPoint, Spec.TyreForceAppLift);
-            Vector3 force = c.SuspensionUp * SuspensionForce[i] + fwd * fLong + right * fLat;
-            _forces[i] = new ForceCommand { Force = force, Position = appPoint };
+            appPoint = Vector3.Lerp(c.HitPoint, c.AttachPoint, Spec.TyreForceAppLift);
+            return c.SuspensionUp * SuspensionForce[i] + fwd * fLong + right * fLat;
         }
 
         private static float ApplyBrake(float omega, float brakeTorque, float inertia, float dt)

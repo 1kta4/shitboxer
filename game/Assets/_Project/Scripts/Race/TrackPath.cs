@@ -79,14 +79,36 @@ namespace Shitboxer.Race
             List<Transform> wps = ResolveWaypoints();
             if (wps.Count < 2) return;
 
+            // Waypoint markers.
             Gizmos.color = Color.yellow;
-            for (int i = 0; i < wps.Count; i++)
+            foreach (Transform t in wps)
+                if (t) Gizmos.DrawWireSphere(t.position, 0.6f);
+
+            // Draw the actual racing line — the Catmull-Rom spline bots follow — not the raw
+            // polyline between waypoints. Built from the current positions each draw so it stays
+            // live while waypoints are dragged in the editor (cheap, editor-only).
+            if (wps.Count >= 3)
             {
-                Transform a = wps[i];
-                Transform b = wps[(i + 1) % wps.Count];
-                if (!a || !b) continue;
-                Gizmos.DrawLine(a.position, b.position);
-                Gizmos.DrawWireSphere(a.position, 0.6f);
+                var pts = new List<Vector3>(wps.Count);
+                foreach (Transform t in wps)
+                    if (t) pts.Add(t.position);
+
+                if (pts.Count >= 3)
+                {
+                    var line = new RacingLine(pts);
+                    Gizmos.color = Color.cyan;
+                    float total = line.TotalLength;
+                    float stepM = Mathf.Max(1f, total / 256f);
+                    Vector3 start = line.PointAt(0f);
+                    Vector3 prev = start;
+                    for (float d = stepM; d < total; d += stepM)
+                    {
+                        Vector3 cur = line.PointAt(d);
+                        Gizmos.DrawLine(prev, cur);
+                        prev = cur;
+                    }
+                    Gizmos.DrawLine(prev, start); // close the loop
+                }
             }
 
             // Start/finish marker.

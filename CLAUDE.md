@@ -11,6 +11,12 @@ decisions (do not re-litigate; see `future plan/07-risks-and-open-questions.md` 
 - **Netcode (Phase 6, not yet):** FishNet, server-authoritative, server resolves all collisions.
 - **Design:** position-based scoring, inverted catch-up economy, survival time-cutoff,
   parts-as-equipment (stat/economy/attack), two headline stats: **Grip** and **Power**.
+- **UI:** **UI Toolkit** (UXML/USS/UI Builder) for all player-facing UI — decided 2026-07-16.
+  Deliberately Unity's documented *alternative* to its uGUI default (this is a UI-heavy game; the
+  shop is the differentiator). Build it in **Phase 4**, not before. The current `OnGUI()` IMGUI
+  (`GarageScreen`, `RaceHud`, `VehicleDebugHud`) is a **throwaway dev harness** — Unity says IMGUI is
+  editor-only with no runtime recommendation. **Replace it, never port it**, and never count it as
+  Phase 4 progress. Don't add uGUI/Canvas/TextMeshPro.
 - **Build order:** single-player first. Multiplayer is deliberately LAST.
 
 ## Environment

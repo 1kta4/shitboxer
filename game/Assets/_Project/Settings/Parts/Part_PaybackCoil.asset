@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_PaybackCoil
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: payback_coil
+  DisplayName: Payback Coil
+  Description: 'Feeds on the beating you take: damage becomes charge, charge becomes
+    a +20% power answer.'
+  Category: 0
+  Rarity: 1
+  Price: 8
+  Condition: 0
+  Edition: 0
+  SpecMods: []
+  MoneyPerPositionHeld: 0
+  DraftLeech: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0
+  SectorRules: []
+  Active:
+    Charge: 4
+    FillPerSecond: 0.35
+    ChargePerEvent: 0.25
+    BoostMult: 1.2
+    DrainPerSecond: 0.6
+    MinCharge01: 0.5
+    UseCost: 0

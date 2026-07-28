@@ -1,0 +1,48 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   SHITBOXER UI — design tokens.  PS2 "Garage v3" (ported from garage-ps2-v3.html)
+   Dark navy plates, blue system accent, amber cash, green gains, red faults.
+
+   USS is NOT CSS. Constraints that shape this port:
+     - No CSS grid (flexbox only), no clip-path, no box-shadow.
+     - Diagonal cuts + glows the mock uses are deferred to baked sprites.
+   Fonts are the in-repo PIXEL faces for now — swap --font-sys / --font-display
+   below to move the WHOLE UI onto the demo (sans / mono / heavy) fonts.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+    /* ── Ink ─────────────────────────────────────────────────────────────── */
+    --ink:      #e4ecf8;
+    --ink-dim:  #93a4bc;
+    --ink-mute: #5c6c86;
+
+    /* ── Accents (the only saturated colours) ────────────────────────────── */
+    --blue:    #4f8bff;   /* system / selection            */
+    --blue-lt: #8fc4ff;   /* lit blue, labels              */
+    --green:   #5fd97a;   /* stat GAIN / equipped          */
+    --amber:   #e8bb63;   /* CASH / prices                 */
+    --red:     #e0384e;   /* LIVES / faults / can't afford */
+
+    /* ── Steel plates ────────────────────────────────────────────────────── */
+    --screen:   #0a0d14;
+    --plate:    #1c2330;
+    --plate-hi: #242c3a;  /* lit top of a plate gradient   */
+    --plate-lo: #141a24;  /* shadow foot of a plate        */
+    --panel:    #1a212c;
+    --edge:     #3a4557;
+    --edge-lit: rgba(190, 215, 255, 0.3);
+    --line:     #2f3a4c;  /* dividers / borders            */
+    --sec:      #8fb6ea;  /* section-header blue           */
+
+    /* ── Type ────────────────────────────────────────────────────────────── */
+    /* PIXEL FIRST. To switch to the demo fonts, point these at the sans/heavy
+       .ttf instead (or clear them to fall back to the panel's default theme). */
+    --font-sys:     url("project:///Assets/_Project/Scripts/UI/Fonts/Silkscreen-Regular.ttf");
+    --font-display: url("project:///Assets/_Project/Scripts/UI/Fonts/PressStart2P-Regular.ttf");
+
+    /* Pixel fonts must land on integer sizes or they shimmer. */
+    --size-title: 20px;   /* Press Start 2P — GARAGE, NEXT RACE */
+    --size-cta:   14px;
+    --size-val:   14px;   /* Silkscreen — numbers we read       */
+    --size-body:  12px;   /* Silkscreen — names, descriptions   */
+    --size-label: 10px;   /* Silkscreen — uppercase micro-labels */
+}

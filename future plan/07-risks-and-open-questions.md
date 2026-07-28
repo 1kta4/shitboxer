@@ -121,6 +121,7 @@ Several earlier questions are now **answered** (see the decisions table). What's
 | Multiplayer | **Quick races + shared championship** (quick first) | 03, 05 |
 | Multiplayer timing | Last (Phase 6), after single-player is fun | 05 |
 | Art approach | Stylized + free/cheap placeholders | 06 |
+| **UI / UX** | **UI Toolkit** (UXML/USS/UI Builder) for all player-facing UI, **decided 2026-07-16** — deliberately Unity's documented *alternative* to its uGUI default, because this is a UI-heavy game (the shop is the differentiator). Costs: no Timeline/Animation-Clip integration, less "production-proven" than uGUI. Today's IMGUI is a **throwaway dev harness** — replace, never port. Build it in **Phase 4**, not before | 02, 05 |
 | AI tooling | Unity MCP + Claude Code (Fable = just the model) | 04 |
 | Custom engine | No | 01 |
 

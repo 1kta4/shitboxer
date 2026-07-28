@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_TitaniumInternals
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: titanium_internals
+  DisplayName: Titanium Internals
+  Description: "Exotic rods and valves chase pure power-to-weight. -10% mass and
+    +8% torque (additive \u2014 anchor it before Big Turbo), but the stripped-out
+    engine bay loses -3% downforce. Expensive."
+  Category: 0
+  Rarity: 2
+  Price: 13
+  SpecMods:
+  - Target: 2
+    Multiplier: 0.08
+    Op: 1
+  - Target: 3
+    Multiplier: 0.9
+    Op: 0
+  - Target: 4
+    Multiplier: 0.97
+    Op: 0
+  MoneyPerPositionHeld: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0

@@ -6,7 +6,9 @@
         "Shitboxer.Cameras",
         "Shitboxer.TestDrive",
         "Shitboxer.Race",
-        "Shitboxer.Meta"
+        "Shitboxer.Meta",
+        "Shitboxer.UI.Model",
+        "Shitboxer.UI"
     ],
     "includePlatforms": [
         "Editor"

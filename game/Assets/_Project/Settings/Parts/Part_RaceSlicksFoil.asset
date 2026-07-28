@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_RaceSlicksFoil
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: race_slicks_foil
+  DisplayName: Race Slicks (Foil)
+  Description: "Foil-edition full softs. Foil deepens BOTH sides of the base Race
+    Slicks: ~+25% grip front and rear, but the amplified rubber also adds ~+3.75%
+    mass \u2014 a rare, top-dollar premium, never a free upgrade."
+  Category: 0
+  Rarity: 2
+  Price: 18
+  Condition: 0
+  Edition: 1
+  SpecMods:
+  - Target: 0
+    Multiplier: 1.2
+    Op: 0
+  - Target: 1
+    Multiplier: 1.2
+    Op: 0
+  - Target: 3
+    Multiplier: 1.03
+    Op: 0
+  MoneyPerPositionHeld: 0
+  DraftLeech: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0

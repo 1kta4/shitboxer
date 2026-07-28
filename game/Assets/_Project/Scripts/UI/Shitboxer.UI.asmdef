@@ -1,0 +1,19 @@
+{
+    "name": "Shitboxer.UI",
+    "rootNamespace": "Shitboxer.UI",
+    "references": [
+        "Shitboxer.Vehicle",
+        "Shitboxer.Race",
+        "Shitboxer.Meta",
+        "Shitboxer.UI.Model"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

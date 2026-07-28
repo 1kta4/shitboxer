@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_SectorNine
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: sector_nine
+  DisplayName: Sector Nine
+  Description: 'Saves everything for the run to the flag: x1.6 power through the
+    final sector of the final lap.'
+  Category: 0
+  Rarity: 2
+  Price: 10
+  Condition: 0
+  Edition: 0
+  SpecMods: []
+  MoneyPerPositionHeld: 0
+  DraftLeech: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0
+  SectorRules:
+  - Trigger: 6
+    StyleTag: 0
+    TimingColour: 0
+    StreakLength: 0
+    PaceToleranceS: 0
+    Effect: 3
+    Op: 0
+    Amount: 1.6
+    DurationSectors: 1
+    ScaleByCount: 0

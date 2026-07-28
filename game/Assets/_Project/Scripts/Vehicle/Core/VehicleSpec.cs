@@ -38,6 +38,12 @@ namespace Shitboxer.Vehicle
         public float DamperRateNPerMps = 4500f;
         [Tooltip("N per metre of left/right compression difference, resists body roll. Per axle.")]
         public float AntiRollBarNPerM = 8000f;
+        [Tooltip("Hard upper bound (N) on per-wheel vertical suspension force before it becomes tyre load. Caps landing/bottoming spikes so one corner can't launch or fling the car. ~4-6x static corner load.")]
+        public float MaxSuspensionForceN = 30000f;
+        [Tooltip("Fraction of total travel (rest + travel) at which the progressive bump-stop starts to engage. 0.85 = last 15% of travel.")]
+        [Range(0.5f, 1f)] public float BumpStopStartFraction = 0.85f;
+        [Tooltip("Bump-stop stiffness (N/m) through its engagement zone — resists bottoming so max travel isn't held by the linear spring alone.")]
+        public float BumpStopRateNPerM = 250000f;
 
         [Header("Wheels")]
         public float WheelRadiusM = 0.32f;
@@ -90,6 +96,12 @@ namespace Shitboxer.Vehicle
         [Tooltip("Extra roll/pitch angular damping while grounded — kills wallowing.")]
         public float FlatRideDamping = 1.5f;
 
+        [Header("Toughness — the DURABILITY stat lives here")]
+        [Tooltip("Fraction of incoming impact damage this car shrugs off, 0 = takes it all. Raised by the build's Durability points; VehicleSim.ApplyDamage folds it in at intake, so it protects against contact wear from every source (including boss-amplified hits). Capped at 0.9 — no car is ever immune.")]
+        [Range(0f, 0.9f)] public float DamageResistance = 0f;
+        [Tooltip("Per-chassis damage-model curve (doc 08 decision 15): pace at damage level D is D^this. 1 = linear (half durability, half pace). Below 1 shrugs damage off (a monster truck at 0.4 keeps 76% pace at half durability); above 1 cripples hard (an open-wheeler at 2 is down to 25%). This exponent is where chassis toughness CHARACTER lives — DamageResistance above scales how much damage lands, this shapes what the damage costs.")]
+        [Range(0.25f, 3f)] public float WearExponent = 1f;
+
         [Header("Aero")]
         [Tooltip("Longitudinal drag: F = -Coeff * v * |v|.")]
         public float DragCoeff = 0.38f;
@@ -98,6 +110,63 @@ namespace Shitboxer.Vehicle
 
         public float FrontAxleZ => WheelbaseM * 0.5f;
         public float RearAxleZ => -WheelbaseM * 0.5f;
+
+        /// <summary>
+        /// An independent copy of this spec. Every tuning path — stat parts, the stat ledger, the bot
+        /// strength ramp — works on a copy so the authored asset is never mutated.
+        ///
+        /// <see cref="MemberwiseClone"/> rather than a JsonUtility round-trip: it is faster, allocates
+        /// once instead of building an intermediate string, picks up any field added later for free,
+        /// and — the reason it changed — it works OUTSIDE the Unity player loop, so the whole
+        /// spec-baking layer is unit-testable in a plain runner instead of silently skipping.
+        ///
+        /// Every field here is a value type or a serializable struct, which MemberwiseClone duplicates
+        /// correctly; <see cref="GearRatios"/> is the single reference-type field and is copied
+        /// explicitly. ADD A REFERENCE-TYPE FIELD AND YOU MUST DEEP-COPY IT HERE, or two specs will
+        /// silently share it.
+        /// </summary>
+        public VehicleSpec Clone()
+        {
+            var copy = (VehicleSpec)MemberwiseClone();
+            if (GearRatios != null) copy.GearRatios = (float[])GearRatios.Clone();
+            return copy;
+        }
+
+        /// <summary>
+        /// Clamp every field the sim divides by (or whose zero would poison the maths) up to a small
+        /// positive minimum. A hand-authored asset or a runtime part-swap in the roguelike economy that
+        /// scales a stat to 0 would otherwise feed an Inf/NaN into the force sent to the rigidbody — the
+        /// classic "car vanishes / tunnels through the world" bug. This is the cheapest elimination of
+        /// that whole NaN class. Idempotent: clamping an already-valid value is a no-op, so it is safe to
+        /// run on a spec asset that several cars share and each re-validate from their own VehicleSim ctor.
+        /// </summary>
+        public void Validate()
+        {
+            MassKg = Mathf.Max(1f, MassKg);
+            WheelbaseM = Mathf.Max(0.5f, WheelbaseM);
+            WheelRadiusM = Mathf.Max(0.05f, WheelRadiusM);
+            SteerFalloffSpeedMps = Mathf.Max(0.1f, SteerFalloffSpeedMps);
+            MaxSuspensionForceN = Mathf.Max(1f, MaxSuspensionForceN);
+
+            // The damage model's own divisors-by-behaviour: an exponent of 0 would make durability a
+            // no-op (D^0 == 1), resistance of 1 would make a car unhittable. Clamp both to the
+            // inspector ranges so a hand-edited asset can't switch the damage rework off.
+            WearExponent = Mathf.Clamp(WearExponent, 0.25f, 3f);
+            DamageResistance = Mathf.Clamp(DamageResistance, 0f, 0.9f);
+
+            ClampTyre(ref FrontTyre);
+            ClampTyre(ref RearTyre);
+        }
+
+        // The tyre divisors (PeakSlipRatio, PeakSlipAngleDeg) and the load-sensitivity denominator
+        // (RatedLoadN) each appear in a division inside the friction-circle maths; a zero there is an
+        // instant NaN. Same positive-minimum clamp, applied to whichever tyre is passed by ref.
+        private static void ClampTyre(ref TyreSpec tyre)
+        {
+            tyre.PeakSlipRatio = Mathf.Max(0.01f, tyre.PeakSlipRatio);
+            tyre.PeakSlipAngleDeg = Mathf.Max(0.5f, tyre.PeakSlipAngleDeg);
+            tyre.RatedLoadN = Mathf.Max(1f, tyre.RatedLoadN);
+        }
     }
 
     [Serializable]

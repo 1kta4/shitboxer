@@ -22,20 +22,61 @@ namespace Shitboxer.Meta
         Downforce,  // DownforceCoeff
     }
 
-    /// <summary>One multiplicative tweak a stat part applies to the player's spec.</summary>
+    /// <summary>
+    /// How a SpecMod folds into its target's running factor (see SpecModApplier). Multiply (0)
+    /// is the default so existing single-op assets deserialize to today's behaviour, and a pile
+    /// of pure-Multiply mods still commutes. Add is the non-commuting op that makes slot order
+    /// matter: an Add mod slotted BEFORE a Multiply mod on the same target beats the reverse
+    /// (Balatro's +Mult-before-xMult, doc 03).
+    /// </summary>
+    public enum SpecModOp
+    {
+        Multiply,  // running factor *= Multiplier  (1.1 = +10%)
+        Add,       // running factor += Multiplier as a +fraction  (0.10 = +10%)
+    }
+
+    /// <summary>One tweak a stat part applies to the player's spec (multiplicative by default).</summary>
     [Serializable]
     public struct SpecMod
     {
         public SpecModTarget Target;
-        [Tooltip("Multiplier on the target value: 1.1 = +10%, 0.9 = -10%.")]
+        [Tooltip("Op=Multiply: factor on the target, 1.1 = +10%, 0.9 = -10%. Op=Add: a +fraction added to the running factor, 0.10 = +10%, -0.04 = -4%.")]
         public float Multiplier;
+        [Tooltip("Multiply (default) scales the target's running factor; Add adds to it — so slot order matters when both ops hit one target.")]
+        public SpecModOp Op;
+    }
+
+    /// <summary>
+    /// Shop draw-weight tier (doc 03's Balatro DNA). Common (0) is the default so every existing
+    /// PartDef asset stays Common; ShopLogic.Roll biases the shelf toward Common and makes Rare
+    /// scarce.
+    /// </summary>
+    public enum Rarity
+    {
+        Common,
+        Uncommon,
+        Rare,
+    }
+
+    /// <summary>
+    /// doc 03's per-part modifier. Passive (0) is the default so every existing PartDef asset stays
+    /// a plain part with no special behaviour. Fragile parts carry a stronger effect but break (are
+    /// destroyed, removed from the run) if the car finishes a race badly battered (RunDirector).
+    /// Cashout parts refund their Price into final Money if still owned when the run ends
+    /// (RunDirector / RunState.CashoutRefundTotal) — a "buy it, keep it, get it back" economy hook.
+    /// </summary>
+    public enum PartCondition
+    {
+        Passive,
+        Fragile,
+        Cashout,
     }
 
     /// <summary>
     /// One shop part — the "jokers as equipment" unit (doc 03). Stat parts carry SpecMods that
     /// SpecModApplier bakes into the player's VehicleSpec; economy parts hook the payout step;
-    /// attack parts are placeholder data only this phase (the shop sells them, nothing resolves
-    /// them yet).
+    /// attack parts carry on-contact and proximity-aura saps that RunDirector flattens into an
+    /// AttackProfile for the car's VehicleCombat to resolve against rivals.
     /// </summary>
     [CreateAssetMenu(menuName = "Shitboxer/Part", fileName = "Part")]
     public class PartDef : ScriptableObject
@@ -46,7 +87,13 @@ namespace Shitboxer.Meta
         [TextArea]
         public string Description;
         public PartCategory Category;
+        [Tooltip("Shop draw-weight tier — Common shows up often, Rare rarely (ShopLogic.Roll).")]
+        public Rarity Rarity = Rarity.Common;
         [Min(0)] public int Price = 5;
+        [Tooltip("doc 03 part modifier: Passive (default) is inert; Fragile breaks and is destroyed if the car finishes a race badly battered; Cashout refunds its Price into final money if still owned when the run ends.")]
+        public PartCondition Condition = PartCondition.Passive;
+        [Tooltip("Balatro-foil-style edition — None (default) is today's exact numbers; higher tiers amplify the MAGNITUDE of this part's stat effect (SpecModApplier via PartEditionInfo.StatMult), never its sign.")]
+        public PartEdition Edition = PartEdition.None;
 
         [Header("Stat parts")]
         public List<SpecMod> SpecMods = new List<SpecMod>();
@@ -54,11 +101,31 @@ namespace Shitboxer.Meta
         [Header("Economy parts (payout hook only, this phase)")]
         [Tooltip("$ bonus per finishing-position number at payout (finishing P6 pays 6x this) — leans further into the inverted economy.")]
         public int MoneyPerPositionHeld;
+        [Tooltip("Economy-part marker: this part pays out from DRAFTING (the draft-leech mechanism) rather than from finishing position. Default off — only parts flagged DraftLeech tap the draft payoff, so an unowned/unflagged part changes nothing.")]
+        public bool DraftLeech;
 
-        [Header("Attack parts (placeholder — attack resolution is a later phase)")]
-        [Tooltip("Multiplier on damage/stat-sap dealt to rivals on contact. Unused for now.")]
-        public float ContactDamageMult = 1f;
-        [Tooltip("Radius of a proximity aura effect, metres. Unused for now.")]
+        [Header("Attack parts — on-contact saps + proximity aura (doc 03)")]
+        [Tooltip("Grip fraction stripped from a rival you hit hard enough on contact. 0.3 = -30%.")]
+        [Range(0f, 0.9f)] public float ContactGripSap;
+        [Tooltip("Engine-torque fraction stripped from a rival you hit on contact. 0.3 = -30%.")]
+        [Range(0f, 0.9f)] public float ContactPowerSap;
+        [Tooltip("Radius of a proximity aura, metres. 0 = no aura.")]
         public float AuraRadiusM;
+        [Tooltip("Grip fraction stripped each step from rivals inside the aura (and behind you). 0.2 = -20%.")]
+        [Range(0f, 0.9f)] public float AuraGripSap;
+
+        [Header("Sector rules — score off HOW a sector was driven (doc 08)")]
+        [Tooltip("Clauses evaluated each time the player closes a sector. Empty (the default) means this part ignores sectors entirely, so every existing part is unchanged. Per doc 08 decision 9 sectors pay nothing on their own — owning a part with rules here is what unlocks in-race income.")]
+        public List<SectorRule> SectorRules = new List<SectorRule>();
+
+        /// <summary>True if this part scores off sectors at all — the cheap gate the runner filters on.</summary>
+        public bool HasSectorRules => SectorRules != null && SectorRules.Count > 0;
+
+        [Header("Active item — charge-and-deploy boost (doc 08 decision 14)")]
+        [Tooltip("Charge == None (default) means this is not an active item and the block is ignored, so every existing part is unchanged. Anything else makes equipping this part arm the single ACTIVATE bind (default Q) with this charge condition and boost.")]
+        public ActiveSpec Active = new ActiveSpec();
+
+        /// <summary>True if equipping this part arms the ACTIVATE bind — the runner's cheap filter gate.</summary>
+        public bool IsActive => Active != null && Active.Charge != ActiveCharge.None;
     }
 }

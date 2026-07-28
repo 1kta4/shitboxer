@@ -13,6 +13,7 @@ consume your engineering time: **networked vehicle physics for 8 players**.
 | **Language** | **C#** | Approachable, huge community, works with every asset and MCP tool below. |
 | **License** | **Personal (free)** | Free under $200k/yr revenue. You'll be on this for years. |
 | **Vehicle physics** | **Sim-cade controller you can run headless server-side** (see **doc 02b**) | *Not* WheelCollider. Same code must run client + server. NWH Vehicle Physics 2 (~$60) if buying; RVP/TLab (MIT) if building. |
+| **UI / UX** | **UI Toolkit** (UXML + USS + UI Builder) — **DECIDED 2026-07-16** | All player-facing UI from Phase 4 on. Unity's *default* runtime pick is uGUI; we take the documented **alternative** deliberately — see "UI stack" below. Today's IMGUI is a throwaway dev harness, not the plan. |
 | **Netcode** | **FishNet** (server-authoritative + free client-side prediction) | The only *free* stack with built-in prediction + reconciliation. No CCU fees. **Server resolves all collisions** — see "core challenge." |
 | **"Play with friends" / NAT** | **Unity Relay + Lobby** (UGS) | Free 50-CCU Relay tier; Lobby handles invites/join-by-code. |
 | **Voice (optional, later)** | **Unity Vivox** | 5,000 PCU/month free. Skip until the game is fun. |
@@ -31,6 +32,62 @@ consume your engineering time: **networked vehicle physics for 8 players**.
 - **Licensing:** Runtime Fee fully cancelled Sept 12, 2024. **Personal is free under $200k/yr**
   revenue+funding (hard gate — can't use Personal at all above it). Splash screen optional in Unity
   6. Pro is $2,310/seat/yr (Jan 2026) — irrelevant until you clear $200k. (unity.com; cgchannel.com)
+
+---
+
+## UI stack — **UI Toolkit** (DECIDED 2026-07-16)
+
+**All player-facing UI is built with UI Toolkit**, Unity's retained-mode UI system: **UXML** for
+structure, **USS** for styling (CSS-like), the **UI Builder** visual authoring tool, and
+`VisualElement` as the rendering primitive. This is a locked decision (doc 07 table).
+
+### Read this part honestly: we are taking Unity's *alternative*, not its default
+
+Unity's own comparison page recommends, for **runtime (player) UI**, **uGUI first — with UI Toolkit
+listed as the alternative.** We are deliberately choosing the alternative. That's a real deviation
+and it needs a real reason:
+
+- Unity recommends UI Toolkit specifically for projects needing **"a significant amount of user
+  interfaces"** and for **"multi-resolution menus and HUD in intensive UI projects."** Shitboxer is
+  exactly that shape — the **garage shop is the differentiator** (doc 03), not a pause menu. Part
+  offers with rarity/edition/condition tags, stat-delta previews, an equip/slot-order layout,
+  standings, run summaries, lap records, stake select, plus a live race HUD. This is a UI-heavy game
+  wearing a racing game's clothes.
+- **USS restyles the whole shop from one stylesheet.** For a Balatro-like where part cards need
+  consistent rarity/edition treatment across dozens of items, cascading styles beat per-prefab
+  wiring.
+- UI Toolkit also supports **world-space (3D) rendering** and **custom shaders/materials**, which the
+  later juice pass (damage numbers, rival nameplates, boost cues) can use without a second system.
+
+### The tradeoffs we're accepting (don't rediscover these later)
+
+| Cost | Detail |
+|---|---|
+| **Not Unity's default runtime rec** | uGUI is "established and production-proven"; UI Toolkit is **"in active development and releases new features frequently."** We trade stability for fit. |
+| **No Animation Clips / Timeline integration** | Explicitly unsupported. UI juice must come from **USS transitions** or code-driven tweens — *not* Timeline. Budget for this in the Phase 4 polish pass; it's the one place uGUI would have been easier. |
+| **No easy `MonoBehaviour` referencing** | uGUI's drag-a-reference-into-the-inspector workflow doesn't apply. Expect `UIDocument` + query-by-name/class (`Q<Button>("buy")`) wiring instead. |
+| **Learning curve** | UXML/USS is a web-shaped mental model. It pays off at this UI volume; it would not for three buttons. |
+
+### What this means for the IMGUI that exists today
+
+Every current screen — `GarageScreen`, `RaceHud`, `VehicleDebugHud` — is `OnGUI()` IMGUI. Unity's
+guidance is unambiguous: **IMGUI is an editor tool with no runtime recommendation at all.** That is
+precisely why the game is testable-but-not-shareable right now.
+
+The rule: **IMGUI is a throwaway dev harness. Do not invest in it, and do not port it — replace it.**
+It stays only until the Phase 4 UI pass, then it's deleted (`GarageScreen`'s own header already says
+*"Dies when a real UI arrives."*). Corollary: don't let "the shop already has a UI" count as Phase 4
+progress in any status check — it doesn't.
+
+**Sequencing:** UI Toolkit work belongs in **Phase 4** (vertical-slice polish), not before. The
+current IMGUI is sufficient to *take the Phase 1–3 measurements* (is it fun?), and those gates come
+first. Building a beautiful shop before knowing the shop is fun is the exact trap doc 05's golden
+rule warns about.
+
+*Sources: Unity Manual — "UI Toolkit" (docs.unity3d.com/Manual/UIElements.html) and "Comparison of UI
+systems in Unity" (docs.unity3d.com/Manual/UI-system-compare.html), both read 2026-07-16. Unity's
+system recommendations have shifted before — re-check the comparison page if this decision is ever
+revisited.*
 
 ---
 

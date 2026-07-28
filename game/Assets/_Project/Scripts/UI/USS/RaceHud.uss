@@ -1,0 +1,184 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   IN-RACE HUD (v3) — Gran-Turismo-style corner layout over a TRANSPARENT
+   overlay. No plate to block the drive. The HUD deliberately does NOT use the
+   pixel font: over a busy race it's unreadable, so this uses the panel's smooth
+   default face in BOLD, larger, with a dark outline. (The garage keeps pixel.)
+   Requires Tokens.uss (vars).
+   ───────────────────────────────────────────────────────────────────────── */
+
+.hud-screen { flex-grow: 1; }
+
+/* smooth + BOLD + dark outline so it reads large and clean over the race */
+.hud-cap, .hud-line, .hud-verdict, .hud-pos, .hud-lap,
+.hud-curtime, .hud-delta, .hud-time, .hud-dura__name, .hud-dura__val {
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+
+.hud-cap { font-size: 11px; color: var(--ink-dim); letter-spacing: 1px; }
+
+/* ── corners ────────────────────────────────────────────────────────────── */
+.hud-tl { position: absolute; top: 16px; left: 16px; }
+.hud-tc { position: absolute; top: 16px; left: 0; right: 0; align-items: center; }
+.hud-tr { position: absolute; top: 16px; right: 16px; align-items: flex-end; }
+.hud-bl { position: absolute; bottom: 16px; left: 16px; }
+.hud-br { position: absolute; bottom: 16px; right: 16px; align-items: flex-end; }
+
+/* ── top-left: position (big, subtle box) + lap ─────────────────────────── */
+.hud-posbox {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(6, 9, 14, 0.6);
+    background-image: url("project:///Assets/_Project/Scripts/UI/Sprites/rail-plate.png");
+    -unity-slice-left: 2;
+    -unity-slice-right: 2;
+    -unity-slice-top: 2;
+    -unity-slice-bottom: 2;
+    padding: 3px 10px 4px;
+    margin-bottom: 5px;
+}
+.hud-posbox .hud-cap { margin-right: 8px; }
+.hud-pos { font-size: 32px; color: #ffffff; }
+.hud-lapbox { flex-direction: row; align-items: center; }
+.hud-lapbox .hud-cap { margin-right: 8px; }
+.hud-lap { font-size: 21px; color: var(--ink); }
+
+/* ── top-centre: current lap time + gap ─────────────────────────────────── */
+.hud-curtime { font-size: 27px; color: #ffffff; }
+.hud-delta { font-size: 14px; color: var(--ink-dim); margin-top: 2px; }
+.hud-delta.green { color: var(--green); }
+.hud-delta.amber { color: var(--amber); }
+
+/* ── top-right: best / last lap ─────────────────────────────────────────── */
+.hud-tr-item { align-items: flex-end; margin-bottom: 6px; }
+.hud-time { font-size: 18px; color: var(--ink); margin-top: 1px; }
+
+/* ── top-right: sector timing strip ─────────────────────────────────────────
+   One cell per sector, filling in across the lap like a broadcast graphic. The
+   COLOUR BAR is the read (purple = session best, green = personal best, yellow
+   = neither); the time is the detail you only look at between corners. Sits
+   under the lap times because that corner is already where the eye goes for
+   timing, and it stays plate-less like the rest of the HUD.
+   ───────────────────────────────────────────────────────────────────────── */
+.hud-sectors { flex-direction: row; margin-top: 2px; }
+
+.hud-sector {
+    align-items: center;
+    margin-left: 5px;
+    padding: 2px 5px 0;
+    border-width: 1px;
+    border-color: rgba(0, 0, 0, 0);   /* reserved so `.current` doesn't reflow the strip */
+}
+/* The sector being driven right now — a faint lit plate, not a colour, so it can
+   never be mistaken for one of the three timing colours below it. */
+.hud-sector.current {
+    background-color: rgba(79, 139, 255, 0.14);
+    border-color: var(--edge-lit);
+}
+
+.hud-sector__name {
+    font-size: 9px;
+    color: var(--ink-mute);
+    letter-spacing: 1px;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+.hud-sector__time {
+    font-size: 13px;
+    color: var(--ink);
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+.hud-sector__bar { width: 42px; height: 3px; margin-top: 2px; }
+
+/* ── top-centre: transient "how you drove that sector" flash ─────────────── */
+.hud-style {
+    font-size: 13px;
+    margin-top: 3px;
+    letter-spacing: 1px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+
+/* ── bottom lines (cutoff, payout, cues, status) ────────────────────────── */
+.hud-line { font-size: 14px; color: var(--ink); margin-bottom: 3px; white-space: nowrap; }
+.hud-line.dim { color: var(--ink-dim); }
+.hud-line.amber { color: var(--amber); }
+.hud-line.green { color: var(--green); }
+.hud-line.red { color: var(--red); }
+.hud-verdict { font-size: 15px; color: var(--blue-lt); margin-bottom: 3px; }
+.hud-verdict.bad { color: var(--red); }
+
+/* ── durability bar (bottom-right) ──────────────────────────────────────── */
+.hud-dura { flex-direction: row; align-items: center; margin-top: 3px; }
+.hud-dura__name { font-size: 11px; color: #9fb0c8; margin-right: 6px; }
+.hud-dura__track {
+    width: 100px;
+    height: 9px;
+    background-color: rgba(11, 16, 26, 0.7);
+    border-width: 1px;
+    border-color: #313c4e;
+    overflow: hidden;
+}
+.hud-dura__fill { height: 100%; background-color: var(--green); }
+.hud-dura__val { font-size: 11px; color: #eef3fb; margin-left: 6px; }
+
+/* ── active item — charge-and-deploy meter (doc 08 decision 14) ─────────── */
+.hud-active { flex-direction: row; align-items: center; margin-top: 3px; }
+.hud-active__name { font-size: 11px; color: #9fb0c8; margin-right: 6px; }
+.hud-active__track {
+    width: 100px;
+    height: 9px;
+    background-color: rgba(11, 16, 26, 0.7);
+    border-width: 1px;
+    border-color: #313c4e;
+    overflow: hidden;
+}
+.hud-active__fill { height: 100%; background-color: var(--blue); }
+.hud-active__hint {
+    font-size: 11px;
+    margin-left: 6px;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+
+/* ── full-screen overlays: 3-2-1 countdown + on-hit CRUNCH flash ─────────── */
+.hud-countdown {
+    position: absolute;
+    top: 22%;
+    left: 0;
+    right: 0;
+    -unity-text-align: middle-center;
+    font-size: 64px;
+    color: #ffffff;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}
+.hud-flash {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-width: 16px;
+    border-color: rgba(230, 40, 30, 0.85);
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 12%;
+    opacity: 0;
+}
+.hud-crunch {
+    font-size: 44px;
+    color: #ffd84d;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: rgba(0, 0, 0, 1);
+}

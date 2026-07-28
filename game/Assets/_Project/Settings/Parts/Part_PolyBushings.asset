@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22d0fb91b23523341bae042376dee6a6, type: 3}
+  m_Name: Part_PolyBushings
+  m_EditorClassIdentifier: Shitboxer.Meta::Shitboxer.Meta.PartDef
+  Id: poly_bushings
+  DisplayName: Poly Bushings
+  Description: "Firm urethane mounts sharpen every input. +6% grip front and rear
+    (additive) \u2014 cheap glue that makes your later x-grip parts hit harder."
+  Category: 0
+  Rarity: 0
+  Price: 3
+  SpecMods:
+  - Target: 0
+    Multiplier: 0.06
+    Op: 1
+  - Target: 1
+    Multiplier: 0.06
+    Op: 1
+  MoneyPerPositionHeld: 0
+  ContactGripSap: 0
+  ContactPowerSap: 0
+  AuraRadiusM: 0
+  AuraGripSap: 0

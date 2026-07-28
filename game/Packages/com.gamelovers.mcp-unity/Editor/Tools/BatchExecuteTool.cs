@@ -33,6 +33,19 @@ namespace McpUnity.Tools
 
         private IEnumerator ExecuteBatchCoroutine(JObject parameters, TaskCompletionSource<JObject> tcs)
         {
+            // In headless/batch mode the MCP server never starts, so _server is null and every
+            // tick of this coroutine would NRE at TryGetTool below (and, via the Test Framework's
+            // log check, fail unrelated EditMode tests). Bail cleanly instead. No effect when the
+            // server is running normally.
+            if (_server == null)
+            {
+                tcs.SetResult(McpUnitySocketHandler.CreateErrorResponse(
+                    "batch_execute unavailable: the MCP server is not running (headless/batch mode).",
+                    "server_unavailable"
+                ));
+                yield break;
+            }
+
             JArray operations = parameters["operations"] as JArray;
             bool stopOnError = parameters["stopOnError"]?.ToObject<bool?>() ?? true;
             bool atomic = parameters["atomic"]?.ToObject<bool?>() ?? false;
