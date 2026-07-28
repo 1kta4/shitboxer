@@ -21,6 +21,14 @@ namespace Shitboxer.Tests
     {
         private const string FxName = "Shitboxer.Fx";
 
+        /// <summary>
+        /// The ONE sanctioned exception: the EditMode test assembly may reference Fx so the pure synth
+        /// math (SfxSynthTests) can be pinned. It is editor-only (includePlatforms: Editor, gated on
+        /// UNITY_INCLUDE_TESTS), so it can never ship a runtime write path into the sim — which is the
+        /// thing the referenced-by-nobody rule exists to prevent.
+        /// </summary>
+        private const string TestsName = "Shitboxer.Tests.EditMode";
+
         [Serializable]
         private class AsmDef { public string name; public string[] references; }
 
@@ -50,7 +58,7 @@ namespace Shitboxer.Tests
             foreach (string path in asmdefs)
             {
                 AsmDef def = Parse(path);
-                if (def == null || def.name == FxName || def.references == null) continue;
+                if (def == null || def.name == FxName || def.name == TestsName || def.references == null) continue;
 
                 foreach (string reference in def.references)
                 {

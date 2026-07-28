@@ -8,6 +8,7 @@
         "Shitboxer.Race",
         "Shitboxer.Meta",
         "Shitboxer.UI.Model",
+        "Shitboxer.Fx",
         "Unity.InputSystem"
     ],
     "includePlatforms": [
