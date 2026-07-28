@@ -36,15 +36,19 @@ namespace Shitboxer.Fx
         /// half-order) whose frequencies are all snapped to WHOLE cycles per buffer, so the loop
         /// point is inaudible by construction. Pitch it at runtime with AudioSource.pitch = rpm map.
         /// </summary>
-        public static float[] EngineLoop(int sampleRate, float baseHz = 55f, float seconds = 1f)
+        public static float[] EngineLoop(int sampleRate, float baseHz = 110f, float seconds = 1f)
         {
             int n = Mathf.Max(1, Mathf.RoundToInt(sampleRate * seconds));
             var samples = new float[n];
 
             // Snap each partial to an integer cycle count over the buffer -> phase 0 at both ends.
+            // INTEGER multiples of f0 only. The old half-order (0.5x) partial was the playtest's
+            // "constant background hum": pitched down toward idle it sat in the sub-bass as a steady
+            // throb, and it landed on a half cycle per buffer — value-continuous at the seam but
+            // slope-discontinuous. Brightness comes from the 4x partial instead.
             float f0 = Mathf.Max(1f, Mathf.Round(baseHz * seconds)) / seconds;
-            float[] partials = { f0 * 0.5f, f0, f0 * 2f, f0 * 3f };
-            float[] gains = { 0.22f, 0.5f, 0.2f, 0.08f };
+            float[] partials = { f0, f0 * 2f, f0 * 3f, f0 * 4f };
+            float[] gains = { 0.45f, 0.25f, 0.15f, 0.08f };
 
             var grit = new Noise(101);
             for (int i = 0; i < n; i++)

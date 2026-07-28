@@ -18,9 +18,9 @@ namespace Shitboxer.Fx
     {
         // Pitch map: loop is authored at pitch 1 ≈ mid-range revs, then stretched with RPM. Clamped so
         // idle still sounds like an engine and the redline never chipmunks.
-        private const float PitchReferenceRpm = 2800f;
-        private const float MinPitch = 0.45f;
-        private const float MaxPitch = 2.6f;
+        private const float PitchReferenceRpm = 2400f;
+        private const float MinPitch = 0.5f;
+        private const float MaxPitch = 3f;
 
         /// <summary>The durability line under which the alarm fires — decision 15's crippled threshold,
         /// the same 0.5 the Fragile break and the pace curve read, so "badly hurt" SOUNDS where it bites.</summary>
