@@ -35,6 +35,7 @@ namespace Shitboxer.Fx
 
             var rig = new GameObject("FxRig");
             rig.AddComponent<RaceFxController>().Bind(race, player);
+            rig.AddComponent<RaceVisualFx>().Bind(player);
         }
 
         /// <summary>The player is the car nobody drives FOR: every bot carries a BotDriver, the human
