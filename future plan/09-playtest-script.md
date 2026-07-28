@@ -17,6 +17,9 @@ Doc 08 is the source of truth for what each slice *is*; this doc only says how t
 - The dev harness lives in the **ESC menu, editor-only row** (`#if UNITY_EDITOR`):
   **EQUIP SECTOR PARTS · + $50 · FINISH RACE NOW · NEXT CIRCUIT >> · TIME ×4**, plus the live
   `sector $ / grip × / power ×` readout. Session A leans on all of it; Session B mostly bans it.
+- **DEV: UNLOCK ALL** in the main menu (editor + development builds only) grants every chassis and
+  stake for Session A — no JSON hand-edit needed. Session B still wants a virgin profile: delete the
+  saves and don't press it.
 - Keep this file open. Log findings the moment they happen — a note per incident, into the table
   at the bottom.
 
@@ -159,7 +162,11 @@ other, decision 15).
 
 | # | Session | What happened | Severity (blocker / tune / polish / note) | Suspected lever |
 |---|---|---|---|---|
-| 1 | | | | |
+| 1 | first play (2026-07-28) | Finished 2nd on the road, game registered P1 | blocker | **FIXED** — finish stamped when projected arc distance ticked over N laps, metres before the physical line for a car off the racing line. `FinishLineGate`: distance still validates the lap (the ring stays dead), the physical start/finish plane times the stamp, sub-tick interpolated, 30 m trust window + 2 s never-strand grace. |
+| 2 | first play | Packs in the garage wouldn't open | blocker (UX) | **FIXED** — every refusal was silent. Blocked cards now say the rule (CAR FULL — SELL ONE / ALL COMPONENTS MAXED / NO PART CAN TAKE ONE / NO FUNDS); eligibility mirrors `TryBuyPack` via shared `ShopLogic` predicates. If a pack still refuses with none of those shown, that's a new bug — log it. |
+| 3 | first play | No way to repair durability in the garage | blocker | **FIXED** — `RunDirector.RepairCar` existed with no button since the v3 UI rebuild. The rail now has a HULL % + `REPAIR $n` row under the stat bars. Paying-to-repair vs driving damaged stays the decision-15 tension; a repair-granting Spectral card remains open design space. |
+| 4 | first play | Run-over screen offered only NEW RUN (same car) | tune (UX) | **FIXED** — MAIN MENU button added beside NEW RUN on both end screens (`IRunHost.QuitToMenu`). |
+| 5 | | | | |
 
 **When done:** transfer blockers and tunes into the next work block; anything that's a *design*
 question (run length, HUD contents, boss presentation) goes to doc 08's open questions rather

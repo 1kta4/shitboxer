@@ -77,5 +77,8 @@ namespace Shitboxer.Meta
         bool RepairCar();
         void StartNextRace();
         void StartNewRun();
+        /// <summary>Leaves the run flow for the main menu — the end screen's second exit, so a dead run
+        /// can change chassis instead of being locked into NEW RUN with the same car.</summary>
+        void QuitToMenu();
     }
 }

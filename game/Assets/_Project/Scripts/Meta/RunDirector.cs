@@ -1573,6 +1573,28 @@ namespace Shitboxer.Meta
             ReloadRaceScene();
         }
 
+        /// <summary>Scene name of the front-end menu — index 0 of the build's scene list.</summary>
+        public const string MainMenuSceneName = "MainMenu";
+
+        /// <summary>
+        /// End-screen exit to the front-end: tears this director down (it is a DontDestroyOnLoad
+        /// singleton — left alive it would adopt the next run's scene and keep the dead run's state)
+        /// and loads the menu, where START builds a fresh director from the race scene's RunRig.
+        /// Restores timeScale first so a paused garage or the dev fast-forward can't leak into the menu.
+        /// </summary>
+        public void QuitToMenu()
+        {
+            Time.timeScale = 1f;
+            if (!Application.CanStreamedLevelBeLoaded(MainMenuSceneName))
+            {
+                Debug.LogWarning(
+                    $"[RunDirector] Menu scene '{MainMenuSceneName}' is not in Build Settings — staying in the run.", this);
+                return;
+            }
+            Destroy(gameObject);
+            SceneManager.LoadScene(MainMenuSceneName);
+        }
+
         /// <summary>Clamps a requested stake to the range the persistent profile has unlocked (>= 0).</summary>
         private int ClampToUnlockedStake(int stakeLevel)
         {

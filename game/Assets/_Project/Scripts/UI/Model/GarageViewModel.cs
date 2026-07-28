@@ -104,6 +104,18 @@ namespace Shitboxer.UI.Model
         /// </summary>
         public bool CarIsFull => !Run.HasFreeSlot;
 
+        /// <summary>Carried durability as a 0-100 readout for the rail's HULL line — the companion of
+        /// the RepairAvailable/RepairCost/CanAffordRepair trio above.</summary>
+        public int DurabilityPercent
+        {
+            get
+            {
+                float d = Run.CarDurability;
+                if (d < 0f) d = 0f; else if (d > 1f) d = 1f;
+                return (int)System.Math.Round(d * 100f);
+            }
+        }
+
         // --- Components ----------------------------------------------------------------------------
         /// <summary>
         /// All ten components with their current level, in family order — a STATUS list, not a shop.
@@ -179,12 +191,35 @@ namespace Shitboxer.UI.Model
                 {
                     ShopPack pack = _host.Shop.Packs[i];
                     bool affordable = Run.Money >= pack.Price;
-                    // A parts pack hands over a part, and a bought part is always fitted — so it can't
-                    // even be opened with a full car. A components pack has no such constraint.
-                    bool buyable = affordable
-                                   && (pack.Kind != ShopPackKind.Parts || Run.HasFreeSlot);
+                    // Mirror every refusal TryBuyPack itself would make, so a blocked card can SAY the
+                    // rule instead of silently eating the click: a parts pack needs a free slot (a
+                    // bought part is always fitted), a components pack needs a levellable component,
+                    // a Spectral pack needs a fitted part that can still take a material.
+                    bool eligible;
+                    string blocked;
+                    switch (pack.Kind)
+                    {
+                        case ShopPackKind.Parts:
+                            eligible = Run.HasFreeSlot;
+                            blocked = "CAR FULL — SELL ONE";
+                            break;
+                        case ShopPackKind.Components:
+                            eligible = ShopLogic.AnyComponentLevellable(Run);
+                            blocked = "ALL COMPONENTS MAXED";
+                            break;
+                        case ShopPackKind.Spectral:
+                            eligible = ShopLogic.AnySpectralTarget(Run);
+                            blocked = "NO PART CAN TAKE ONE";
+                            break;
+                        default:
+                            eligible = false;
+                            blocked = "NOT FOR SALE";
+                            break;
+                    }
+                    bool buyable = affordable && eligible;
+                    string reason = buyable ? null : !eligible ? blocked : "NO FUNDS";
                     _packs.Add(new PackVm(i, pack.Kind, pack.DisplayName, pack.Price, pack.DrawCount,
-                        affordable, buyable));
+                        affordable, buyable, reason));
                 }
 
             _packComponents.Clear();

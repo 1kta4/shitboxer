@@ -42,6 +42,8 @@ namespace Shitboxer.UI.Views
         private readonly Label _packsTitle = new Label { text = "PACKS" };
         private readonly Label _blueprintsTitle = new Label { text = "BLUEPRINTS" };
         private readonly Label _componentsTitle = new Label { text = "COMPONENTS" };
+        private readonly Label _condition = new Label();
+        private Button _repair;
 
         private int _sel;   // selected shop row (expands its detail)
 
@@ -133,6 +135,18 @@ namespace Shitboxer.UI.Views
             stats.Add(_weight);
             stats.Add(_durability);
             rail.Add(stats);
+
+            // Carried damage + the REPAIR buy (decision 15 made damage real; RunDirector.RepairCar had
+            // been waiting on a button since the v3 rebuild). Sits under the stat bars so HULL reads as
+            // the car's fifth live number.
+            var repairRow = new VisualElement();
+            repairRow.AddToClassList("gx-lives-row");
+            _condition.AddToClassList("gx-lives-label");
+            _repair = new Button(() => _vm.Repair()) { text = "REPAIR" };
+            _repair.AddToClassList("gx-buy");
+            repairRow.Add(_condition);
+            repairRow.Add(_repair);
+            rail.Add(repairRow);
 
             var ownedHead = new VisualElement();
             ownedHead.AddToClassList("gx-ownedh");
@@ -230,6 +244,9 @@ namespace Shitboxer.UI.Views
             _next.text = "NEXT > " + _vm.NextRaceLine;
 
             _slots.text = $"{_vm.SlotsUsed}/{_vm.SlotsTotal} SLOTS";
+            _condition.text = $"HULL {_vm.DurabilityPercent}%";
+            _repair.text = _vm.RepairAvailable ? $"REPAIR ${_vm.RepairCost}" : "REPAIRED";
+            _repair.SetEnabled(_vm.RepairAvailable && _vm.CanAffordRepair);
             RefreshOwned();
             RefreshOffers();
             RefreshPacks();
@@ -268,6 +285,13 @@ namespace Shitboxer.UI.Views
 
                 card.Add(name);
                 card.Add(sub);
+                // A blocked card says WHY (the slice-5 principle) — a silent dead button reads as a bug.
+                if (!p.Buyable && !string.IsNullOrEmpty(p.Reason))
+                {
+                    var why = new Label { text = p.Reason };
+                    why.AddToClassList("gx-pack-sub");
+                    card.Add(why);
+                }
                 card.Add(buy);
                 _packs.Add(card);
             }

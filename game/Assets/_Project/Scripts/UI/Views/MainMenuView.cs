@@ -85,9 +85,42 @@ namespace Shitboxer.UI.Views
             col.Add(MenuButton("PROFILE", () => Show(_profile)));
             col.Add(MenuButton("SETTINGS", () => Show(_settingsSection)));
             col.Add(MenuButton("QUIT", () => _onQuit?.Invoke()));
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            // Dev-only (editor + development builds, never a release): flips every unlock flag so a
+            // playtest can reach any chassis or stake without clearing three seasons first.
+            col.Add(MenuButton("DEV: UNLOCK ALL", UnlockEverything));
+#endif
             section.Add(col);
             return section;
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        /// <summary>Grants every chassis flag and license stake, saves the profile, and rebuilds the
+        /// two sections that display locks. Parts need no flag — the whole pool already rolls in the
+        /// shop; tracks light up from lap records, not unlocks.</summary>
+        private void UnlockEverything()
+        {
+            bool changed = false;
+            foreach (ChassisInfo c in ChassisCatalog.All)
+                if (!string.IsNullOrEmpty(c.UnlockFlag))
+                    changed |= _meta.Unlock(c.UnlockFlag);
+            for (int s = 1; s <= 3; s++)
+                changed |= _meta.UnlockStake(s);
+            if (changed) MetaProgress.Save(_meta);
+
+            _carSelect = ReplaceSection(_carSelect, BuildCarSelect());
+            _collection = ReplaceSection(_collection, BuildCollection());
+            Show(_carSelect); // straight to the newly opened garage doors
+        }
+
+        private VisualElement ReplaceSection(VisualElement old, VisualElement fresh)
+        {
+            int index = _body.IndexOf(old);
+            _body.RemoveAt(index);
+            _body.Insert(index, fresh);
+            return fresh;
+        }
+#endif
 
         // ── CAR SELECT ─────────────────────────────────────────────────────────────────────────────
         private VisualElement BuildCarSelect()

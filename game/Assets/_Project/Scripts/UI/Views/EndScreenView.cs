@@ -6,8 +6,9 @@ namespace Shitboxer.UI.Views
     /// <summary>
     /// The run-over / season-cleared result screen as a UI Toolkit plate (v3 — pixel, since it's a menu
     /// takeover like the garage, not an in-race overlay): headline, last-race verdict, a run summary,
-    /// the owned-parts list, and NEW RUN. Reads the <see cref="IRunHost"/>; NEW RUN calls StartNewRun.
-    /// Replaces the IMGUI GarageScreen.DrawEndScreen. (The per-track lap records are a later add.)
+    /// the owned-parts list, and two exits — NEW RUN (StartNewRun: same chassis and stake, instant
+    /// retry) and MAIN MENU (QuitToMenu: back to the front-end to change car or stop). Replaces the
+    /// IMGUI GarageScreen.DrawEndScreen. (The per-track lap records are a later add.)
     /// </summary>
     public sealed class EndScreenView
     {
@@ -59,6 +60,10 @@ namespace Shitboxer.UI.Views
             var cta = new Button(() => host.StartNewRun()) { text = "NEW RUN" };
             cta.AddToClassList("end-cta");
             panel.Add(cta);
+
+            var menu = new Button(() => host.QuitToMenu()) { text = "MAIN MENU" };
+            menu.AddToClassList("end-cta");
+            panel.Add(menu);
 
             screen.Add(panel);
             Root = screen;

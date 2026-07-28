@@ -421,15 +421,40 @@ namespace Shitboxer.Meta
         /// weighted-rolled tier STRICTLY ABOVE its current one. Fitted parts only: the material is
         /// applied on pick and a bought part is always fitted, so an un-fitted target can't exist.
         /// </summary>
+        /// <summary>True when this fitted part can take an edition material — the single definition the
+        /// Spectral draw and the garage's pack-buyable readout share, so the card's blocked message can
+        /// never disagree with what the draw would actually do.</summary>
+        public static bool IsSpectralTarget(RunState run, PartDef part) =>
+            run != null && part != null && !string.IsNullOrEmpty(part.Id)
+            && part.SpecMods != null && part.SpecMods.Count > 0
+            && run.EditionOf(part) < PartEdition.Polychrome;
+
+        /// <summary>True when at least one fitted part can take an edition material.</summary>
+        public static bool AnySpectralTarget(RunState run)
+        {
+            if (run == null) return false;
+            foreach (PartDef part in run.EquippedParts)
+                if (IsSpectralTarget(run, part)) return true;
+            return false;
+        }
+
+        /// <summary>True while any component still has a level to gain — the candidate filter the
+        /// components pack and the Blueprint row share, surfaced for the garage's pack-buyable readout.</summary>
+        public static bool AnyComponentLevellable(RunState run)
+        {
+            if (run == null) return false;
+            for (int i = 0; i < CarComponentCatalog.Count; i++)
+                if (CarComponentCatalog.CanLevel(run.LevelOf((CarComponent)i))) return true;
+            return false;
+        }
+
         private void DrawSpectrals(RunState run, int count, List<string> into)
         {
             if (run == null || into == null || count <= 0) return;
 
             var candidates = new List<PartDef>();
             foreach (PartDef part in run.EquippedParts)
-                if (part != null && !string.IsNullOrEmpty(part.Id)
-                    && part.SpecMods != null && part.SpecMods.Count > 0
-                    && run.EditionOf(part) < PartEdition.Polychrome)
+                if (IsSpectralTarget(run, part))
                     candidates.Add(part);
 
             int draws = Math.Min(count, candidates.Count);

@@ -104,5 +104,6 @@ namespace Shitboxer.UI
 
         public void StartNextRace() { }
         public void StartNewRun() { }
+        public void QuitToMenu() { }
     }
 }

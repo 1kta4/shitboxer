@@ -112,9 +112,12 @@ namespace Shitboxer.UI.Model
         public readonly bool Affordable;
         /// <summary>False when the pack cannot be opened right now (a full car for a parts pack).</summary>
         public readonly bool Buyable;
+        /// <summary>Why the pack is blocked when it is — null while buyable. The card must SAY the rule
+        /// ("CAR FULL — SELL ONE") or a refused click reads as a bug (the slice-5 principle).</summary>
+        public readonly string Reason;
 
         public PackVm(int index, ShopPackKind kind, string name, int price, int drawCount,
-            bool affordable, bool buyable)
+            bool affordable, bool buyable, string reason = null)
         {
             Index = index;
             Kind = kind;
@@ -123,6 +126,7 @@ namespace Shitboxer.UI.Model
             DrawCount = drawCount;
             Affordable = affordable;
             Buyable = buyable;
+            Reason = reason;
         }
     }
 

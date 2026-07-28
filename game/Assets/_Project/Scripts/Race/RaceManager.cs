@@ -48,6 +48,16 @@ namespace Shitboxer.Race
         /// <summary>Laps completed by guarded net forward progress around the loop — the gate the finish counts.</summary>
         internal int ValidatedLaps;
 
+        /// <summary>True once the distance gate has credited the final lap but the car has not yet
+        /// physically crossed the start/finish plane — the finish stamps on that crossing, not here.</summary>
+        internal bool FinishPending;
+
+        /// <summary>Signed metres to the finish plane on the previous step while pending (negative = before the line).</summary>
+        internal float FinishPlaneDPrev;
+
+        /// <summary>Race clock at which the finish gate went pending, for the never-strand grace timeout.</summary>
+        internal float FinishPendingSinceS;
+
         // ---------------------------------------------------------------- sectors (readout only)
         // Every field below is derived from the SAME guarded TotalDistanceM the lap gate above trusts.
         // Nothing here validates anything or feeds the finish — see SectorProgress for why that matters.
@@ -138,6 +148,37 @@ namespace Shitboxer.Race
     }
 
     /// <summary>
+    /// Pure finish-line math shared by the referee and its unit tests. The distance gate (LapProgress)
+    /// decides that the final lap is COMPLETE; this decides WHEN the car actually crossed the physical
+    /// start/finish plane. Arc-length projection can lead or lag a car's true position by metres when it
+    /// drives off the racing line, and metres at the flag is a wrong podium — a player can be credited
+    /// P1 on projection while visibly second across the paint. NOT a gate a car must hit: the distance
+    /// validation stands, and the referee's grace timeout finishes any pending car regardless, so this
+    /// can only ever delay a stamp by the metres left to the line — never strand a finisher.
+    /// </summary>
+    public static class FinishLineGate
+    {
+        /// <summary>Signed metres from the start/finish plane along the track direction — negative before the line.</summary>
+        public static float PlaneDistance(Vector3 carPos, Vector3 linePoint, Vector3 lineForward) =>
+            Vector3.Dot(carPos - linePoint, lineForward);
+
+        /// <summary>True on the step where the car passes from before the plane to on/past it.</summary>
+        public static bool Crossed(float dPrev, float dNow) => dPrev < 0f && dNow >= 0f;
+
+        /// <summary>
+        /// Race clock at the sub-step moment the plane was crossed, interpolated linearly between the
+        /// previous step (dPrev &lt; 0) and this one (dNow ≥ 0) — so two cars crossing within the same
+        /// physics tick still stamp in their true order. Falls back to nowS on a degenerate step.
+        /// </summary>
+        public static float CrossingTime(float nowS, float dtS, float dPrev, float dNow)
+        {
+            float span = dNow - dPrev;
+            if (span <= 0f || dtS <= 0f) return nowS;
+            return nowS - dtS * (dNow / span);
+        }
+    }
+
+    /// <summary>
     /// One car finishing one sector — the payload of <see cref="RaceManager.SectorCompleted"/>, and the
     /// hook parts will score off (doc 08). Carries the timing facts AND the driven style, because a part
     /// that pays for a CLEAN sector and a HUD that colours a purple one want the same event, and firing
@@ -194,6 +235,14 @@ namespace Shitboxer.Race
         // projected progress is a teleport (BotDriver flip/reset) or a nearest-segment mis-snap. Such
         // a step is never trusted for distance or checkpoint/lap credit.
         private const float MaxPlausibleStepM = 10f;
+
+        /// <summary>How close to the start/finish point the plane check is trusted (m). A car whose final
+        /// lap credits further out than this (a folded-track projection artefact) finishes on the
+        /// distance gate alone, exactly as before the gate existed.</summary>
+        private const float FinishGateWindowM = 30f;
+
+        /// <summary>Never-strand backstop: a car pending at the plane longer than this finishes anyway (s).</summary>
+        private const float FinishGateGraceS = 2f;
 
         [SerializeField] private TrackPath trackPath;
         [SerializeField] private List<VehicleController> cars = new List<VehicleController>();
@@ -585,6 +634,11 @@ namespace Shitboxer.Race
                 CreditSectors(status, line);
                 CreditLaps(status, line);
                 status.Lap = Mathf.Clamp(status.ValidatedLaps + 1, 1, totalLaps);
+
+                // A car whose final lap has validated but which is still short of the physical line:
+                // stamp it the step it actually crosses. No-op on the tick it went pending (same
+                // position, same plane distance, no crossing).
+                if (status.FinishPending) StepFinishGate(status, line, dt);
             }
 
             // Survival gate timeout: cutoff clock ran out on everyone still on track.
@@ -615,10 +669,10 @@ namespace Shitboxer.Race
         {
             int completed = LapProgress.CompletedLaps(status.TotalDistanceM, line.TotalLength);
             while (status.ValidatedLaps < totalLaps && status.ValidatedLaps < completed)
-                ValidateLap(status);
+                ValidateLap(status, line);
         }
 
-        private void ValidateLap(RaceCarStatus status)
+        private void ValidateLap(RaceCarStatus status, RacingLine line)
         {
             // Lap-time capture: the just-completed lap ran from its recorded start to now. Fold it into
             // last/best and re-start timing for the next lap. Lap 1 times from the green flag
@@ -630,7 +684,54 @@ namespace Shitboxer.Race
 
             status.ValidatedLaps++;
             if (status.ValidatedLaps >= totalLaps)
-                OnCarCrossedFinish(status);
+                BeginFinishGate(status, line);
+        }
+
+        /// <summary>
+        /// The distance gate says the final lap is complete — stamp the finish only when the car has
+        /// actually reached the start/finish plane. Already on/past it (projection lagged, or dead on
+        /// the line — every on-rails bot) stamps immediately, byte-for-byte the old behaviour; short of
+        /// it, the finish waits for the real crossing, bounded by the grace timeout.
+        /// </summary>
+        private void BeginFinishGate(RaceCarStatus status, RacingLine line)
+        {
+            Vector3 planePoint = line.PointAt(0f);
+            float d = FinishLineGate.PlaneDistance(status.Car.transform.position, planePoint, line.DirectionAt(0f));
+
+            // Trust the plane only near the line: further out, the plane's infinite extent could catch
+            // an unrelated part of a folded track, so the distance gate stands alone.
+            if (d >= 0f || (status.Car.transform.position - planePoint).sqrMagnitude > FinishGateWindowM * FinishGateWindowM)
+            {
+                OnCarCrossedFinish(status, _raceTime);
+                return;
+            }
+
+            status.FinishPending = true;
+            status.FinishPlaneDPrev = d;
+            status.FinishPendingSinceS = _raceTime;
+        }
+
+        private void StepFinishGate(RaceCarStatus status, RacingLine line, float dt)
+        {
+            float d = FinishLineGate.PlaneDistance(status.Car.transform.position, line.PointAt(0f), line.DirectionAt(0f));
+
+            if (FinishLineGate.Crossed(status.FinishPlaneDPrev, d))
+            {
+                status.FinishPending = false;
+                OnCarCrossedFinish(status, FinishLineGate.CrossingTime(_raceTime, dt, status.FinishPlaneDPrev, d));
+                return;
+            }
+
+            // Never-strand backstop: the lap already validated on distance; a car that can't produce a
+            // clean plane crossing (wrecked on the line, punted wide of the window) still finishes.
+            if (_raceTime - status.FinishPendingSinceS >= FinishGateGraceS)
+            {
+                status.FinishPending = false;
+                OnCarCrossedFinish(status, _raceTime);
+                return;
+            }
+
+            status.FinishPlaneDPrev = d;
         }
 
         /// <summary>
@@ -713,15 +814,14 @@ namespace Shitboxer.Race
             SectorCompleted?.Invoke(new SectorCompletion(status, index, lap, time, style, colour, evidence));
         }
 
-        private void OnCarCrossedFinish(RaceCarStatus status)
+        private void OnCarCrossedFinish(RaceCarStatus status, float stampS)
         {
-            status.FinishTimeS = _raceTime;
+            status.FinishTimeS = stampS;
 
-            if (!WinnerFinished)
-            {
-                WinnerFinished = true;
-                WinnerFinishTimeS = _raceTime;
-            }
+            // Min, not first-come: two cars crossing within the same physics tick carry interpolated
+            // stamps, and the earlier stamp is the winner whichever order the loop visited them.
+            WinnerFinishTimeS = WinnerFinished ? Mathf.Min(WinnerFinishTimeS, stampS) : stampS;
+            WinnerFinished = true;
 
             status.PassedCutoff = status.FinishTimeS <= CutoffDeadlineS || status.FinishTimeS <= WinnerFinishTimeS;
             status.State = status.PassedCutoff ? CarRaceState.Finished : CarRaceState.Eliminated;

@@ -48,6 +48,7 @@ namespace Shitboxer.Tests
 
         public int StartNextRaceCalls { get; private set; }
         public int StartNewRunCalls { get; private set; }
+        public int QuitToMenuCalls { get; private set; }
 
         public bool BuyOffer(PartDef part) => Shop.TryBuy(part, Run);
         public bool RerollShop() => Shop.TryReroll(Pool, Run);
@@ -70,5 +71,6 @@ namespace Shitboxer.Tests
 
         public void StartNextRace() => StartNextRaceCalls++;
         public void StartNewRun() => StartNewRunCalls++;
+        public void QuitToMenu() => QuitToMenuCalls++;
     }
 }
