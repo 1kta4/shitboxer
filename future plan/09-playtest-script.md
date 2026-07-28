@@ -168,6 +168,13 @@ other, decision 15).
 | 4 | first play | Run-over screen offered only NEW RUN (same car) | tune (UX) | **FIXED** — MAIN MENU button added beside NEW RUN on both end screens (`IRunHost.QuitToMenu`). |
 | 5 | | | | |
 
+Findings 1–4: fixes **verified in play** by the user 2026-07-28, and by the full editor batchmode
+suite — 738 Shitboxer tests passed / 0 failed / 1 pre-existing seeded skip (baseline 723 + 15 new:
+the finish-gate math, the shared shop predicates, and the four pack-reason fixtures). The painted
+start/finish stripe was audited against the new finish plane: every layout's waypoint 0 is
+south-centre and the stripe is built at exactly that point, so the line you see IS the line that
+times you, on all eight venues.
+
 **When done:** transfer blockers and tunes into the next work block; anything that's a *design*
 question (run length, HUD contents, boss presentation) goes to doc 08's open questions rather
 than straight to a dial.
