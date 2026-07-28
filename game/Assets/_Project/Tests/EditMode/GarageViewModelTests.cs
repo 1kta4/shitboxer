@@ -292,6 +292,71 @@ namespace Shitboxer.Tests
             Assert.That(vm.Offers, Is.Empty);
         }
 
+        // --- Pack blocked-reasons (playtest finding 2: a refusal must SAY the rule) ----------------
+
+        /// <summary>Rerolls the host's visit until a pack of the wanted kind is stocked, then reads it
+        /// through a fresh VM. Bounded like SpectralPackTests' loop: 200 dry visits means the weighted
+        /// table broke, which is its own failure.</summary>
+        private static PackVm PackOfKind(FakeRunHost host, List<PartDef> pool, ShopPackKind kind)
+        {
+            for (int visit = 0; visit < 200; visit++)
+            {
+                foreach (ShopPack stocked in host.Shop.Packs)
+                    if (stocked.Kind == kind)
+                    {
+                        var vm = new GarageViewModel(host);
+                        foreach (PackVm p in vm.Packs)
+                            if (p.Kind == kind) return p;
+                    }
+                host.Shop.BeginVisit(pool, host.Run);
+            }
+            Assert.Fail($"no {kind} pack rolled in 200 visits — the weight table is broken");
+            return default;
+        }
+
+        [Test]
+        public void APartsPackOnAFullCar_SaysCarFull()
+        {
+            FakeRunHost host = HostWithShelf(out List<PartDef> pool);
+            host.Run.MaxEquipSlots = 1;
+            PartDef fitted = Part(PartCategory.Economy, "Ballast");
+            host.Run.OwnedParts.Add(fitted);
+            host.Run.Equip(fitted);
+
+            PackVm pack = PackOfKind(host, pool, ShopPackKind.Parts);
+            Assert.That(pack.Buyable, Is.False);
+            Assert.That(pack.Reason, Is.EqualTo("CAR FULL — SELL ONE"));
+        }
+
+        [Test]
+        public void ASpectralPackWithNothingFitted_SaysWhy()
+        {
+            // Nothing fitted, so no part can take a material. Before the reason line this was the
+            // playtest's "I can't open packs": an enabled-looking card whose click silently refused.
+            FakeRunHost host = HostWithShelf(out List<PartDef> pool);
+            PackVm pack = PackOfKind(host, pool, ShopPackKind.Spectral);
+            Assert.That(pack.Buyable, Is.False);
+            Assert.That(pack.Reason, Is.EqualTo("NO PART CAN TAKE ONE"));
+        }
+
+        [Test]
+        public void ABuyablePack_CarriesNoReason()
+        {
+            FakeRunHost host = HostWithShelf(out List<PartDef> pool); // rich, free slots, fresh components
+            PackVm pack = PackOfKind(host, pool, ShopPackKind.Components);
+            Assert.That(pack.Buyable, Is.True);
+            Assert.That(pack.Reason, Is.Null);
+        }
+
+        [Test]
+        public void AnUnaffordablePack_SaysNoFunds()
+        {
+            FakeRunHost host = HostWithShelf(out List<PartDef> pool, money: 0);
+            PackVm pack = PackOfKind(host, pool, ShopPackKind.Components);
+            Assert.That(pack.Buyable, Is.False);
+            Assert.That(pack.Reason, Is.EqualTo("NO FUNDS"));
+        }
+
         private static ComponentVm Find(System.Collections.Generic.IReadOnlyList<ComponentVm> list,
             CarComponent component)
         {
