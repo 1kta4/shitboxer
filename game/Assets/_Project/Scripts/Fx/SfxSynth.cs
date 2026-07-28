@@ -41,26 +41,31 @@ namespace Shitboxer.Fx
             int n = Mathf.Max(1, Mathf.RoundToInt(sampleRate * seconds));
             var samples = new float[n];
 
-            // Snap each partial to an integer cycle count over the buffer -> phase 0 at both ends.
-            // INTEGER multiples of f0 only. The old half-order (0.5x) partial was the playtest's
-            // "constant background hum": pitched down toward idle it sat in the sub-bass as a steady
-            // throb, and it landed on a half cycle per buffer — value-continuous at the seam but
-            // slope-discontinuous. Brightness comes from the 4x partial instead.
+            // Snap the fundamental to an integer cycle count over the buffer; every harmonic is an
+            // integer multiple, so the seam is phase-perfect by construction.
+            //
+            // TIMBRE, learned in playtest: a sine-dominated stack at low frequency IS a hum — a naked
+            // 55-110 Hz sine is indistinguishable from mains hum however it loops. So the energy sits
+            // in a ten-harmonic series peaking around the 2nd-3rd (motor buzz), the fundamental is
+            // deliberately weak, and a gentle tremolo (whole cycles per buffer — seam-safe) breaks the
+            // steady-state amplitude that reads as "appliance" rather than "machine".
             float f0 = Mathf.Max(1f, Mathf.Round(baseHz * seconds)) / seconds;
-            float[] partials = { f0, f0 * 2f, f0 * 3f, f0 * 4f };
-            float[] gains = { 0.45f, 0.25f, 0.15f, 0.08f };
+            float[] gains = { 0.18f, 0.30f, 0.25f, 0.20f, 0.16f, 0.12f, 0.09f, 0.07f, 0.05f, 0.04f };
 
             var grit = new Noise(101);
             for (int i = 0; i < n; i++)
             {
                 float t = (float)i / sampleRate;
                 float s = 0f;
-                for (int p = 0; p < partials.Length; p++)
-                    s += gains[p] * Mathf.Sin(Tau * partials[p] * t);
+                for (int p = 0; p < gains.Length; p++)
+                    s += gains[p] * Mathf.Sin(Tau * f0 * (p + 1) * t);
                 // A whisper of noise so the tone reads combustion rather than organ. Same amount at
                 // both ends of the buffer (it's per-sample), so the seam stays clean.
-                s += 0.04f * grit.Next();
-                samples[i] = s * 0.85f; // near full-scale: the engine is the bed every other cue sits on
+                s += 0.06f * grit.Next();
+                // Mechanical roughness: 8 whole tremolo cycles per buffer. Scales with pitch at
+                // runtime, so high revs churn faster — machinery, not a held organ note.
+                float rough = 1f + 0.15f * Mathf.Sin(Tau * 8f * t / seconds);
+                samples[i] = s * rough * 0.55f; // bounded: (Σgains + noise) * 1.15 * 0.55 ≈ 0.96
             }
             return samples;
         }
