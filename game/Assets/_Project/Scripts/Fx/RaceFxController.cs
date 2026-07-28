@@ -77,7 +77,7 @@ namespace Shitboxer.Fx
             _engine.loop = true;
             _engine.playOnAwake = false;
             _engine.spatialBlend = 0f; // the player's own car — always in your ears, never panned away
-            _engine.volume = 0.35f;
+            _engine.volume = 0.65f;
 
             _oneShot = gameObject.AddComponent<AudioSource>();
             _oneShot.playOnAwake = false;
@@ -113,9 +113,21 @@ namespace Shitboxer.Fx
         {
             if (_player == null || _player.Sim == null) { if (_engine != null && _engine.isPlaying) _engine.Stop(); return; }
 
-            // --- engine: pitch by RPM, running whenever the car exists ---
-            if (!_engine.isPlaying) _engine.Play();
-            _engine.pitch = Mathf.Clamp(_player.Sim.EngineRpm / PitchReferenceRpm, MinPitch, MaxPitch);
+            // --- engine: pitch by RPM, running only while the world runs ---
+            // The garage and the ESC menu both hold Time.timeScale at 0 (RunDirector's pause model),
+            // and a retired car is a wreck, not an idling engine. Pause rather than Stop so resuming
+            // picks the loop up mid-cycle instead of restarting it with a click.
+            bool audible = Time.timeScale > 0f && _prevState != CarRaceState.Retired;
+            if (!audible)
+            {
+                if (_engine.isPlaying) _engine.Pause();
+            }
+            else
+            {
+                if (!_engine.isPlaying) _engine.UnPause();
+                if (!_engine.isPlaying) _engine.Play(); // first start (UnPause on a never-played source is a no-op)
+                _engine.pitch = Mathf.Clamp(_player.Sim.EngineRpm / PitchReferenceRpm, MinPitch, MaxPitch);
+            }
 
             // --- boost: whoosh on the rising edge of the sim's own multiplier ---
             float boost = _player.Sim.BoostMult;

@@ -56,7 +56,7 @@ namespace Shitboxer.Fx
                 // A whisper of noise so the tone reads combustion rather than organ. Same amount at
                 // both ends of the buffer (it's per-sample), so the seam stays clean.
                 s += 0.04f * grit.Next();
-                samples[i] = s * 0.55f;
+                samples[i] = s * 0.85f; // near full-scale: the engine is the bed every other cue sits on
             }
             return samples;
         }
